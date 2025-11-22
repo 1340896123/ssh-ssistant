@@ -1,19 +1,28 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import SessionTabs from "./components/SessionTabs.vue";
 import TerminalView from "./components/TerminalView.vue";
 import FileManager from "./components/FileManager.vue";
 import AIAssistant from "./components/AIAssistant.vue";
+import SettingsModal from "./components/SettingsModal.vue";
 import { useSessionStore } from "./stores/sessions";
 import { useConnectionStore } from "./stores/connections";
+import { useSettingsStore } from "./stores/settings";
+import { Settings } from "lucide-vue-next";
 
 const sessionStore = useSessionStore();
 const connectionStore = useConnectionStore();
+const settingsStore = useSettingsStore();
 const showConnectionModal = ref(false);
+const showSettingsModal = ref(false);
 
 const activeSession = computed(() => sessionStore.activeSession);
+
+onMounted(() => {
+  settingsStore.applyTheme();
+});
 
 function handleSaveConnection(conn: any) {
   connectionStore.addConnection(conn).then((success) => {
@@ -32,6 +41,9 @@ function handleSaveConnection(conn: any) {
     <aside class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0">
       <div class="p-4 border-b border-gray-700 flex justify-between items-center">
         <h1 class="text-lg font-bold">SSH Assistant</h1>
+        <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" title="Settings">
+            <Settings class="w-5 h-5" />
+        </button>
       </div>
       <div class="flex-1 overflow-y-auto p-2">
         <ConnectionList />
@@ -77,5 +89,6 @@ function handleSaveConnection(conn: any) {
     </main>
     
     <ConnectionModal :show="showConnectionModal" @close="showConnectionModal = false" @save="handleSaveConnection" />
+    <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
   </div>
 </template>

@@ -15,6 +15,18 @@ export interface FileEntry {
   permissions: number;
 }
 
+export interface AIConfig {
+  apiUrl: string;
+  apiKey: string;
+  modelName: string;
+}
+
+export interface Settings {
+  theme: 'light' | 'dark';
+  language: 'en' | 'zh';
+  ai: AIConfig;
+}
+
 export interface Session {
   id: string; // UUID from backend
   connectionId: number;
