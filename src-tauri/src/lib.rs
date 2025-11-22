@@ -1,0 +1,45 @@
+mod models;
+mod db;
+mod ssh;
+
+use tauri::Manager;
+
+// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#[tauri::command]
+fn greet(name: &str) -> String {
+    format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            db::init_db(app.handle())?;
+            app.manage(ssh::AppState::new());
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            ssh::connect,
+            ssh::disconnect,
+            ssh::list_files,
+            ssh::create_directory,
+            ssh::create_file,
+            ssh::delete_item,
+            ssh::rename_item,
+            ssh::download_file,
+            ssh::upload_file,
+            ssh::download_temp_and_open,
+            ssh::exec_command,
+            ssh::write_to_pty,
+            ssh::resize_pty,
+            db::get_connections,
+            db::create_connection,
+            db::delete_connection
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
