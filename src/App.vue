@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import SessionTabs from "./components/SessionTabs.vue";
@@ -18,11 +18,65 @@ const settingsStore = useSettingsStore();
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
 
+// Layout state
+const fileWidth = ref(30); // percentage
+const aiWidth = ref(30);   // percentage
+// Terminal width is derived: 100 - fileWidth - aiWidth
+
+const containerRef = ref<HTMLElement | null>(null);
+const isResizing = ref<'file' | 'ai' | null>(null);
+
 const activeSession = computed(() => sessionStore.activeSession);
 
 onMounted(() => {
   settingsStore.applyTheme();
+  window.addEventListener('mousemove', handleMouseMove);
+  window.addEventListener('mouseup', handleMouseUp);
 });
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', handleMouseMove);
+  window.removeEventListener('mouseup', handleMouseUp);
+});
+
+function startResize(target: 'file' | 'ai') {
+  isResizing.value = target;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function handleMouseMove(e: MouseEvent) {
+  if (!isResizing.value || !containerRef.value) return;
+
+  const containerRect = containerRef.value.getBoundingClientRect();
+  const totalWidth = containerRect.width;
+  
+  if (isResizing.value === 'file') {
+     // Calculate new file width percentage based on mouse X relative to container
+     const newFileWidth = ((e.clientX - containerRect.left) / totalWidth) * 100;
+     // Constraints
+     if (newFileWidth > 10 && newFileWidth < (100 - aiWidth.value - 10)) {
+         fileWidth.value = newFileWidth;
+     }
+  } else if (isResizing.value === 'ai') {
+     // Calculate new AI width. Mouse X is the left edge of AI panel approximately.
+     // AI width = 100 - (percent at mouse X)
+     const mousePercent = ((e.clientX - containerRect.left) / totalWidth) * 100;
+     const newAiWidth = 100 - mousePercent;
+     
+     if (newAiWidth > 10 && newAiWidth < (100 - fileWidth.value - 10)) {
+         aiWidth.value = newAiWidth;
+     }
+  }
+}
+
+function handleMouseUp() {
+  if (isResizing.value) {
+      isResizing.value = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+  }
+}
 
 function handleSaveConnection(conn: any) {
   connectionStore.addConnection(conn).then((success) => {
@@ -63,24 +117,29 @@ function handleSaveConnection(conn: any) {
       </div>
       
       <!-- Viewport -->
-      <div class="flex-1 relative overflow-hidden flex flex-col" v-if="activeSession">
-         <!-- Toolbar for session -->
-         <div class="h-8 bg-gray-800 border-b border-gray-700 flex items-center px-2 space-x-4 flex-shrink-0">
-            <button @click="sessionStore.setActiveTab('terminal')" 
-                    :class="{'text-blue-400 border-b-2 border-blue-400': activeSession.activeTab === 'terminal', 'text-gray-400': activeSession.activeTab !== 'terminal'}" 
-                    class="text-sm hover:text-white px-2 h-full">Terminal</button>
-            <button @click="sessionStore.setActiveTab('files')" 
-                    :class="{'text-blue-400 border-b-2 border-blue-400': activeSession.activeTab === 'files', 'text-gray-400': activeSession.activeTab !== 'files'}" 
-                    class="text-sm hover:text-white px-2 h-full">Files</button>
-            <button @click="sessionStore.setActiveTab('ai')" 
-                    :class="{'text-blue-400 border-b-2 border-blue-400': activeSession.activeTab === 'ai', 'text-gray-400': activeSession.activeTab !== 'ai'}" 
-                    class="text-sm hover:text-white px-2 h-full">AI Assistant</button>
+      <div class="flex-1 relative overflow-hidden flex" v-if="activeSession" ref="containerRef">
+         <!-- Files -->
+         <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
+            <FileManager :sessionId="activeSession.id" />
          </div>
          
-         <div class="flex-1 overflow-hidden relative">
-             <TerminalView v-if="activeSession.activeTab === 'terminal'" :sessionId="activeSession.id" />
-             <FileManager v-if="activeSession.activeTab === 'files'" :sessionId="activeSession.id" />
-             <AIAssistant v-if="activeSession.activeTab === 'ai'" />
+         <!-- Resizer 1 -->
+         <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+              @mousedown.prevent="startResize('file')"></div>
+         
+         <!-- Terminal -->
+         <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700" 
+              :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
+            <TerminalView :sessionId="activeSession.id" />
+         </div>
+
+         <!-- Resizer 2 -->
+         <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+              @mousedown.prevent="startResize('ai')"></div>
+         
+         <!-- AI -->
+         <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
+            <AIAssistant />
          </div>
       </div>
       <div class="flex-1 flex items-center justify-center text-gray-500" v-else>
