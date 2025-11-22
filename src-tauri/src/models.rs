@@ -24,4 +24,5 @@ pub struct FileEntry {
     pub size: u64,
     pub mtime: i64, // Unix timestamp
     pub permissions: u32,
+    pub uid: u32,
 }

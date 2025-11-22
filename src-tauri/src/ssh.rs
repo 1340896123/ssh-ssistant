@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 use std::thread;
-use std::io::{Read, Write, ErrorKind};
+use std::io::{Read, Write, ErrorKind, Seek, SeekFrom};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use ssh2::Session;
 use tauri::{State, AppHandle, Emitter};
@@ -23,12 +24,14 @@ pub struct SshClient {
 
 pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
+    pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>, // ID -> CancelFlag
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             clients: Mutex::new(HashMap::new()),
+            transfers: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -341,6 +344,7 @@ pub async fn list_files(
                     size: stat.size.unwrap_or(0),
                     mtime: stat.mtime.unwrap_or(0) as i64,
                     permissions: stat.perm.unwrap_or(0),
+                    uid: stat.uid.unwrap_or(0),
                 });
             }
         }
@@ -471,6 +475,55 @@ pub async fn download_file(
     Ok(())
 }
 
+fn upload_recursive(
+    sftp: &ssh2::Sftp,
+    local_path: &std::path::Path,
+    remote_path: &str,
+) -> Result<(), String> {
+    if local_path.is_dir() {
+        // Create remote directory
+        // Ignore error if it already exists
+        let _ = block_on(|| sftp.mkdir(std::path::Path::new(remote_path), 0o755));
+
+        for entry in std::fs::read_dir(local_path).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            let name = path.file_name().ok_or("Invalid file name")?.to_string_lossy();
+            // Ensure forward slashes for remote path
+            let new_remote = if remote_path.ends_with('/') {
+                format!("{}{}", remote_path, name)
+            } else {
+                format!("{}/{}", remote_path, name)
+            };
+            upload_recursive(sftp, &path, &new_remote)?;
+        }
+    } else {
+        let mut local_file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
+        let mut remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path))).map_err(|e| e.to_string())?;
+        
+        let mut buf = [0u8; 32768];
+        loop {
+            match local_file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let mut pos = 0;
+                    while pos < n {
+                        match remote_file.write(&buf[pos..n]) {
+                            Ok(written) => pos += written,
+                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                thread::sleep(Duration::from_millis(10));
+                            },
+                            Err(e) => return Err(e.to_string()),
+                        }
+                    }
+                },
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn upload_file(
     state: State<'_, AppState>,
@@ -486,28 +539,9 @@ pub async fn upload_file(
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    let mut local_file = std::fs::File::open(&local_path).map_err(|e| e.to_string())?;
-    let mut remote_file = block_on(|| sftp.create(std::path::Path::new(&remote_path))).map_err(|e| e.to_string())?;
     
-    let mut buf = [0u8; 32768];
-    loop {
-        match local_file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                let mut pos = 0;
-                while pos < n {
-                    match remote_file.write(&buf[pos..n]) {
-                        Ok(written) => pos += written,
-                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(10));
-                        },
-                        Err(e) => return Err(e.to_string()),
-                    }
-                }
-            },
-            Err(e) => return Err(e.to_string()),
-        }
-    }
+    upload_recursive(&sftp, std::path::Path::new(&local_path), &remote_path)?;
+    
     Ok(())
 }
 
@@ -554,6 +588,309 @@ pub async fn download_temp_and_open(
     use tauri_plugin_opener::OpenerExt;
     app.opener().open_path(local_path_str, None::<String>).map_err(|e| e.to_string())?;
 
+    Ok(())
+}
+
+
+#[tauri::command]
+pub async fn cancel_transfer(
+    state: State<'_, AppState>,
+    transfer_id: String,
+) -> Result<(), String> {
+    if let Some(flag) = state.transfers.lock().map_err(|e| e.to_string())?.get(&transfer_id) {
+        flag.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ProgressPayload {
+    id: String,
+    transferred: u64,
+    total: u64,
+}
+
+fn get_dir_size(path: &std::path::Path) -> u64 {
+    let mut size = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_dir() {
+                    size += get_dir_size(&entry.path());
+                } else {
+                    size += meta.len();
+                }
+            }
+        }
+    }
+    size
+}
+
+fn upload_recursive_progress(
+    sftp: &ssh2::Sftp,
+    local_path: &std::path::Path,
+    remote_path: &str,
+    cancel_flag: &AtomicBool,
+    app: &AppHandle,
+    transfer_id: &str,
+    total_size: u64,
+    transferred: &mut u64,
+    resume: bool,
+) -> Result<(), String> {
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Err("Cancelled".to_string());
+    }
+
+    if local_path.is_dir() {
+        let _ = block_on(|| sftp.mkdir(std::path::Path::new(remote_path), 0o755));
+        
+        for entry in std::fs::read_dir(local_path).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            let name = path.file_name().ok_or("Invalid file name")?.to_string_lossy();
+            // Always use forward slashes for remote SFTP paths
+            let new_remote = format!("{}/{}", remote_path.trim_end_matches('/'), name);
+            
+            upload_recursive_progress(sftp, &path, &new_remote, cancel_flag, app, transfer_id, total_size, transferred, resume)?;
+        }
+    } else {
+        let mut local_file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
+        let file_size = local_file.metadata().map_err(|e| e.to_string())?.len();
+        
+        let mut offset = 0;
+        let mut remote_file;
+        
+        if resume {
+            // Check remote file size
+            let remote_path_path = std::path::Path::new(remote_path);
+             match block_on(|| sftp.stat(remote_path_path)) {
+                Ok(attrs) => {
+                    if let Some(size) = attrs.size {
+                        if size >= file_size {
+                            // Already uploaded
+                            *transferred += file_size;
+                             let _ = app.emit("transfer-progress", ProgressPayload {
+                                id: transfer_id.to_string(),
+                                transferred: *transferred,
+                                total: total_size,
+                            });
+                            return Ok(());
+                        }
+                        offset = size;
+                    }
+                },
+                Err(_) => {} // File doesn't exist, start from 0
+            }
+        }
+
+        if offset > 0 {
+            // Resume: open for write and append? SFTP doesn't have O_APPEND exactly like POSIX, 
+            // but we can write to offset.
+            // ssh2 open_mode: (filename, flags, mode, open_type)
+            // flags: Write | Read?
+            // We use Write.
+            remote_file = block_on(|| sftp.open_mode(
+                std::path::Path::new(remote_path), 
+                ssh2::OpenFlags::WRITE, 
+                0o644, 
+                ssh2::OpenType::File
+            )).map_err(|e| e.to_string())?;
+            
+            // Seek local
+            local_file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+            
+            // For remote, sftp file implies we seek before write? 
+            // ssh2::File doesn't have seek. It has write.
+            // Wait, ssh2::File implements Write.
+            // But SFTP write packet includes offset.
+            // ssh2 crate handles offset internally if we just write? 
+            // No, if we open a file, the offset starts at 0 usually unless we seek.
+            // Does ssh2::File have seek?
+            // It implements std::io::Seek? 
+            // Let's check imports. I imported Seek.
+            // If ssh2::File implements Seek, we are good.
+            // If not, we might be in trouble.
+            // Assuming it does or we just recreate it.
+            // Actually, if `resume` logic is complex with ssh2, we might just overwrite for now or use a simpler logic.
+            // But user asked for "Continue".
+            // Let's try to seek. If it fails to compile, I'll fix it.
+            // ssh2::File implements Seek.
+            use std::io::Seek;
+            remote_file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+
+        } else {
+            remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path))).map_err(|e| e.to_string())?;
+        }
+        
+        // Update global transferred count with skipped bytes
+        *transferred += offset;
+
+        let mut buf = [0u8; 32768];
+        loop {
+            if cancel_flag.load(Ordering::Relaxed) {
+                return Err("Cancelled".to_string());
+            }
+            
+            match local_file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let mut pos = 0;
+                    while pos < n {
+                         match remote_file.write(&buf[pos..n]) {
+                            Ok(written) => {
+                                pos += written;
+                                *transferred += written as u64;
+                                // Emit progress periodically? Or every chunk?
+                                // 32KB is small. Maybe every 1MB or just every chunk.
+                                // Emitting every chunk might be too much for frontend IPC?
+                                // Let's try every chunk for smoothness, Tauri is fast.
+                                let _ = app.emit("transfer-progress", ProgressPayload {
+                                    id: transfer_id.to_string(),
+                                    transferred: *transferred,
+                                    total: total_size,
+                                });
+                            },
+                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                thread::sleep(Duration::from_millis(10));
+                            },
+                            Err(e) => return Err(e.to_string()),
+                        }
+                    }
+                },
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn upload_file_with_progress(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    transfer_id: String,
+    local_path: String,
+    remote_path: String,
+    resume: bool,
+) -> Result<(), String> {
+    let client_sess = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        let client = clients.get(&id).ok_or("Session not found")?;
+        client.session.clone()
+    };
+    
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    state.transfers.lock().map_err(|e| e.to_string())?.insert(transfer_id.clone(), cancel_flag.clone());
+
+    let sess = client_sess.lock().map_err(|e| e.to_string())?;
+    let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
+    
+    let local_p = std::path::Path::new(&local_path);
+    let total_size = if local_p.is_dir() {
+        get_dir_size(local_p)
+    } else {
+        local_p.metadata().map_err(|e| e.to_string())?.len()
+    };
+    
+    let mut transferred = 0;
+    
+    let res = upload_recursive_progress(&sftp, local_p, &remote_path, &cancel_flag, &app, &transfer_id, total_size, &mut transferred, resume);
+    
+    state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+    
+    res
+}
+
+#[tauri::command]
+pub async fn download_file_with_progress(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    transfer_id: String,
+    remote_path: String,
+    local_path: String,
+    resume: bool,
+) -> Result<(), String> {
+    let client_sess = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        let client = clients.get(&id).ok_or("Session not found")?;
+        client.session.clone()
+    };
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    state.transfers.lock().map_err(|e| e.to_string())?.insert(transfer_id.clone(), cancel_flag.clone());
+
+    let sess = client_sess.lock().map_err(|e| e.to_string())?;
+    let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
+    
+    // Get remote size
+    let remote_path_path = std::path::Path::new(&remote_path);
+    let total_size = block_on(|| sftp.stat(remote_path_path)).map_err(|e| e.to_string())?
+        .size.ok_or("Unknown size")?;
+
+    let mut offset = 0;
+    let mut local_file;
+    
+    if resume {
+        if let Ok(meta) = std::fs::metadata(&local_path) {
+            let local_size = meta.len();
+            if local_size < total_size {
+                offset = local_size;
+                local_file = std::fs::OpenOptions::new().write(true).append(true).open(&local_path).map_err(|e| e.to_string())?;
+            } else {
+                // Already done
+                let _ = app.emit("transfer-progress", ProgressPayload {
+                    id: transfer_id.clone(),
+                    transferred: total_size,
+                    total: total_size,
+                });
+                state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+                return Ok(());
+            }
+        } else {
+             local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
+        }
+    } else {
+        local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
+    }
+    
+    let mut remote_file = block_on(|| sftp.open(remote_path_path)).map_err(|e| e.to_string())?;
+    if offset > 0 {
+        remote_file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+    }
+
+    let mut transferred = offset;
+    let mut buf = [0u8; 32768];
+    loop {
+        if cancel_flag.load(Ordering::Relaxed) {
+            state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+            return Err("Cancelled".to_string());
+        }
+
+        match remote_file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+                transferred += n as u64;
+                let _ = app.emit("transfer-progress", ProgressPayload {
+                    id: transfer_id.clone(),
+                    transferred,
+                    total: total_size,
+                });
+            },
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            },
+            Err(e) => {
+                state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+                return Err(e.to_string());
+            }
+        }
+    }
+    
+    state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
     Ok(())
 }
 

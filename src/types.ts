@@ -18,6 +18,7 @@ export interface FileEntry {
   size: number;
   mtime: number;
   permissions: number;
+  uid: number;
 }
 
 export interface AIConfig {

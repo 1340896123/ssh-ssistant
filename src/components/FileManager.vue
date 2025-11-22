@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus } from 'lucide-vue-next';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import type { FileEntry } from '../types';
+import { useTransferStore } from '../stores/transfers';
+import TransferList from './TransferList.vue';
 
 const props = defineProps<{ sessionId: string }>();
 const currentPath = ref('.');
@@ -11,19 +14,66 @@ const files = ref<FileEntry[]>([]);
 const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null }>({ show: false, x: 0, y: 0, file: null });
 const isEditingPath = ref(false);
 const pathInput = ref('');
+const selectedFiles = ref<Set<string>>(new Set());
+const lastSelectedIndex = ref<number>(-1);
+let unlistenDrop: (() => void) | null = null;
+const transferStore = useTransferStore();
 
 async function loadFiles(path: string) {
   try {
     files.value = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
     currentPath.value = path;
     pathInput.value = path;
+    selectedFiles.value.clear();
+    lastSelectedIndex.value = -1;
   } catch (e) {
     console.error(e);
     files.value = [];
   }
 }
 
-onMounted(() => loadFiles('.'));
+onMounted(async () => {
+    loadFiles('.');
+    transferStore.initListeners();
+    unlistenDrop = await listen('tauri://drag-drop', async (event) => {
+        const payload = event.payload as { paths: string[] };
+        const paths = payload.paths || (Array.isArray(payload) ? payload : []);
+        
+        if (!paths || paths.length === 0) return;
+
+        const uploadPromises = [];
+        for (const localPath of paths) {
+             // Handle both slash and backslash, remove empty parts
+             const parts = localPath.split(/[\\/]/).filter(p => p);
+             const name = parts.pop() || 'uploaded';
+             const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+             
+             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+
+             uploadPromises.push(transferStore.addTransfer({
+                 id: transferId,
+                 type: 'upload',
+                 name,
+                 localPath,
+                 remotePath,
+                 size: 0, // Backend calculates
+                 transferred: 0,
+                 progress: 0,
+                 status: 'pending',
+                 sessionId: props.sessionId
+             }));
+        }
+        
+        await Promise.all(uploadPromises);
+        loadFiles(currentPath.value);
+    });
+});
+
+onUnmounted(() => {
+    if (unlistenDrop) {
+        unlistenDrop();
+    }
+});
 
 async function navigate(entry: FileEntry) {
     if (entry.isDir) {
@@ -60,8 +110,42 @@ function handlePathSubmit() {
     isEditingPath.value = false;
 }
 
+function handleSelection(event: MouseEvent, file: FileEntry, index: number) {
+    if (event.ctrlKey || event.metaKey) {
+        // Toggle selection
+        if (selectedFiles.value.has(file.name)) {
+            selectedFiles.value.delete(file.name);
+        } else {
+            selectedFiles.value.add(file.name);
+            lastSelectedIndex.value = index;
+        }
+    } else if (event.shiftKey && lastSelectedIndex.value !== -1) {
+        // Range selection
+        const start = Math.min(lastSelectedIndex.value, index);
+        const end = Math.max(lastSelectedIndex.value, index);
+        selectedFiles.value.clear();
+        for (let i = start; i <= end; i++) {
+            if (files.value[i]) {
+                selectedFiles.value.add(files.value[i].name);
+            }
+        }
+    } else {
+        // Single selection
+        selectedFiles.value.clear();
+        selectedFiles.value.add(file.name);
+        lastSelectedIndex.value = index;
+    }
+}
+
 function showContextMenu(e: MouseEvent, file: FileEntry) {
     e.preventDefault();
+    // If the file is not in selection, select it exclusively
+    if (!selectedFiles.value.has(file.name)) {
+        selectedFiles.value.clear();
+        selectedFiles.value.add(file.name);
+        const idx = files.value.findIndex(f => f.name === file.name);
+        if (idx !== -1) lastSelectedIndex.value = idx;
+    }
     contextMenu.value = { show: true, x: e.clientX, y: e.clientY, file };
 }
 
@@ -75,13 +159,26 @@ async function handleUpload() {
             multiple: false,
             title: 'Select file to upload'
         });
-        if (selected && typeof selected === 'string') { // plugin-dialog v2 returns string or null (or array)
-             // Extract filename
-             // Windows path? or Unix? Local is Windows.
+        if (selected && typeof selected === 'string') { 
              const name = selected.split(/[\\/]/).pop() || 'uploaded_file';
              const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
-             await invoke('upload_file', { id: props.sessionId, localPath: selected, remotePath });
-             await loadFiles(currentPath.value);
+             
+             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+             
+             await transferStore.addTransfer({
+                 id: transferId,
+                 type: 'upload',
+                 name,
+                 localPath: selected,
+                 remotePath,
+                 size: 0,
+                 transferred: 0,
+                 progress: 0,
+                 status: 'pending',
+                 sessionId: props.sessionId
+             });
+             
+             loadFiles(currentPath.value);
         }
     } catch(e) {
         console.error(e);
@@ -98,8 +195,19 @@ async function handleDownload(file: FileEntry) {
         });
         if (savePath) {
              const remotePath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
-             await invoke('download_file', { id: props.sessionId, remotePath, localPath: savePath });
-             alert("Download finished!");
+             
+             transferStore.addTransfer({
+                 id: crypto.randomUUID(),
+                 type: 'download',
+                 name: file.name,
+                 localPath: savePath,
+                 remotePath,
+                 size: file.size,
+                 transferred: 0,
+                 progress: 0,
+                 status: 'pending',
+                 sessionId: props.sessionId
+             });
         }
     } catch(e) {
          console.error(e);
@@ -108,11 +216,27 @@ async function handleDownload(file: FileEntry) {
     closeContextMenu();
 }
 
-async function handleDelete(file: FileEntry) {
-     if (!file || !confirm(`Delete ${file.name}?`)) return;
+async function handleDelete(file?: FileEntry) {
+     if (selectedFiles.value.size === 0 && file) {
+         selectedFiles.value.add(file.name);
+     }
+     
+     if (selectedFiles.value.size === 0) return;
+
+     const count = selectedFiles.value.size;
+     if (!confirm(`Delete ${count} item(s)?`)) return;
+
      try {
-         const remotePath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
-         await invoke('delete_item', { id: props.sessionId, path: remotePath, isDir: file.isDir });
+         // Convert Set to Array for iteration
+         const targets = Array.from(selectedFiles.value);
+         for (const name of targets) {
+             // Find file entry to get isDir
+             const entry = files.value.find(f => f.name === name);
+             if (!entry) continue;
+
+             const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+             await invoke('delete_item', { id: props.sessionId, path: remotePath, isDir: entry.isDir });
+         }
          await loadFiles(currentPath.value);
      } catch(e) {
          alert("Delete failed: " + e);
@@ -164,6 +288,9 @@ function copyPath(file: FileEntry) {
      closeContextMenu();
 }
 
+function formatDate(timestamp: number) {
+    return new Date(timestamp * 1000).toLocaleString();
+}
 </script>
 
 <template>
@@ -216,16 +343,24 @@ function copyPath(file: FileEntry) {
         <!-- Header -->
         <div class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold">
              <span class="flex-1">Name</span>
+             <span class="w-32">Date Modified</span>
+             <span class="w-20">Owner</span>
              <span class="w-20 text-right">Size</span>
         </div>
         
-        <div v-for="file in files" :key="file.name" 
-             class="flex items-center p-2 hover:bg-gray-800 cursor-pointer border-b border-gray-800/50 transition-colors"
+        <div v-for="(file, index) in files" :key="file.name" 
+             class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
+             :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
+             @click="handleSelection($event, file, index)"
              @dblclick="navigate(file)"
              @contextmenu="showContextMenu($event, file)">
-            <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400" />
-            <File v-else class="w-4 h-4 mr-2 text-blue-400" />
-            <span class="text-sm flex-1 truncate select-none">{{ file.name }}</span>
+            <div class="flex-1 flex items-center min-w-0">
+                <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
+                <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
+                <span class="text-sm truncate">{{ file.name }}</span>
+            </div>
+            <span class="text-xs text-gray-500 w-32 truncate">{{ formatDate(file.mtime) }}</span>
+            <span class="text-xs text-gray-500 w-20 truncate">{{ file.uid }}</span>
             <span class="text-xs text-gray-500 w-20 text-right font-mono">{{ file.size }}</span>
         </div>
         
@@ -233,6 +368,9 @@ function copyPath(file: FileEntry) {
             Empty directory
         </div>
     </div>
+
+    <!-- Transfer List -->
+    <TransferList />
 
     <!-- Context Menu -->
     <div v-if="contextMenu.show" 
@@ -242,7 +380,9 @@ function copyPath(file: FileEntry) {
              <span class="flex-1">Download</span>
         </button>
         <button @click="handleRename(contextMenu.file!)" class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Rename</button>
-        <button @click="handleDelete(contextMenu.file!)" class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 text-red-400">Delete</button>
+        <button @click="handleDelete()" class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 text-red-400">
+            Delete {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : '' }}
+        </button>
         <div class="border-t border-gray-700 my-1"></div>
         <button @click="copyPath(contextMenu.file!)" class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Copy Path</button>
     </div>
