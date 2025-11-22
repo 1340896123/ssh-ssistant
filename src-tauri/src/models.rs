@@ -25,4 +25,5 @@ pub struct FileEntry {
     pub mtime: i64, // Unix timestamp
     pub permissions: u32,
     pub uid: u32,
+    pub owner: String,
 }

@@ -11,15 +11,18 @@ use tauri::{State, AppHandle, Emitter};
 use uuid::Uuid;
 use crate::models::{Connection as SshConnConfig, FileEntry};
 
+#[derive(Clone)]
 enum ShellMsg {
     Data(Vec<u8>),
     Resize { rows: u16, cols: u16 },
     Exit,
 }
 
+#[derive(Clone)]
 pub struct SshClient {
     session: Arc<Mutex<Session>>,
     shell_tx: Option<Sender<ShellMsg>>,
+    owner_cache: Arc<Mutex<HashMap<u32, String>>>,
 }
 
 pub struct AppState {
@@ -264,6 +267,7 @@ pub async fn connect(
     let client = SshClient {
         session: sess,
         shell_tx: Some(tx),
+        owner_cache: Arc::new(Mutex::new(HashMap::new())),
     };
 
     state.clients.lock().map_err(|e| e.to_string())?.insert(id.clone(), client);
@@ -319,10 +323,10 @@ pub async fn list_files(
     id: String,
     path: String,
 ) -> Result<Vec<FileEntry>, String> {
-    let client_sess = {
+    let (client_sess, owner_cache) = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         let client = clients.get(&id).ok_or("Session not found")?;
-        client.session.clone()
+        (client.session.clone(), client.owner_cache.clone())
     };
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
@@ -338,13 +342,48 @@ pub async fn list_files(
                 if name_str == "." || name_str == ".." {
                     continue;
                 }
+                let uid = stat.uid.unwrap_or(0);
+                // Resolve UID to username with per-session cache
+                let owner = {
+                    if let Ok(mut cache) = owner_cache.lock() {
+                        if let Some(cached) = cache.get(&uid) {
+                            cached.clone()
+                        } else {
+                            // Try to resolve via remote command: id -nu <uid>
+                            let username = {
+                                let mut name = uid.to_string();
+                                if let Ok(mut channel) = sess.channel_session() {
+                                    let cmd = format!("id -nu {}", uid);
+                                    if channel.exec(&cmd).is_ok() {
+                                        let mut buf = Vec::new();
+                                        if channel.read_to_end(&mut buf).is_ok() {
+                                            if let Ok(s) = String::from_utf8(buf) {
+                                                let trimmed = s.trim();
+                                                if !trimmed.is_empty() {
+                                                    name = trimmed.to_string();
+                                                }
+                                            }
+                                        }
+                                        let _ = channel.wait_close();
+                                    }
+                                }
+                                name
+                            };
+                            cache.insert(uid, username.clone());
+                            username
+                        }
+                    } else {
+                        uid.to_string()
+                    }
+                };
                 entries.push(FileEntry {
                     name: name_str.to_string(),
                     is_dir: stat.is_dir(),
                     size: stat.size.unwrap_or(0),
                     mtime: stat.mtime.unwrap_or(0) as i64,
                     permissions: stat.perm.unwrap_or(0),
-                    uid: stat.uid.unwrap_or(0),
+                    uid,
+                    owner,
                 });
             }
         }

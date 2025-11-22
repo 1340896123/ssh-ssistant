@@ -8,6 +8,8 @@ import type { FileEntry } from '../types';
 import { useTransferStore } from '../stores/transfers';
 import TransferList from './TransferList.vue';
 
+type ColumnKey = 'name' | 'size' | 'date' | 'owner';
+
 const props = defineProps<{ sessionId: string }>();
 const currentPath = ref('.');
 const files = ref<FileEntry[]>([]);
@@ -18,6 +20,15 @@ const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
 let unlistenDrop: (() => void) | null = null;
 const transferStore = useTransferStore();
+const columnWidths = ref<Record<ColumnKey, number>>({
+  name: 260,
+  size: 100,
+  date: 200,
+  owner: 120,
+});
+const resizingColumn = ref<ColumnKey | null>(null);
+const resizeStartX = ref(0);
+const resizeStartWidth = ref(0);
 
 async function loadFiles(path: string) {
   try {
@@ -32,9 +43,28 @@ async function loadFiles(path: string) {
   }
 }
 
+function startResize(column: ColumnKey, event: MouseEvent) {
+  resizingColumn.value = column;
+  resizeStartX.value = event.clientX;
+  resizeStartWidth.value = columnWidths.value[column];
+}
+
+function handleMouseMove(event: MouseEvent) {
+  if (!resizingColumn.value) return;
+  const delta = event.clientX - resizeStartX.value;
+  const newWidth = Math.max(80, resizeStartWidth.value + delta);
+  columnWidths.value[resizingColumn.value] = newWidth;
+}
+
+function stopResize() {
+  resizingColumn.value = null;
+}
+
 onMounted(async () => {
     loadFiles('.');
     transferStore.initListeners();
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', stopResize);
     unlistenDrop = await listen('tauri://drag-drop', async (event) => {
         const payload = event.payload as { paths: string[] };
         const paths = payload.paths || (Array.isArray(payload) ? payload : []);
@@ -73,6 +103,8 @@ onUnmounted(() => {
     if (unlistenDrop) {
         unlistenDrop();
     }
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', stopResize);
 });
 
 async function navigate(entry: FileEntry) {
@@ -341,11 +373,23 @@ function formatDate(timestamp: number) {
     <!-- File List -->
     <div class="flex-1 overflow-y-auto border border-gray-800 rounded bg-gray-900/50">
         <!-- Header -->
-        <div class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold">
-             <span class="flex-1">Name</span>
-             <span class="w-32">Date Modified</span>
-             <span class="w-20">Owner</span>
-             <span class="w-20 text-right">Size</span>
+        <div class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold select-none">
+             <div class="flex items-center" :style="{ width: columnWidths.name + 'px' }">
+                 <span class="mr-1">Name</span>
+                 <span class="w-1 h-6 ml-auto cursor-col-resize" @mousedown.stop="startResize('name', $event)"></span>
+             </div>
+             <div class="text-right" :style="{ width: columnWidths.size + 'px' }">
+                 <span>Size</span>
+                 <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle" @mousedown.stop="startResize('size', $event)"></span>
+             </div>
+             <div :style="{ width: columnWidths.date + 'px' }">
+                 <span>Date Modified</span>
+                 <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle" @mousedown.stop="startResize('date', $event)"></span>
+             </div>
+             <div :style="{ width: columnWidths.owner + 'px' }">
+                 <span>Owner</span>
+                 <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle" @mousedown.stop="startResize('owner', $event)"></span>
+             </div>
         </div>
         
         <div v-for="(file, index) in files" :key="file.name" 
@@ -354,14 +398,14 @@ function formatDate(timestamp: number) {
              @click="handleSelection($event, file, index)"
              @dblclick="navigate(file)"
              @contextmenu="showContextMenu($event, file)">
-            <div class="flex-1 flex items-center min-w-0">
+            <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
                 <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
                 <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
                 <span class="text-sm truncate">{{ file.name }}</span>
             </div>
-            <span class="text-xs text-gray-500 w-32 truncate">{{ formatDate(file.mtime) }}</span>
-            <span class="text-xs text-gray-500 w-20 truncate">{{ file.uid }}</span>
-            <span class="text-xs text-gray-500 w-20 text-right font-mono">{{ file.size }}</span>
+            <span class="text-xs text-gray-500 font-mono text-right" :style="{ width: columnWidths.size + 'px' }">{{ file.size }}</span>
+            <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{ formatDate(file.mtime) }}</span>
+            <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{ file.owner }}</span>
         </div>
         
         <div v-if="files.length === 0" class="p-4 text-center text-gray-600 text-sm">
