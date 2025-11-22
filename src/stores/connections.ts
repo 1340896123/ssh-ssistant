@@ -27,6 +27,18 @@ export const useConnectionStore = defineStore('connections', {
         return false;
       }
     },
+    async updateConnection(conn: Connection): Promise<boolean> {
+      console.log('Updating connection:', conn);
+      try {
+        await invoke('update_connection', { conn });
+        console.log('Connection updated, reloading...');
+        await this.loadConnections();
+        return true;
+      } catch (e) {
+        console.error('Failed to update connection:', e);
+        return false;
+      }
+    },
     async deleteConnection(id: number) {
       await invoke('delete_connection', { id });
       await this.loadConnections();

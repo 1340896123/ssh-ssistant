@@ -10,6 +10,7 @@ import SettingsModal from "./components/SettingsModal.vue";
 import { useSessionStore } from "./stores/sessions";
 import { useConnectionStore } from "./stores/connections";
 import { useSettingsStore } from "./stores/settings";
+import type { Connection } from "./types";
 import { Settings } from "lucide-vue-next";
 
 const sessionStore = useSessionStore();
@@ -17,6 +18,7 @@ const connectionStore = useConnectionStore();
 const settingsStore = useSettingsStore();
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
+const editingConnection = ref<Connection | null>(null);
 
 // Layout state
 const fileWidth = ref(30); // percentage
@@ -78,14 +80,29 @@ function handleMouseUp() {
   }
 }
 
-function handleSaveConnection(conn: any) {
-  connectionStore.addConnection(conn).then((success) => {
+function handleSaveConnection(conn: Connection) {
+  const action = conn.id 
+    ? connectionStore.updateConnection(conn) 
+    : connectionStore.addConnection(conn);
+    
+  action.then((success) => {
     if (success) {
       showConnectionModal.value = false;
+      editingConnection.value = null;
     } else {
       alert('Failed to save connection. Please check the logs.');
     }
   });
+}
+
+function openNewConnectionModal() {
+    editingConnection.value = null;
+    showConnectionModal.value = true;
+}
+
+function openEditConnectionModal(conn: Connection) {
+    editingConnection.value = conn;
+    showConnectionModal.value = true;
 }
 </script>
 
@@ -100,10 +117,10 @@ function handleSaveConnection(conn: any) {
         </button>
       </div>
       <div class="flex-1 overflow-y-auto p-2">
-        <ConnectionList />
+        <ConnectionList @edit="openEditConnectionModal" />
       </div>
       <div class="p-4 border-t border-gray-700">
-        <button @click="showConnectionModal = true" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded cursor-pointer transition-colors">
+        <button @click="openNewConnectionModal" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded cursor-pointer transition-colors">
           New Connection
         </button>
       </div>
@@ -147,7 +164,12 @@ function handleSaveConnection(conn: any) {
       </div>
     </main>
     
-    <ConnectionModal :show="showConnectionModal" @close="showConnectionModal = false" @save="handleSaveConnection" />
+    <ConnectionModal 
+        :show="showConnectionModal" 
+        :connectionToEdit="editingConnection"
+        @close="showConnectionModal = false" 
+        @save="handleSaveConnection" 
+    />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
   </div>
 </template>

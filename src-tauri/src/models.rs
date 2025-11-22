@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Connection {
     pub id: Option<i64>,
     pub name: String,
@@ -8,6 +9,11 @@ pub struct Connection {
     pub port: u16,
     pub username: String,
     pub password: Option<String>,
+    // Jump host configuration
+    pub jump_host: Option<String>,
+    pub jump_port: Option<u16>,
+    pub jump_username: Option<String>,
+    pub jump_password: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

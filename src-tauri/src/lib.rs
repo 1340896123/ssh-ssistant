@@ -38,6 +38,7 @@ pub fn run() {
             ssh::resize_pty,
             db::get_connections,
             db::create_connection,
+            db::update_connection,
             db::delete_connection
         ])
         .run(tauri::generate_context!())

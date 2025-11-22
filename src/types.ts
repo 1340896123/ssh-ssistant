@@ -5,6 +5,11 @@ export interface Connection {
   port: number;
   username: string;
   password?: string;
+  // Jump host config
+  jumpHost?: string;
+  jumpPort?: number;
+  jumpUsername?: string;
+  jumpPassword?: string;
 }
 
 export interface FileEntry {

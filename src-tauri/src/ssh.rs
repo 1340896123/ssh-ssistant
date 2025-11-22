@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 use std::thread;
 use std::io::{Read, Write, ErrorKind};
-use std::fs::File;
-use std::path::Path;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use ssh2::Session;
 use tauri::{State, AppHandle, Emitter};
@@ -60,22 +58,128 @@ pub async fn connect(
     state: State<'_, AppState>,
     config: SshConnConfig,
 ) -> Result<String, String> {
-    let addr_str = format!("{}:{}", config.host, config.port);
-    let addr = addr_str
-        .to_socket_addrs()
-        .map_err(|e| e.to_string())?
-        .next()
-        .ok_or("Invalid address")?;
+    // Determine the underlying TCP stream (either direct or via jump host)
+    let tcp_stream = if let Some(jump_host) = &config.jump_host {
+        if jump_host.trim().is_empty() {
+             // Fallback to direct if empty
+             let addr_str = format!("{}:{}", config.host, config.port);
+             let addr = addr_str.to_socket_addrs().map_err(|e| e.to_string())?
+                .next().ok_or("Invalid address")?;
+             TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+                .map_err(|e| format!("Connection failed: {}", e))?
+        } else {
+            // Jump Host Logic
+            let jump_port = config.jump_port.unwrap_or(22);
+            let jump_addr = format!("{}:{}", jump_host, jump_port);
+            let jump_tcp = TcpStream::connect(&jump_addr)
+                .map_err(|e| format!("Jump host connection failed: {}", e))?;
 
-    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
-        .map_err(|e| format!("Connection failed: {}", e))?;
+            let mut jump_sess = Session::new().map_err(|e| e.to_string())?;
+            jump_sess.set_tcp_stream(jump_tcp);
+            jump_sess.handshake().map_err(|e| format!("Jump handshake failed: {}", e))?;
+            
+            jump_sess.userauth_password(
+                config.jump_username.as_deref().unwrap_or(""), 
+                config.jump_password.as_deref().unwrap_or("")
+            ).map_err(|e| format!("Jump auth failed: {}", e))?;
+
+            // Setup local listener for forwarding
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+            let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+            
+            let target_host = config.host.clone();
+            let target_port = config.port;
+
+            // Spawn proxy thread
+            thread::spawn(move || {
+                if let Ok((mut local_stream, _)) = listener.accept() {
+                    let _ = local_stream.set_nonblocking(true);
+                    
+                    // Keep blocking for channel creation to ensure it doesn't fail with WouldBlock
+                    match jump_sess.channel_direct_tcpip(&target_host, target_port, None) {
+                        Ok(mut channel) => {
+                            let _ = jump_sess.set_blocking(false);
+                            let mut buf = [0u8; 8192];
+                            loop {
+                                let mut did_work = false;
+                                
+                                // Local -> Remote
+                                match local_stream.read(&mut buf) {
+                                    Ok(0) => break, // EOF
+                                    Ok(n) => {
+                                        let mut total_written = 0;
+                                        let mut failed = false;
+                                        while total_written < n {
+                                            match channel.write(&buf[total_written..n]) {
+                                                Ok(w) => total_written += w,
+                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                                    thread::sleep(Duration::from_millis(1));
+                                                },
+                                                Err(_) => { failed = true; break; }
+                                            }
+                                        }
+                                        if failed { break; }
+                                        did_work = true;
+                                    },
+                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {},
+                                    Err(_) => break,
+                                }
+
+                                // Remote -> Local
+                                match channel.read(&mut buf) {
+                                    Ok(0) => break, // EOF from remote
+                                    Ok(n) => {
+                                        let mut total_written = 0;
+                                        let mut failed = false;
+                                        while total_written < n {
+                                            match local_stream.write(&buf[total_written..n]) {
+                                                Ok(w) => total_written += w,
+                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                                    thread::sleep(Duration::from_millis(1));
+                                                },
+                                                Err(_) => { failed = true; break; }
+                                            }
+                                        }
+                                        if failed { break; }
+                                        did_work = true;
+                                    }, 
+                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {},
+                                    Err(_) => break,
+                                }
+
+                                if !did_work {
+                                    thread::sleep(Duration::from_millis(1));
+                                }
+                            }
+                        },
+                        Err(e) => eprintln!("Failed to open direct-tcpip channel: {}", e),
+                    }
+                }
+            });
+
+            TcpStream::connect(format!("127.0.0.1:{}", local_port))
+                .map_err(|e| format!("Failed to connect to local proxy: {}", e))?
+        }
+    } else {
+        let addr_str = format!("{}:{}", config.host, config.port);
+        let addr = addr_str
+            .to_socket_addrs()
+            .map_err(|e| e.to_string())?
+            .next()
+            .ok_or("Invalid address")?;
+        TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+            .map_err(|e| format!("Connection failed: {}", e))?
+    };
     
     let mut sess = Session::new().map_err(|e| e.to_string())?;
-    sess.set_tcp_stream(tcp);
+    sess.set_tcp_stream(tcp_stream);
     sess.handshake().map_err(|e| e.to_string())?;
     
     sess.userauth_password(&config.username, config.password.as_deref().unwrap_or(""))
         .map_err(|e| e.to_string())?;
+
+    // ... (rest of the function)
+
 
     // Set non-blocking mode for concurrency
     sess.set_blocking(false);
