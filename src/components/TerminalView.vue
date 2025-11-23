@@ -143,6 +143,8 @@ watch(commandInput, async (newValue) => {
         command: commandToRun
       });
 
+      if (showAiCompletions.value) return;
+
       let lines = result.split('\n').filter(line => line.trim() !== '');
 
       // If no command matches, and we were trying command completion, try file completion
@@ -151,6 +153,9 @@ watch(commandInput, async (newValue) => {
           id: props.sessionId,
           command: `compgen -f ${lastWord} | head -10`
         });
+        
+        if (showAiCompletions.value) return;
+
         lines = result.split('\n').filter(line => line.trim() !== '');
       }
 
@@ -229,6 +234,7 @@ async function triggerAiCompletion() {
 
   isAiLoading.value = true;
   showAiCompletions.value = true;
+  traditionalCompletions.value = [];
   aiCompletions.value = [];
   selectedAiIndex.value = 0;
   previewText.value = ''; // Clear traditional preview
@@ -244,15 +250,15 @@ async function triggerAiCompletion() {
         model: settingsStore.ai.modelName,
         messages: [
           {
-            role: 'system',
-            content: `你是一名Linux专家，给定一个Linux命令，给出3-5个可能的补全方式，返回一个JSON数组，例如：["ls -la", "ls -lh"]`
+            role: 'assistant',
+            content: `你是一名Linux专家，用户给定一个Linux命令，给出3-5个可能的补全方式，例如用户输入"ls",你必须直接返回JSON数组，例如：["ls -la", "ls -lh"],绝对禁止返回其他内容`
           },
           {
             role: 'user',
-            content: `Suggest 3-5 ways to complete this Linux command: "${commandInput.value}". Return a JSON array of strings. Example: ["ls -la", "ls -lh"]`
+            content: `"${commandInput.value}"`
           }],
-        max_tokens: 150,
-        temperature: 0.7
+        max_tokens: 500,
+        temperature: 0
       })
     });
 
