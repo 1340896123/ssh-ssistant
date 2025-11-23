@@ -36,6 +36,7 @@ pub fn run() {
             ssh::download_file_with_progress,
             ssh::cancel_transfer,
             ssh::download_temp_and_open,
+            ssh::edit_remote_file,
             ssh::exec_command,
             ssh::write_to_pty,
             ssh::resize_pty,

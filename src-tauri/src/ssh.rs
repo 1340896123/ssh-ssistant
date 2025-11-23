@@ -10,6 +10,8 @@ use ssh2::Session;
 use tauri::{State, AppHandle, Emitter};
 use uuid::Uuid;
 use crate::models::{Connection as SshConnConfig, FileEntry};
+use notify::{Watcher, RecommendedWatcher, RecursiveMode, Config, Event, EventKind};
+use std::path::Path;
 
 #[derive(Clone)]
 enum ShellMsg {
@@ -28,6 +30,7 @@ pub struct SshClient {
 pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>, // ID -> CancelFlag
+    pub watchers: Mutex<HashMap<String, RecommendedWatcher>>,
 }
 
 impl AppState {
@@ -35,6 +38,7 @@ impl AppState {
         Self {
             clients: Mutex::new(HashMap::new()),
             transfers: Mutex::new(HashMap::new()),
+            watchers: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -930,6 +934,143 @@ pub async fn download_file_with_progress(
     }
     
     state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn edit_remote_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    remote_path: String,
+    remote_name: String,
+) -> Result<(), String> {
+    let client_sess = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        let client = clients.get(&id).ok_or("Session not found")?;
+        client.session.clone()
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let local_path = temp_dir.join(&remote_name);
+    let local_path_str = local_path.to_str().ok_or("Invalid path")?.to_string();
+
+    // Download first
+    {
+        let sess = client_sess.lock().map_err(|e| e.to_string())?;
+        let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
+        let mut remote_file = block_on(|| sftp.open(Path::new(&remote_path))).map_err(|e| e.to_string())?;
+        let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
+        
+        let mut buf = [0u8; 32768];
+        loop {
+            match remote_file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+                },
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                },
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+    }
+
+    // Watcher setup
+    let sess_clone = client_sess.clone();
+    let local_p = local_path.clone();
+    let remote_p = remote_path.clone();
+    let app_handle = app.clone();
+    
+    // Remove existing watcher if any
+    if let Ok(mut watchers) = state.watchers.lock() {
+        watchers.remove(&local_path_str);
+    }
+
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        match res {
+            Ok(event) => {
+                // Check for both data modification and attribute changes if needed, but Modify(Data) is key
+                if let EventKind::Modify(_) = event.kind {
+                     let sess_clone2 = sess_clone.clone();
+                    let local_p2 = local_p.clone();
+                    let remote_p2 = remote_p.clone();
+                    let app_h = app_handle.clone();
+                    
+                    thread::spawn(move || {
+                        // Debounce slightly
+                        thread::sleep(Duration::from_millis(500));
+                        
+                        if let Ok(sess) = sess_clone2.lock() {
+                            if let Ok(sftp) = block_on(|| sess.sftp()) {
+                                // Read local
+                                if let Ok(mut local_file) = std::fs::File::open(&local_p2) {
+                                     // Overwrite remote
+                                     // Use create() to truncate and overwrite
+                                     if let Ok(mut remote_file) = block_on(|| sftp.create(Path::new(&remote_p2))) {
+                                         let mut buf = [0u8; 32768];
+                                         loop {
+                                             match local_file.read(&mut buf) {
+                                                 Ok(0) => break,
+                                                 Ok(n) => {
+                                                     let mut pos = 0;
+                                                     while pos < n {
+                                                         match remote_file.write(&buf[pos..n]) {
+                                                             Ok(w) => pos += w,
+                                                             Err(e) if e.kind() == ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(10)),
+                                                             Err(_) => break,
+                                                         }
+                                                     }
+                                                 },
+                                                 Err(_) => break,
+                                             }
+                                         }
+                                         // Notify frontend
+                                         let _ = app_h.emit("file-synced", remote_p2);
+                                     }
+                                }
+                            }
+                        }
+                    });
+                }
+            },
+            Err(e) => eprintln!("watch error: {:?}", e),
+        }
+    }).map_err(|e| e.to_string())?;
+
+    watcher.watch(&local_path, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
+    state.watchers.lock().map_err(|e| e.to_string())?.insert(local_path_str.clone(), watcher);
+
+    // Launch VS Code
+    // Try "code" first
+    let code_status = std::process::Command::new("code.cmd").arg(&local_path).spawn();
+    
+    if code_status.is_err() {
+         // Try plain "code" (linux/mac or valid path)
+         let code_status2 = std::process::Command::new("code").arg(&local_path).spawn();
+         
+         if code_status2.is_err() {
+             let _ = app.emit("installing-vscode", ());
+             // Try to install via winget
+             // Non-blocking? Or blocking? User needs to wait.
+             // Spawning it.
+             let local_p_install = local_path.clone();
+             thread::spawn(move || {
+                 let install_status = std::process::Command::new("winget")
+                    .args(&["install", "-e", "--id", "Microsoft.VisualStudioCode", "--source", "winget", "--accept-source-agreements", "--accept-package-agreements"])
+                    .output();
+                    
+                 if let Ok(output) = install_status {
+                     if output.status.success() {
+                         let _ = std::process::Command::new("code.cmd").arg(&local_p_install).spawn();
+                     }
+                 }
+             });
+         }
+    }
+
     Ok(())
 }
 

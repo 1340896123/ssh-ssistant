@@ -112,12 +112,14 @@ async function navigate(entry: FileEntry) {
         const newPath = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
         loadFiles(newPath);
     } else {
-        // Download and open temp
+        // Edit remote file
         try {
-            const remotePath = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
-            await invoke('download_temp_and_open', { id: props.sessionId, remotePath, remoteName: entry.name });
+            await invoke('edit_remote_file', {
+                id: props.sessionId,
+                remotePath: `${currentPath.value}/${entry.name}`,
+                remoteName: entry.name
+            });
         } catch (e) {
-            console.error("Failed to open file", e);
             alert("Failed to open file: " + e);
         }
     }
