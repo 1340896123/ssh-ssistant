@@ -1,18 +1,31 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue';
+import { ref, nextTick, computed } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useSessionStore } from '../stores/sessions';
 import { invoke } from '@tauri-apps/api/core';
-import { Send, Bot, User, TerminalSquare, Loader2 } from 'lucide-vue-next';
+import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown } from 'lucide-vue-next';
+import MarkdownIt from 'markdown-it';
+
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true
+});
 
 const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
+
+function renderMarkdown(content: string) {
+  if (!content) return '';
+  return md.render(content);
+}
 
 interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   tool_call_id?: string;
   name?: string; 
+  tool_calls?: any[];
 }
 
 const messages = ref<Message[]>([
@@ -21,6 +34,53 @@ const messages = ref<Message[]>([
 const input = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
+const toolStates = ref<Record<string, boolean>>({});
+
+function toggleTool(id: string) {
+  toolStates.value[id] = !toolStates.value[id];
+}
+
+const displayMessages = computed(() => {
+  const result: any[] = [];
+  const toolOutputMap = new Map<string, string>();
+
+  // First pass: gather all tool outputs
+  for (const msg of messages.value) {
+    if (msg.role === 'tool' && msg.tool_call_id) {
+      toolOutputMap.set(msg.tool_call_id, msg.content);
+    }
+  }
+
+  // Second pass: build display list
+  for (const msg of messages.value) {
+    if (msg.role === 'tool') continue; // Skip tool messages as they are attached to assistant
+
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      const toolExecutions = msg.tool_calls.map((tc: any) => {
+        let command = 'Unknown command';
+        try {
+           command = JSON.parse(tc.function.arguments).command;
+        } catch (e) {}
+        
+        return {
+          id: tc.id,
+          name: tc.function.name,
+          args: tc.function.arguments,
+          command,
+          output: toolOutputMap.get(tc.id)
+        };
+      });
+
+      result.push({
+        ...msg,
+        toolExecutions
+      });
+    } else {
+      result.push(msg);
+    }
+  }
+  return result;
+});
 
 async function scrollToBottom() {
   await nextTick();
@@ -170,10 +230,10 @@ async function processChat() {
   <div class="flex flex-col h-full bg-gray-900 text-white">
     <!-- Messages Area -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
-      <div v-for="(msg, index) in messages" :key="index" class="flex flex-col space-y-1">
+      <div v-for="(msg, index) in displayMessages" :key="index" class="flex flex-col space-y-1">
         
-        <!-- System/Tool messages (Optional visibility) -->
-        <div v-if="msg.role === 'tool'" class="flex items-start space-x-2 text-gray-400 text-xs pl-8">
+        <!-- System messages (Optional visibility) -->
+        <div v-if="msg.role === 'system'" class="flex items-start space-x-2 text-gray-400 text-xs pl-8">
             <TerminalSquare class="w-3 h-3 mt-0.5" />
             <pre class="whitespace-pre-wrap bg-gray-800 p-1 rounded flex-1 overflow-x-auto">{{ msg.content }}</pre>
         </div>
@@ -189,15 +249,26 @@ async function processChat() {
           <div class="max-w-[85%] rounded-lg p-3 text-sm"
                :class="msg.role === 'user' ? 'bg-blue-700' : 'bg-gray-800'">
              
-             <!-- Tool Call Display -->
-             <div v-if="(msg as any).tool_calls" class="mb-2 space-y-1">
-                <div v-for="tc in (msg as any).tool_calls" :key="tc.id" class="text-xs text-gray-300 flex items-center bg-gray-900/50 p-1 rounded">
-                    <TerminalSquare class="w-3 h-3 mr-1" />
-                    <span class="font-mono">{{ JSON.parse(tc.function.arguments).command }}</span>
+             <!-- Tool Call Display (Collapsible) -->
+             <div v-if="msg.toolExecutions" class="mb-2 space-y-2">
+                <div v-for="exec in msg.toolExecutions" :key="exec.id" class="bg-gray-900/50 rounded border border-gray-700 overflow-hidden">
+                   <div @click="toggleTool(exec.id)" class="flex items-center p-2 cursor-pointer hover:bg-gray-800 text-xs transition-colors">
+                      <component :is="toolStates[exec.id] ? ChevronDown : ChevronRight" class="w-4 h-4 text-gray-400 mr-1" />
+                      <TerminalSquare class="w-3 h-3 mr-2 text-purple-400" />
+                      <span class="font-mono flex-1 truncate text-gray-300">{{ exec.command }}</span>
+                      <span v-if="!exec.output" class="flex items-center text-yellow-500 ml-2">
+                        <Loader2 class="w-3 h-3 animate-spin mr-1" />
+                        Running
+                      </span>
+                      <span v-else class="text-green-500 ml-2 text-[10px] uppercase">Done</span>
+                   </div>
+                   <div v-if="toolStates[exec.id] && exec.output" class="p-2 border-t border-gray-700 bg-black/30">
+                      <pre class="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto font-mono">{{ exec.output }}</pre>
+                   </div>
                 </div>
              </div>
 
-             <div class="whitespace-pre-wrap font-sans">{{ msg.content }}</div>
+             <div class="markdown-content font-sans" v-html="renderMarkdown(msg.content)"></div>
           </div>
         </div>
 
@@ -233,3 +304,57 @@ async function processChat() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Styles for markdown content */
+:deep(.markdown-content) {
+  line-height: 1.5;
+}
+
+:deep(.markdown-content p) {
+  margin-bottom: 0.5em;
+}
+
+:deep(.markdown-content p:last-child) {
+  margin-bottom: 0;
+}
+
+:deep(.markdown-content pre) {
+  background-color: #111827; /* gray-900 */
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+:deep(.markdown-content code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+}
+
+:deep(.markdown-content pre code) {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.9em;
+  color: #e5e7eb; /* gray-200 */
+}
+
+:deep(.markdown-content ul), :deep(.markdown-content ol) {
+  margin-left: 1.2em;
+  margin-bottom: 0.5em;
+  list-style-type: disc;
+}
+
+:deep(.markdown-content ol) {
+  list-style-type: decimal;
+}
+
+:deep(.markdown-content a) {
+  color: #60a5fa; /* blue-400 */
+  text-decoration: underline;
+}
+</style>
