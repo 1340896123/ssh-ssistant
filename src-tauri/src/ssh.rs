@@ -10,7 +10,7 @@ use ssh2::Session;
 use tauri::{State, AppHandle, Emitter};
 use uuid::Uuid;
 use crate::models::{Connection as SshConnConfig, FileEntry};
-use notify::{Watcher, RecommendedWatcher, RecursiveMode, Config, Event, EventKind};
+use notify::{Watcher, RecommendedWatcher, RecursiveMode, Event, EventKind};
 use std::path::Path;
 
 #[derive(Clone)]
@@ -439,6 +439,31 @@ pub async fn create_file(
     Ok(())
 }
 
+fn rm_recursive(sftp: &ssh2::Sftp, path: &std::path::Path) -> Result<(), String> {
+    let files = block_on(|| sftp.readdir(path)).map_err(|e| e.to_string())?;
+    
+    for (path_buf, stat) in files {
+        if let Some(name) = path_buf.file_name() {
+            if let Some(name_str) = name.to_str() {
+                if name_str == "." || name_str == ".." {
+                    continue;
+                }
+                
+                let full_path = path.join(name);
+
+                if stat.is_dir() {
+                    rm_recursive(sftp, &full_path)?;
+                } else {
+                    block_on(|| sftp.unlink(&full_path)).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    
+    block_on(|| sftp.rmdir(path)).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn delete_item(
     state: State<'_, AppState>,
@@ -456,7 +481,7 @@ pub async fn delete_item(
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
     
     if is_dir {
-        block_on(|| sftp.rmdir(std::path::Path::new(&path))).map_err(|e| e.to_string())?;
+        rm_recursive(&sftp, std::path::Path::new(&path))?;
     } else {
         block_on(|| sftp.unlink(std::path::Path::new(&path))).map_err(|e| e.to_string())?;
     }
