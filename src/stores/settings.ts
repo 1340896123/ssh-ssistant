@@ -11,6 +11,12 @@ export const useSettingsStore = defineStore('settings', {
       apiUrl: 'https://api.openai.com/v1',
       apiKey: '',
       modelName: 'gpt-3.5-turbo'
+    },
+    terminalAppearance: {
+      fontSize: 14,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      cursorStyle: 'block',
+      lineHeight: 1.0
     }
   }),
   actions: {
