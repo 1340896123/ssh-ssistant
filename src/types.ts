@@ -28,10 +28,20 @@ export interface AIConfig {
   modelName: string;
 }
 
+export type TerminalCursorStyle = 'block' | 'underline' | 'bar';
+
+export interface TerminalAppearanceSettings {
+  fontSize: number;
+  fontFamily: string;
+  cursorStyle: TerminalCursorStyle;
+  lineHeight: number;
+}
+
 export interface Settings {
   theme: 'light' | 'dark';
   language: 'en' | 'zh';
   ai: AIConfig;
+  terminalAppearance: TerminalAppearanceSettings;
 }
 
 export interface Session {
