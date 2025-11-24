@@ -12,7 +12,8 @@ const { t } = useI18n();
 const form = ref({
   theme: store.theme,
   language: store.language,
-  ai: { ...store.ai }
+  ai: { ...store.ai },
+  terminalAppearance: { ...store.terminalAppearance }
 });
 
 watch(() => props.show, (val) => {
@@ -20,7 +21,8 @@ watch(() => props.show, (val) => {
     form.value = {
       theme: store.theme,
       language: store.language,
-      ai: { ...store.ai }
+      ai: { ...store.ai },
+      terminalAppearance: { ...store.terminalAppearance }
     };
   }
 });
@@ -78,6 +80,33 @@ function save() {
             <div>
               <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.modelName') }}</label>
               <input v-model="form.ai.modelName" type="text" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" placeholder="gpt-3.5-turbo" />
+            </div>
+          </div>
+        </section>
+
+        <!-- Terminal Appearance -->
+        <section>
+          <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">{{ t('settings.terminalAppearance') }}</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.terminalFontSize') }}</label>
+              <input v-model.number="form.terminalAppearance.fontSize" type="number" min="8" max="32" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.terminalFontFamily') }}</label>
+              <input v-model="form.terminalAppearance.fontFamily" type="text" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.terminalCursorStyle') }}</label>
+              <select v-model="form.terminalAppearance.cursorStyle" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none">
+                <option value="block">{{ t('terminal.cursor.block') }}</option>
+                <option value="underline">{{ t('terminal.cursor.underline') }}</option>
+                <option value="bar">{{ t('terminal.cursor.bar') }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.terminalLineHeight') }}</label>
+              <input v-model.number="form.terminalAppearance.lineHeight" type="number" step="0.1" min="0.8" max="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
             </div>
           </div>
         </section>
