@@ -42,4 +42,5 @@ export interface Session {
   activeTab: 'terminal' | 'files' | 'ai';
   currentPath: string;
   files: FileEntry[];
+  connectedAt: number;
 }

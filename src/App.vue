@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onBeforeUpdate } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import SessionTabs from "./components/SessionTabs.vue";
@@ -58,15 +59,77 @@ const isResizing = ref<'file' | 'ai' | null>(null);
 
 const activeSession = computed(() => sessionStore.activeSession);
 
+// Session status bar state
+const now = ref(Date.now());
+const sessionStatus = ref<Record<string, string>>({});
+let statusTimer: number | null = null;
+let clockTimer: number | null = null;
+
+function formatDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join(" ");
+}
+
+const activeSessionDuration = computed(() => {
+  if (!activeSession.value || !activeSession.value.connectedAt) return '';
+  const diffMs = now.value - activeSession.value.connectedAt;
+  if (diffMs <= 0) return '0s';
+  const diffSeconds = Math.floor(diffMs / 1000);
+  return formatDuration(diffSeconds);
+});
+
+async function refreshActiveSessionStatus() {
+  if (!activeSession.value) return;
+  const id = activeSession.value.id;
+  try {
+    const command = "echo 'Uptime:'; (uptime -p 2>/dev/null || uptime 2>/dev/null); echo 'Disk /:'; df -h / 2>/dev/null | sed -n '1,2p'; echo 'IP:'; (hostname -I 2>/dev/null || echo 'n/a')";
+    const result = await invoke<string>('exec_command', { id, command });
+    sessionStatus.value = {
+      ...sessionStatus.value,
+      [id]: result.replace(/\s+/g, ' ').trim(),
+    };
+  } catch (e) {
+    console.error(e);
+    sessionStatus.value = {
+      ...sessionStatus.value,
+      [id]: 'Status unavailable',
+    };
+  }
+}
+
 onMounted(() => {
   settingsStore.loadSettings();
   window.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('mouseup', handleMouseUp);
+
+  clockTimer = window.setInterval(() => {
+    now.value = Date.now();
+  }, 1000);
+
+  statusTimer = window.setInterval(() => {
+    refreshActiveSessionStatus();
+  }, 5000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('mousemove', handleMouseMove);
   window.removeEventListener('mouseup', handleMouseUp);
+
+  if (clockTimer !== null) {
+    clearInterval(clockTimer);
+    clockTimer = null;
+  }
+
+  if (statusTimer !== null) {
+    clearInterval(statusTimer);
+    statusTimer = null;
+  }
 });
 
 function startResize(target: 'file' | 'ai') {
@@ -164,36 +227,59 @@ function openEditConnectionModal(conn: Connection) {
 
       <!-- Viewport -->
       <div class="flex-1 relative overflow-hidden" v-if="sessionStore.sessions.length > 0" ref="containerRef">
-        <div v-for="(session, index) in sessionStore.sessions" :key="session.id" v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex">
-          <!-- Files -->
-          <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
-            <FileManager :sessionId="session.id" />
+        <div
+          v-for="(session, index) in sessionStore.sessions"
+          :key="session.id"
+          v-show="activeSession && session.id === activeSession.id"
+          class="flex-1 absolute inset-0 flex flex-col"
+        >
+          <div class="flex-1 flex overflow-hidden">
+            <!-- Files -->
+            <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
+              <FileManager :sessionId="session.id" />
+            </div>
+
+            <!-- Resizer 1 -->
+            <div
+              class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+              @mousedown.prevent="startResize('file')"
+            ></div>
+
+            <!-- Terminal -->
+            <div
+              class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
+              :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }"
+            >
+              <TerminalView
+                :ref="(el: any) => { if (el) terminalViewRefs[index] = el }"
+                :sessionId="session.id"
+              />
+            </div>
+
+            <!-- Resizer 2 -->
+            <div
+              class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+              @mousedown.prevent="startResize('ai')"
+            ></div>
+
+            <!-- AI -->
+            <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
+              <AIAssistant
+                :sessionId="session.id"
+                :terminal-context="terminalContext"
+                @refresh-context="updateTerminalContext"
+              />
+            </div>
           </div>
 
-          <!-- Resizer 1 -->
-          <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-            @mousedown.prevent="startResize('file')"></div>
-
-          <!-- Terminal -->
-          <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
-            :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
-            <TerminalView 
-              :ref="(el: any) => { if (el) terminalViewRefs[index] = el }"
-              :sessionId="session.id" 
-            />
-          </div>
-
-          <!-- Resizer 2 -->
-          <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-            @mousedown.prevent="startResize('ai')"></div>
-
-          <!-- AI -->
-          <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
-            <AIAssistant 
-              :sessionId="session.id"
-              :terminal-context="terminalContext"
-              @refresh-context="updateTerminalContext"
-            />
+          <!-- Session Status Bar -->
+          <div class="h-8 bg-gray-800 border-t border-gray-700 text-xs flex items-center justify-between px-3">
+            <div class="text-gray-300">
+              {{ t('app.sessionDuration') }}: {{ activeSessionDuration || '0s' }}
+            </div>
+            <div class="flex-1 text-right text-gray-400 truncate ml-4">
+              {{ sessionStatus[session.id] || t('app.loadingStatus') }}
+            </div>
           </div>
         </div>
       </div>

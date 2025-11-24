@@ -21,7 +21,8 @@ export const useSessionStore = defineStore('sessions', {
           status: 'connected',
           activeTab: 'terminal',
           currentPath: '.',
-          files: []
+          files: [],
+          connectedAt: Date.now(),
         };
         this.sessions.push(session);
         this.activeSessionId = id;

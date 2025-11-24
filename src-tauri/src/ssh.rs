@@ -89,6 +89,7 @@ pub async fn connect(
             let mut jump_sess = Session::new().map_err(|e| e.to_string())?;
             jump_sess.set_tcp_stream(jump_tcp);
             jump_sess.handshake().map_err(|e| format!("Jump handshake failed: {}", e))?;
+            jump_sess.set_keepalive(true, 60);
             
             jump_sess.userauth_password(
                 config.jump_username.as_deref().unwrap_or(""), 
@@ -190,8 +191,8 @@ pub async fn connect(
     sess.userauth_password(&config.username, config.password.as_deref().unwrap_or(""))
         .map_err(|e| e.to_string())?;
 
-    // ... (rest of the function)
-
+    // Enable keepalive to avoid idle disconnects
+    sess.set_keepalive(true, 30);
 
     // Set non-blocking mode for concurrency
     sess.set_blocking(false);
