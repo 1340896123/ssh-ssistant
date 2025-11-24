@@ -27,14 +27,18 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     )?;
 
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS settings (
+        r#"CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             theme TEXT NOT NULL DEFAULT 'dark',
             language TEXT NOT NULL DEFAULT 'zh',
             ai_api_url TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
             ai_api_key TEXT NOT NULL DEFAULT '',
-            ai_model_name TEXT NOT NULL DEFAULT 'gpt-3.5-turbo'
-        )",
+            ai_model_name TEXT NOT NULL DEFAULT 'gpt-3.5-turbo',
+            terminal_font_size INTEGER NOT NULL DEFAULT 14,
+            terminal_font_family TEXT NOT NULL DEFAULT 'Menlo, Monaco, "Courier New", monospace',
+            terminal_cursor_style TEXT NOT NULL DEFAULT 'block',
+            terminal_line_height REAL NOT NULL DEFAULT 1.0
+        )"#,
         [],
     )?;
 
@@ -49,6 +53,12 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_port INTEGER", []);
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_username TEXT", []);
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_password TEXT", []);
+
+    // Migrations: Add terminal appearance columns if they don't exist
+    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_font_size INTEGER NOT NULL DEFAULT 14"#, []);
+    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_font_family TEXT NOT NULL DEFAULT 'Menlo, Monaco, "Courier New", monospace'"#, []);
+    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_cursor_style TEXT NOT NULL DEFAULT 'block'"#, []);
+    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_line_height REAL NOT NULL DEFAULT 1.0"#, []);
     
     Ok(())
 }
@@ -127,7 +137,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     
-    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name FROM settings WHERE id = 1")
+    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height FROM settings WHERE id = 1")
         .map_err(|e| e.to_string())?;
         
     let mut rows = stmt.query_map([], |row| {
@@ -138,7 +148,13 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
                 api_url: row.get(2)?,
                 api_key: row.get(3)?,
                 model_name: row.get(4)?,
-            }
+            },
+            terminal_appearance: TerminalAppearanceSettings {
+                font_size: row.get::<_, Option<i32>>(5)?.unwrap_or(14),
+                font_family: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Menlo, Monaco, \"Courier New\", monospace".to_string()),
+                cursor_style: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "block".to_string()),
+                line_height: row.get::<_, Option<f32>>(8)?.unwrap_or(1.0),
+            },
         })
     }).map_err(|e| e.to_string())?;
     
@@ -155,13 +171,17 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     
     conn.execute(
-        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5 WHERE id = 1",
+        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9 WHERE id = 1",
         params![
-            settings.theme, 
-            settings.language, 
-            settings.ai.api_url, 
-            settings.ai.api_key, 
-            settings.ai.model_name
+            settings.theme,
+            settings.language,
+            settings.ai.api_url,
+            settings.ai.api_key,
+            settings.ai.model_name,
+            settings.terminal_appearance.font_size,
+            settings.terminal_appearance.font_family,
+            settings.terminal_appearance.cursor_style,
+            settings.terminal_appearance.line_height,
         ],
     ).map_err(|e| e.to_string())?;
     
