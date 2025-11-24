@@ -12,6 +12,8 @@ use uuid::Uuid;
 use crate::models::{Connection as SshConnConfig, FileEntry};
 use notify::{Watcher, RecommendedWatcher, RecursiveMode, Event, EventKind};
 use std::path::Path;
+use sha2::{Sha256, Digest};
+use hex;
 
 #[derive(Clone)]
 enum ShellMsg {
@@ -681,6 +683,67 @@ struct ProgressPayload {
     total: u64,
 }
 
+fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>, String> {
+    let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+    // Try sha256sum first
+    let cmd = format!("sha256sum '{}'", path);
+    channel.exec(&cmd).map_err(|e| e.to_string())?;
+    
+    let mut s = String::new();
+    channel.read_to_string(&mut s).map_err(|e| e.to_string())?;
+    channel.wait_close().map_err(|e| e.to_string())?;
+
+    if channel.exit_status().unwrap_or(-1) == 0 {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if let Some(hash) = parts.get(0) {
+            return Ok(Some(hash.to_string()));
+        }
+    }
+    
+    // Fallback to md5sum
+    let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+    let cmd = format!("md5sum '{}'", path);
+    channel.exec(&cmd).map_err(|e| e.to_string())?;
+    
+    let mut s = String::new();
+    channel.read_to_string(&mut s).map_err(|e| e.to_string())?;
+    channel.wait_close().map_err(|e| e.to_string())?;
+
+    if channel.exit_status().unwrap_or(-1) == 0 {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if let Some(hash) = parts.get(0) {
+            return Ok(Some(hash.to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
+fn compute_local_file_hash(path: &std::path::Path, limit: u64) -> Result<String, String> {
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    let mut read = 0u64;
+    
+    loop {
+        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        
+        let to_hash = if read + (n as u64) > limit {
+            (limit - read) as usize
+        } else {
+            n
+        };
+        
+        hasher.update(&buf[..to_hash]);
+        read += to_hash as u64;
+        
+        if read >= limit { break; }
+    }
+    
+    Ok(hex::encode(hasher.finalize()))
+}
+
 fn get_dir_size(path: &std::path::Path) -> u64 {
     let mut size = 0;
     if let Ok(entries) = std::fs::read_dir(path) {
@@ -698,6 +761,7 @@ fn get_dir_size(path: &std::path::Path) -> u64 {
 }
 
 fn upload_recursive_progress(
+    sess: &Session,
     sftp: &ssh2::Sftp,
     local_path: &std::path::Path,
     remote_path: &str,
@@ -722,7 +786,7 @@ fn upload_recursive_progress(
             // Always use forward slashes for remote SFTP paths
             let new_remote = format!("{}/{}", remote_path.trim_end_matches('/'), name);
             
-            upload_recursive_progress(sftp, &path, &new_remote, cancel_flag, app, transfer_id, total_size, transferred, resume)?;
+            upload_recursive_progress(sess, sftp, &path, &new_remote, cancel_flag, app, transfer_id, total_size, transferred, resume)?;
         }
     } else {
         let mut local_file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
@@ -747,7 +811,41 @@ fn upload_recursive_progress(
                             });
                             return Ok(());
                         }
-                        offset = size;
+                        
+                        // Verify Checksum before resuming
+                        let local_hash = compute_local_file_hash(local_path, size)?;
+                        
+                        // Use passed session
+                        if let Ok(Some(remote_hash)) = get_remote_file_hash(sess, remote_path) {
+                            if remote_hash.len() == 64 && local_hash == remote_hash {
+                                offset = size;
+                            } else if remote_hash.len() == 32 {
+                                // Compute MD5 locally
+                                use md5::Md5;
+                                let mut hasher = Md5::new();
+                                let mut file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
+                                let mut buf = [0u8; 8192];
+                                let mut read = 0u64;
+                                loop {
+                                    let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+                                    if n == 0 { break; }
+                                    let to_hash = if read + (n as u64) > size { (size - read) as usize } else { n };
+                                    hasher.update(&buf[..to_hash]);
+                                    read += to_hash as u64;
+                                    if read >= size { break; }
+                                }
+                                let local_md5 = hex::encode(hasher.finalize());
+                                if local_md5 == remote_hash {
+                                    offset = size;
+                                } else {
+                                    offset = 0;
+                                }
+                            } else {
+                                offset = 0;
+                            }
+                        } else {
+                            offset = 0; 
+                        }
                     }
                 },
                 Err(_) => {} // File doesn't exist, start from 0
@@ -866,7 +964,7 @@ pub async fn upload_file_with_progress(
     
     let mut transferred = 0;
     
-    let res = upload_recursive_progress(&sftp, local_p, &remote_path, &cancel_flag, &app, &transfer_id, total_size, &mut transferred, resume);
+    let res = upload_recursive_progress(&sess, &sftp, local_p, &remote_path, &cancel_flag, &app, &transfer_id, total_size, &mut transferred, resume);
     
     state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
     
