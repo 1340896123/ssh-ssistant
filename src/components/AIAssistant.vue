@@ -2,7 +2,8 @@
 import { ref, nextTick, computed } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
-import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown } from 'lucide-vue-next';
+import { confirm } from '@tauri-apps/plugin-dialog';
+import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
 
 const md = new MarkdownIt({
@@ -11,9 +12,12 @@ const md = new MarkdownIt({
   breaks: true
 });
 
-const props = defineProps<{
-  sessionId: string;
-}>();
+const props = defineProps({
+  sessionId: String,
+  terminalContext: String
+});
+
+const emit = defineEmits(['refresh-context']);
 
 const settingsStore = useSettingsStore();
 
@@ -39,6 +43,22 @@ const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 const toolStates = ref<Record<string, boolean>>({});
 
+// --- Command Safety ---
+const DANGEROUS_COMMANDS = [
+    /^\s*rm\s+.*(-f|--force)\s+.*\//, //  rm with force flag on root dir
+    new RegExp("^\\s*rm\\s+-rf\\s+\\/\\*?\\s*$"), // rm -rf / or rm -rf /*
+    /^\s*dd\s+/,
+    /^\s*mkfs\./,
+    /^\s*fdisk\s+/,
+    /^\s*wipefs\s+/,
+    /^\s*mv\s+[^\s]+\s+\/dev\/null/, // mv to /dev/null
+    />\s*\/dev\/sd/, // Redirecting output to a disk device
+];
+function isDangerous(command: string): boolean {
+    return DANGEROUS_COMMANDS.some(regex => regex.test(command));
+}
+
+
 function toggleTool(id: string) {
   toolStates.value[id] = !toolStates.value[id];
 }
@@ -63,7 +83,7 @@ const displayMessages = computed(() => {
         let command = 'Unknown command';
         try {
           command = JSON.parse(tc.function.arguments).command;
-        } catch (e) { }
+        } catch (e) { } 
 
         return {
           id: tc.id,
@@ -126,13 +146,14 @@ async function sendMessage() {
 async function processChat() {
   isLoading.value = true;
 
-  // Prepare payload
-  // Filter messages for API (exclude some internal UI state if any, currently 1:1)
-  // Note: OpenAI expects 'tool_calls' in assistant message if present, handled by logic below?
-  // For simplicity, we reconstruct the conversation for the API.
-  // However, keeping the exact structure is better.
+  // Clone messages for API to avoid mutating UI state, and inject context
+  const apiMessages = JSON.parse(JSON.stringify(messages.value));
+  if (props.terminalContext && apiMessages.length > 0 && apiMessages[apiMessages.length - 1].role === 'user') {
+      const lastMsg = apiMessages[apiMessages.length - 1];
+      lastMsg.content = `Here is the current terminal output for context:\n\n---\n${props.terminalContext}\n---\n\nMy request is: ${lastMsg.content}`;
+  }
 
-  // We need to handle the conversation loop
+
   try {
     const response = await fetch(`${settingsStore.ai.apiUrl}/chat/completions`, {
       method: 'POST',
@@ -142,15 +163,7 @@ async function processChat() {
       },
       body: JSON.stringify({
         model: settingsStore.ai.modelName,
-        messages: messages.value.map(m => ({
-          role: m.role,
-          content: m.content,
-          tool_call_id: m.tool_call_id,
-          name: m.name,
-          // tool_calls needs to be added if this message had them. 
-          // Currently our local Message struct is simplified. 
-          // We'll improve local storage to handle tool_calls.
-        })),
+        messages: apiMessages,
         tools: tools,
         tool_choice: "auto"
       })
@@ -165,15 +178,10 @@ async function processChat() {
     const choice = data.choices[0];
     const message = choice.message;
 
-    // Push assistant message
-    // If it has tool_calls, we need to store them properly
     if (message.tool_calls) {
       messages.value.push({
         role: 'assistant',
         content: message.content || '',
-        // We need to store tool_calls to send back in next turn
-        // Extending our Message interface locally or just storing raw object?
-        // Let's store raw extended properties in the ref array (it's flexible)
         ...message
       });
       scrollToBottom();
@@ -184,8 +192,19 @@ async function processChat() {
           const args = JSON.parse(toolCall.function.arguments);
           const cmd = args.command;
 
-          // Feedback UI
-          // messages.value.push({ role: 'system', content: `Executing: ${cmd}` }); 
+          // --- DANGER ZONE ---
+          if (isDangerous(cmd)) {
+            const confirmed = await confirm(`DANGEROUS COMMAND DETECTED!\n\nAre you sure you want to execute:\n\n${cmd}`);
+            if (!confirmed) {
+                messages.value.push({
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    name: toolCall.function.name,
+                    content: `Command execution cancelled by user.`
+                });
+                continue; // Skip to next tool call
+            }
+          }
 
           try {
             const result = await invoke<string>('exec_command', {
@@ -288,16 +307,21 @@ async function processChat() {
     <!-- Input Area -->
     <div class="p-4 bg-gray-800 border-t border-gray-700">
       <div class="relative flex items-center">
+        <button @click="emit('refresh-context')" 
+          class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors" 
+          title="Import terminal context">
+          <ClipboardPlus class="w-5 h-5" />
+        </button>
         <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
-          class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-4 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
           placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
         <button @click="sendMessage" :disabled="isLoading || !input.trim()"
-          class="absolute right-2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full hover:bg-gray-800">
+          class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors">
           <Send class="w-5 h-5" />
         </button>
       </div>
       <div class="mt-2 text-xs text-gray-500 text-center">
-        AI can execute commands. Be careful.
+        AI can execute commands. Exercise caution.
       </div>
     </div>
   </div>
@@ -318,8 +342,7 @@ async function processChat() {
 }
 
 :deep(.markdown-content pre) {
-  background-color: #111827;
-  /* gray-900 */
+  background-color: #111827; /* gray-900 */
   padding: 0.5rem;
   border-radius: 0.375rem;
   overflow-x: auto;
@@ -339,8 +362,7 @@ async function processChat() {
   background-color: transparent;
   padding: 0;
   font-size: 0.9em;
-  color: #e5e7eb;
-  /* gray-200 */
+  color: #e5e7eb; /* gray-200 */
 }
 
 :deep(.markdown-content ul),
@@ -355,8 +377,7 @@ async function processChat() {
 }
 
 :deep(.markdown-content a) {
-  color: #60a5fa;
-  /* blue-400 */
+  color: #60a5fa; /* blue-400 */
   text-decoration: underline;
 }
 </style>

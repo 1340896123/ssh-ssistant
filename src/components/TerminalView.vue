@@ -13,6 +13,32 @@ import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown
 import { useSettingsStore } from '../stores/settings';
 
 const props = defineProps<{ sessionId: string }>();
+
+function getContent(): string {
+  if (!term) return '';
+
+  const buffer = term.buffer.active;
+  if (!buffer) return '';
+
+  const numLines = buffer.length;
+  const lines: string[] = [];
+  // Let's grab up to 50 recent lines.
+  const linesToGrab = Math.min(50, numLines);
+
+  for (let i = numLines - linesToGrab; i < numLines; i++) {
+    const line = buffer.getLine(i);
+    if (line) {
+      lines.push(line.translateToString());
+    }
+  }
+
+  return lines.join('\n');
+}
+
+defineExpose({
+  getContent,
+});
+
 const terminalContainer = ref<HTMLElement | null>(null);
 const settingsStore = useSettingsStore();
 

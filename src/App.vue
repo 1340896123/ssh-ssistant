@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, onBeforeUpdate } from "vue";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import SessionTabs from "./components/SessionTabs.vue";
@@ -21,6 +21,32 @@ const { t } = useI18n();
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
 const editingConnection = ref<Connection | null>(null);
+
+// AI Context Refs
+const terminalViewRefs = ref<any[]>([]);
+const terminalContext = ref('');
+
+onBeforeUpdate(() => {
+  terminalViewRefs.value = [];
+});
+
+function getActiveTerminalView() {
+  if (!activeSession.value) return null;
+  const activeIndex = sessionStore.sessions.findIndex(s => s.id === activeSession.value?.id);
+  if (activeIndex !== -1 && terminalViewRefs.value[activeIndex]) {
+    return terminalViewRefs.value[activeIndex];
+  }
+  return null;
+}
+
+function updateTerminalContext() {
+  const activeTerminal = getActiveTerminalView();
+  if (activeTerminal && typeof activeTerminal.getContent === 'function') {
+    terminalContext.value = activeTerminal.getContent();
+  } else {
+    terminalContext.value = '';
+  }
+}
 
 // Layout state
 const fileWidth = ref(30); // percentage
@@ -138,7 +164,7 @@ function openEditConnectionModal(conn: Connection) {
 
       <!-- Viewport -->
       <div class="flex-1 relative overflow-hidden" v-if="sessionStore.sessions.length > 0" ref="containerRef">
-        <div v-for="session in sessionStore.sessions" :key="session.id" v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex">
+        <div v-for="(session, index) in sessionStore.sessions" :key="session.id" v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex">
           <!-- Files -->
           <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
             <FileManager :sessionId="session.id" />
@@ -151,7 +177,10 @@ function openEditConnectionModal(conn: Connection) {
           <!-- Terminal -->
           <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
             :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
-            <TerminalView :sessionId="session.id" />
+            <TerminalView 
+              :ref="(el: any) => { if (el) terminalViewRefs[index] = el }"
+              :sessionId="session.id" 
+            />
           </div>
 
           <!-- Resizer 2 -->
@@ -160,7 +189,11 @@ function openEditConnectionModal(conn: Connection) {
 
           <!-- AI -->
           <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
-            <AIAssistant :sessionId="session.id" />
+            <AIAssistant 
+              :sessionId="session.id"
+              :terminal-context="terminalContext"
+              @refresh-context="updateTerminalContext"
+            />
           </div>
         </div>
       </div>
