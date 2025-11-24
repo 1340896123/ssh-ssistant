@@ -135,29 +135,31 @@ function openEditConnectionModal(conn: Connection) {
       </div>
 
       <!-- Viewport -->
-      <div class="flex-1 relative overflow-hidden flex" v-if="activeSession" ref="containerRef">
-        <!-- Files -->
-        <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
-          <FileManager :sessionId="activeSession.id" :key="activeSession.id" />
-        </div>
+      <div class="flex-1 relative overflow-hidden" v-if="sessionStore.sessions.length > 0" ref="containerRef">
+        <div v-for="session in sessionStore.sessions" :key="session.id" v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex">
+          <!-- Files -->
+          <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
+            <FileManager :sessionId="session.id" />
+          </div>
 
-        <!-- Resizer 1 -->
-        <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-          @mousedown.prevent="startResize('file')"></div>
+          <!-- Resizer 1 -->
+          <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+            @mousedown.prevent="startResize('file')"></div>
 
-        <!-- Terminal -->
-        <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
-          :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
-          <TerminalView :sessionId="activeSession.id" :key="activeSession.id" />
-        </div>
+          <!-- Terminal -->
+          <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
+            :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
+            <TerminalView :sessionId="session.id" />
+          </div>
 
-        <!-- Resizer 2 -->
-        <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-          @mousedown.prevent="startResize('ai')"></div>
+          <!-- Resizer 2 -->
+          <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+            @mousedown.prevent="startResize('ai')"></div>
 
-        <!-- AI -->
-        <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
-          <AIAssistant :key="activeSession.id" />
+          <!-- AI -->
+          <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
+            <AIAssistant :sessionId="session.id" />
+          </div>
         </div>
       </div>
       <div class="flex-1 flex items-center justify-center text-gray-500" v-else>
