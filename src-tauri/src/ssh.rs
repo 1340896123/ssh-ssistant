@@ -312,6 +312,20 @@ pub async fn write_to_pty(
 }
 
 #[tauri::command]
+pub async fn write_binary_to_pty(
+    state: State<'_, AppState>,
+    id: String,
+    data: Vec<u8>, 
+) -> Result<(), String> {
+    let clients = state.clients.lock().map_err(|e| e.to_string())?;
+    let client = clients.get(&id).ok_or("Session not found")?;
+    if let Some(tx) = &client.shell_tx {
+        let _ = tx.send(ShellMsg::Data(data));
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn resize_pty(
     state: State<'_, AppState>,
     id: String,

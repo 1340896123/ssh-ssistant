@@ -4,8 +4,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { SearchAddon } from 'xterm-addon-search';
+import * as Zmodem from 'zmodem.js';
+import { save, open } from '@tauri-apps/plugin-dialog';
+import { writeFile, readFile } from '@tauri-apps/plugin-fs';
 import 'xterm/css/xterm.css';
-import { Send, Sparkles, Terminal as TerminalIcon } from 'lucide-vue-next';
+import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown } from 'lucide-vue-next';
 import { useSettingsStore } from '../stores/settings';
 
 const props = defineProps<{ sessionId: string }>();
@@ -14,7 +18,14 @@ const settingsStore = useSettingsStore();
 
 let term: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
+let searchAddon: SearchAddon | null = null;
 let unlisten: (() => void) | null = null;
+let zmodemSentry: any = null;
+
+// Search State
+const showSearch = ref(false);
+const searchText = ref('');
+const searchInputRef = ref<HTMLInputElement | null>(null);
 
 // Input Box State
 const commandInput = ref('');
@@ -56,28 +67,52 @@ onMounted(async () => {
   });
 
   fitAddon = new FitAddon();
+  searchAddon = new SearchAddon();
   term.loadAddon(fitAddon);
+  term.loadAddon(searchAddon);
+
+  // Zmodem Integration
+  zmodemSentry = new Zmodem.Sentry({
+    to_terminal: (octets: any) => term?.write(octets),
+    sender: (octets: any) => {
+      // Send binary data to PTY
+      // Convert octets (Array of numbers) to Uint8Array then to Array? 
+      // Tauri invoke args need to be serializable. 
+      // write_binary_to_pty expects Vec<u8>. 
+      // We can pass number[] directly.
+      invoke('write_binary_to_pty', { 
+        id: props.sessionId, 
+        data: Array.from(octets) 
+      });
+    },
+    on_detect: (detection: any) => {
+      const zsession = detection.confirm();
+      if (zsession.type === "receive") {
+        handleZmodemDownload(zsession);
+      } else {
+        handleZmodemUpload(zsession);
+      }
+    },
+    on_retract: () => {
+      // console.log("Zmodem retracted");
+    }
+  });
+
   term.open(terminalContainer.value);
   fitAddon.fit();
 
-
-
   // OSC 7 Handler for CWD tracking
-  // Format: \x1b]7;file://hostname/path\x07
   term.parser.registerOscHandler(7, (data) => {
     try {
       const url = new URL(data);
       if (url.pathname) {
-        // Decode URI component to handle spaces etc
         let path = decodeURIComponent(url.pathname);
-        // Windows paths might need adjustment if running on windows? 
-        // No, this is remote path.
         currentDir.value = path;
       }
     } catch (e) {
       console.warn("Failed to parse OSC 7:", e);
     }
-    return true; // Handled
+    return true; 
   });
 
   // Listen to user input (direct terminal interaction)
@@ -95,6 +130,20 @@ onMounted(async () => {
     });
   });
 
+  // Ctrl+F Handler
+  term.attachCustomKeyEventHandler((arg) => {
+    if (arg.ctrlKey && arg.code === "KeyF" && arg.type === "keydown") {
+        showSearch.value = !showSearch.value;
+        if (showSearch.value) {
+            setTimeout(() => searchInputRef.value?.focus(), 100);
+        } else {
+            term?.focus();
+        }
+        return false;
+    }
+    return true;
+  });
+
   // Initial resize
   setTimeout(() => {
     handleResize();
@@ -103,7 +152,8 @@ onMounted(async () => {
   // Listen to backend data
   unlisten = await listen<number[]>(`term-data:${props.sessionId}`, (event) => {
     const data = new Uint8Array(event.payload);
-    term?.write(data);
+    // Feed through Zmodem Sentry
+    zmodemSentry.consume(data);
   });
 
   const unlistenExit = await listen(`term-exit:${props.sessionId}`, () => {
@@ -151,9 +201,114 @@ onMounted(async () => {
   })();
 });
 
+async function handleZmodemDownload(zsession: any) {
+    zsession.on("offer", async (xfer: any) => {
+        const offer = xfer.get_details();
+        try {
+            const savePath = await save({
+                defaultPath: offer.name,
+                title: 'Save Downloaded File'
+            });
+            
+            if (savePath) {
+                const fileBuffer: number[] = [];
+                xfer.on("input", (payload: any) => {
+                    // accumulate payload
+                    for (let i = 0; i < payload.length; i++) {
+                        fileBuffer.push(payload[i]);
+                    }
+                    // update progress if needed
+                });
+                
+                xfer.accept().then(() => {
+                    // Write to file
+                    const uint8 = new Uint8Array(fileBuffer);
+                    writeFile(savePath, uint8).then(() => {
+                        term?.write(`\r\nSaved to ${savePath}\r\n`);
+                    });
+                });
+            } else {
+                xfer.skip();
+            }
+        } catch (e) {
+            console.error("Download error:", e);
+            xfer.skip();
+        }
+    });
+    zsession.start();
+}
+
+async function handleZmodemUpload(zsession: any) {
+    try {
+        const selected = await open({
+            multiple: true,
+            title: 'Select files to upload'
+        });
+        
+        if (selected && selected.length > 0) {
+            // Handle one by one or batch? Zmodem supports batch.
+            // We need to construct file objects for zmodem.js
+            const files = Array.isArray(selected) ? selected : [selected];
+            
+            const fileObjects = [];
+            for (const path of files) {
+               const name = path.split(/[\\/]/).pop() || "unknown";
+               const data = await readFile(path);
+               fileObjects.push({
+                   name: name,
+                   size: data.length,
+                   obj: data
+               });
+            }
+
+            Zmodem.Browser.send_files(zsession, fileObjects, {
+                on_offer_response(_obj: any, _xfer: any) {
+                    // console.log("offer response", xfer);
+                },
+                on_progress(_obj: any, _xfer: any, _buffer: any) {
+                    // console.log("progress", xfer.get_offset());
+                },
+                on_file_complete(_obj: any, _xfer: any) {
+                    // console.log("file complete");
+                }
+            }).then(() => {
+                zsession.close();
+            }).catch((e: any) => {
+                console.error("Upload session error", e);
+                zsession.close();
+            });
+
+        } else {
+            zsession.close();
+        }
+    } catch (e) {
+        console.error("Upload error:", e);
+        zsession.close();
+    }
+}
+
 function handleResize() {
   fitAddon?.fit();
 }
+
+function searchNext() {
+    searchAddon?.findNext(searchText.value);
+}
+
+function searchPrev() {
+    searchAddon?.findPrevious(searchText.value);
+}
+
+function closeSearch() {
+    showSearch.value = false;
+    term?.focus();
+}
+
+watch(searchText, (val) => {
+    if (val) {
+        searchAddon?.findNext(val);
+    }
+});
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize);
@@ -585,6 +740,33 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
     <!-- Terminal Area -->
     <div class="flex-1 relative overflow-hidden p-1">
       <div ref="terminalContainer" class="h-full w-full"></div>
+      
+      <!-- Search Bar -->
+      <div v-if="showSearch" class="absolute top-2 right-4 z-10 flex items-center bg-gray-800 border border-gray-600 rounded shadow-lg p-1 animate-fade-in">
+        <div class="flex items-center bg-gray-900 rounded border border-gray-700 mr-1">
+           <Search class="w-3 h-3 text-gray-500 ml-2" />
+           <input 
+             ref="searchInputRef"
+             v-model="searchText"
+             type="text" 
+             class="bg-transparent text-white text-xs px-2 py-1 focus:outline-none w-40 font-mono"
+             placeholder="Find..."
+             @keydown.enter="searchNext"
+             @keydown.esc="closeSearch"
+           />
+        </div>
+        <div class="flex items-center border-l border-gray-700 pl-1">
+            <button @click="searchPrev" class="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded" title="Previous (Shift+Enter)">
+                <ArrowUp class="w-4 h-4" />
+            </button>
+            <button @click="searchNext" class="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded" title="Next (Enter)">
+                <ArrowDown class="w-4 h-4" />
+            </button>
+            <button @click="closeSearch" class="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded ml-1" title="Close (Esc)">
+                <X class="w-4 h-4" />
+            </button>
+        </div>
+      </div>
     </div>
 
     <!-- Input Area -->
