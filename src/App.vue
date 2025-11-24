@@ -31,7 +31,7 @@ const isResizing = ref<'file' | 'ai' | null>(null);
 const activeSession = computed(() => sessionStore.activeSession);
 
 onMounted(() => {
-  settingsStore.applyTheme();
+  settingsStore.loadSettings();
   window.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('mouseup', handleMouseUp);
 });
@@ -52,39 +52,39 @@ function handleMouseMove(e: MouseEvent) {
 
   const containerRect = containerRef.value.getBoundingClientRect();
   const totalWidth = containerRect.width;
-  
+
   if (isResizing.value === 'file') {
-     // Calculate new file width percentage based on mouse X relative to container
-     const newFileWidth = ((e.clientX - containerRect.left) / totalWidth) * 100;
-     // Constraints
-     if (newFileWidth > 10 && newFileWidth < (100 - aiWidth.value - 10)) {
-         fileWidth.value = newFileWidth;
-     }
+    // Calculate new file width percentage based on mouse X relative to container
+    const newFileWidth = ((e.clientX - containerRect.left) / totalWidth) * 100;
+    // Constraints
+    if (newFileWidth > 10 && newFileWidth < (100 - aiWidth.value - 10)) {
+      fileWidth.value = newFileWidth;
+    }
   } else if (isResizing.value === 'ai') {
-     // Calculate new AI width. Mouse X is the left edge of AI panel approximately.
-     // AI width = 100 - (percent at mouse X)
-     const mousePercent = ((e.clientX - containerRect.left) / totalWidth) * 100;
-     const newAiWidth = 100 - mousePercent;
-     
-     if (newAiWidth > 10 && newAiWidth < (100 - fileWidth.value - 10)) {
-         aiWidth.value = newAiWidth;
-     }
+    // Calculate new AI width. Mouse X is the left edge of AI panel approximately.
+    // AI width = 100 - (percent at mouse X)
+    const mousePercent = ((e.clientX - containerRect.left) / totalWidth) * 100;
+    const newAiWidth = 100 - mousePercent;
+
+    if (newAiWidth > 10 && newAiWidth < (100 - fileWidth.value - 10)) {
+      aiWidth.value = newAiWidth;
+    }
   }
 }
 
 function handleMouseUp() {
   if (isResizing.value) {
-      isResizing.value = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+    isResizing.value = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
   }
 }
 
 function handleSaveConnection(conn: Connection) {
-  const action = conn.id 
-    ? connectionStore.updateConnection(conn) 
+  const action = conn.id
+    ? connectionStore.updateConnection(conn)
     : connectionStore.addConnection(conn);
-    
+
   action.then((success) => {
     if (success) {
       showConnectionModal.value = false;
@@ -96,13 +96,13 @@ function handleSaveConnection(conn: Connection) {
 }
 
 function openNewConnectionModal() {
-    editingConnection.value = null;
-    showConnectionModal.value = true;
+  editingConnection.value = null;
+  showConnectionModal.value = true;
 }
 
 function openEditConnectionModal(conn: Connection) {
-    editingConnection.value = conn;
-    showConnectionModal.value = true;
+  editingConnection.value = conn;
+  showConnectionModal.value = true;
 }
 </script>
 
@@ -113,14 +113,15 @@ function openEditConnectionModal(conn: Connection) {
       <div class="p-4 border-b border-gray-700 flex justify-between items-center">
         <h1 class="text-lg font-bold">SSH Assistant</h1>
         <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" title="Settings">
-            <Settings class="w-5 h-5" />
+          <Settings class="w-5 h-5" />
         </button>
       </div>
       <div class="flex-1 overflow-y-auto p-2">
         <ConnectionList @edit="openEditConnectionModal" />
       </div>
       <div class="p-4 border-t border-gray-700">
-        <button @click="openNewConnectionModal" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded cursor-pointer transition-colors">
+        <button @click="openNewConnectionModal"
+          class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded cursor-pointer transition-colors">
           New Connection
         </button>
       </div>
@@ -132,44 +133,40 @@ function openEditConnectionModal(conn: Connection) {
       <div class="h-10 bg-gray-800 border-b border-gray-700 flex flex-shrink-0">
         <SessionTabs />
       </div>
-      
+
       <!-- Viewport -->
       <div class="flex-1 relative overflow-hidden flex" v-if="activeSession" ref="containerRef">
-         <!-- Files -->
-         <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
-            <FileManager :sessionId="activeSession.id" />
-         </div>
-         
-         <!-- Resizer 1 -->
-         <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-              @mousedown.prevent="startResize('file')"></div>
-         
-         <!-- Terminal -->
-         <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700" 
-              :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
-            <TerminalView :sessionId="activeSession.id" />
-         </div>
+        <!-- Files -->
+        <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
+          <FileManager :sessionId="activeSession.id" :key="activeSession.id" />
+        </div>
 
-         <!-- Resizer 2 -->
-         <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-              @mousedown.prevent="startResize('ai')"></div>
-         
-         <!-- AI -->
-         <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
-            <AIAssistant />
-         </div>
+        <!-- Resizer 1 -->
+        <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+          @mousedown.prevent="startResize('file')"></div>
+
+        <!-- Terminal -->
+        <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
+          :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
+          <TerminalView :sessionId="activeSession.id" :key="activeSession.id" />
+        </div>
+
+        <!-- Resizer 2 -->
+        <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+          @mousedown.prevent="startResize('ai')"></div>
+
+        <!-- AI -->
+        <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
+          <AIAssistant :key="activeSession.id" />
+        </div>
       </div>
       <div class="flex-1 flex items-center justify-center text-gray-500" v-else>
         Select a connection to start
       </div>
     </main>
-    
-    <ConnectionModal 
-        :show="showConnectionModal" 
-        :connectionToEdit="editingConnection"
-        @close="showConnectionModal = false" 
-        @save="handleSaveConnection" 
-    />
+
+    <ConnectionModal :show="showConnectionModal" :connectionToEdit="editingConnection"
+      @close="showConnectionModal = false" @save="handleSaveConnection" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
   </div>
 </template>

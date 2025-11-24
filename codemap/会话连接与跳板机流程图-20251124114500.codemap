@@ -1,0 +1,158 @@
+{
+  "schemaVersion": "1.0",
+  "id": "session-connection-jump-host-flow",
+  "metadata": {
+    "project": "ssh-assistant",
+    "language": "TypeScript/Rust",
+    "framework": "Vue 3 / Tauri",
+    "created": "2025-11-24T11:45:00Z"
+  },
+  "title": "会话连接与跳板机流程图",
+  "traces": [
+    {
+      "id": "trace-1",
+      "title": "连接配置与验证 (Frontend)",
+      "description": "用户在前端配置连接信息，包括目标主机和可选的跳板机信息。",
+      "locations": [
+        {
+          "path": "src/components/ConnectionModal.vue",
+          "lineNumber": 9,
+          "lineContent": "const form = ref<Connection>({ ... });",
+          "description": "定义连接表单数据结构，包含跳板机字段"
+        },
+        {
+          "path": "src/components/ConnectionModal.vue",
+          "lineNumber": 49,
+          "lineContent": "function save() { ... }",
+          "description": "保存连接配置，处理端口转换和清理空字段"
+        },
+        {
+          "path": "src/components/ConnectionModal.vue",
+          "lineNumber": 107,
+          "lineContent": "<div class=\"border-t border-gray-700 pt-4 mt-2\">",
+          "description": "跳板机配置界面的 UI 部分"
+        }
+      ],
+      "traceTextDiagram": "User Input -> Form Validation -> Save Event -> Store Update",
+      "traceGuide": {
+        "motivation": "允许用户配置复杂的网络连接场景，特别是需要通过跳板机访问内部服务器的情况。",
+        "details": "前端使用 Vue 响应式表单收集数据。`save` 函数负责数据清洗，特别是将端口字符串转换为数字，并移除未填写的跳板机配置，以避免后端解析错误。"
+      }
+    },
+    {
+      "id": "trace-2",
+      "title": "会话创建请求 (Frontend Store)",
+      "description": "Session Store 接收连接请求并调用 Tauri 后端接口。",
+      "locations": [
+        {
+          "path": "src/stores/sessions.ts",
+          "lineNumber": 14,
+          "lineContent": "async createSession(conn: Connection) {",
+          "description": "创建会话的 Action 入口"
+        },
+        {
+          "path": "src/stores/sessions.ts",
+          "lineNumber": 16,
+          "lineContent": "const id = await invoke<string>('connect', { config: conn });",
+          "description": "调用 Tauri 后端 'connect' 命令"
+        },
+        {
+          "path": "src/stores/sessions.ts",
+          "lineNumber": 26,
+          "lineContent": "this.sessions.push(session);",
+          "description": "连接成功后，将新会话添加到本地状态"
+        }
+      ],
+      "traceTextDiagram": "UI Action -> Store.createSession -> Tauri.invoke('connect') -> Await Response -> Update State",
+      "traceGuide": {
+        "motivation": "将前端的连接意图转换为后端的实际网络操作，并管理会话的生命周期状态。",
+        "details": "这是一个异步操作。前端等待后端返回会话 ID。如果连接成功，前端会创建一个包含连接状态、当前路径等信息的 Session 对象。"
+      }
+    },
+    {
+      "id": "trace-3",
+      "title": "后端连接逻辑与跳板机处理 (Backend)",
+      "description": "Rust 后端处理连接请求，根据配置决定是否通过跳板机建立隧道。",
+      "locations": [
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 66,
+          "lineContent": "pub async fn connect(...) -> Result<String, String>",
+          "description": "Tauri 命令处理函数"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 72,
+          "lineContent": "let tcp_stream = if let Some(jump_host) = &config.jump_host { ... }",
+          "description": "判断是否配置了跳板机"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 84,
+          "lineContent": "let jump_tcp = TcpStream::connect(&jump_addr)",
+          "description": "建立到跳板机的 TCP 连接"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 109,
+          "lineContent": "jump_sess.channel_direct_tcpip(&target_host, target_port, None)",
+          "description": "在跳板机上建立到目标主机的直接 TCP/IP 隧道"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 97,
+          "lineContent": "let listener = TcpListener::bind(\"127.0.0.1:0\")",
+          "description": "在本地绑定一个随机端口作为代理入口"
+        }
+      ],
+      "traceTextDiagram": "Check Config -> [Has Jump Host?] --Yes--> Connect Jump Host -> Auth Jump Host -> Open Direct-TCP/IP Tunnel (to Target) -> Local Proxy -> Connect Target via Proxy\n                                 --No--> Connect Target Direct",
+      "traceGuide": {
+        "motivation": "实现 SSH 协议的核心连接逻辑，支持通过中间节点（跳板机）安全访问目标服务器。",
+        "details": "如果配置了跳板机，后端会先连接跳板机，然后使用 `channel_direct_tcpip` 创建一个从跳板机到目标主机的加密隧道。为了复用 SSH 库的连接逻辑，它在本地启动一个临时的 TCP 监听器，将本地流量转发到跳板机的隧道中，然后让目标 SSH 会话连接这个本地端口。这样，`sess` 对象实际上是通过隧道与目标主机进行通信，而不是直接连接跳板机。"
+      }
+    },
+    {
+      "id": "trace-4",
+      "title": "会话初始化与 Shell 启动 (Backend)",
+      "description": "建立最终的 SSH 会话（与目标主机），进行认证，并启动交互式 Shell。",
+      "locations": [
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 184,
+          "lineContent": "let mut sess = Session::new()",
+          "description": "创建目标主机的 SSH 会话实例 (通过隧道或直连)"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 188,
+          "lineContent": "sess.userauth_password(&config.username, ...)",
+          "description": "使用目标主机的凭证进行认证"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 205,
+          "lineContent": "thread::spawn(move || { ... })",
+          "description": "启动独立的线程处理 Shell I/O"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 230,
+          "lineContent": "retry!(channel.request_pty(\"xterm\", ...))",
+          "description": "请求伪终端 (PTY)"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 277,
+          "lineContent": "state.clients.lock()...insert(id.clone(), client)",
+          "description": "将会话实例保存到全局状态管理"
+        }
+      ],
+      "traceTextDiagram": "Auth Target -> Spawn Thread -> Request PTY -> Start Shell -> Loop (Read/Write) -> Store Session",
+      "traceGuide": {
+        "motivation": "为用户提供一个持久的、交互式的命令行环境，并管理其生命周期。",
+        "details": "认证成功后，后端会创建一个新的线程专门处理该会话的 I/O，以免阻塞主线程。它请求一个 PTY 以支持交互式命令（如 vim, top）。会话对象被存储在 `AppState` 中，以便后续的文件操作和命令执行可以复用该连接。"
+      }
+    }
+  ],
+  "mermaidDiagram": "graph TB\n    subgraph Frontend\n        A[ConnectionModal] -->|Save| B[Session Store]\n        B -->|Invoke 'connect'| C[Tauri Bridge]\n    end\n\n    subgraph Backend_Logic\n        C --> D{Has Jump Host?}\n        \n        %% Jump Host Flow\n        D -->|Yes| E[Connect Jump Host]\n        E --> F[Auth Jump Host]\n        F --> G[Open Direct-TCP/IP Tunnel to Target]\n        G --> H[Start Local Proxy Listener]\n        H --> I[Connect Local Proxy]\n        I --> J[Tunnel Traffic to Target]\n        \n        %% Direct Flow\n        D -->|No| K[Connect Target IP]\n        \n        %% Common Flow\n        J --> L[Target SSH Handshake]\n        K --> L\n        L --> M[Auth Target Host]\n        M --> N[Spawn Shell Thread]\n        N --> O[Request PTY]\n        O --> P[Start Shell Loop]\n        P --> Q[Store Session in State]\n        Q -->|Return Session ID| B\n    end\n\n    style A fill:#e1f5fe,stroke:#01579b\n    style B fill:#e1f5fe,stroke:#01579b\n    style D fill:#fff9c4,stroke:#fbc02d\n    style E fill:#ffe0b2,stroke:#f57c00\n    style F fill:#ffe0b2,stroke:#f57c00\n    style G fill:#ffe0b2,stroke:#f57c00\n    style L fill:#c8e6c9,stroke:#2e7d32\n    style M fill:#c8e6c9,stroke:#2e7d32\n    style N fill:#f3e5f5,stroke:#7b1fa2"
+}

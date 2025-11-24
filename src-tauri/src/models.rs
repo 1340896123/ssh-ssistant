@@ -27,3 +27,19 @@ pub struct FileEntry {
     pub uid: u32,
     pub owner: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AIConfig {
+    pub api_url: String,
+    pub api_key: String,
+    pub model_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub theme: String,
+    pub language: String,
+    pub ai: AIConfig,
+}

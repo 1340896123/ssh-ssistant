@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection, Result};
-use crate::models::Connection as SshConnection;
+use crate::models::{Connection as SshConnection, AppSettings, AIConfig};
 use tauri::{AppHandle, Manager};
 
 pub fn get_db_path(app_handle: &AppHandle) -> std::path::PathBuf {
@@ -26,8 +26,25 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            theme TEXT NOT NULL DEFAULT 'dark',
+            language TEXT NOT NULL DEFAULT 'zh',
+            ai_api_url TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
+            ai_api_key TEXT NOT NULL DEFAULT '',
+            ai_model_name TEXT NOT NULL DEFAULT 'gpt-3.5-turbo'
+        )",
+        [],
+    )?;
+
+    // Ensure default row exists
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (id) VALUES (1)",
+        [],
+    )?;
+
     // Migrations: Add jump host columns if they don't exist
-    // We ignore errors here because "duplicate column name" is expected if they exist
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_host TEXT", []);
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_port INTEGER", []);
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_username TEXT", []);
@@ -102,5 +119,51 @@ pub fn delete_connection(app_handle: AppHandle, id: i64) -> Result<(), String> {
     
     db_conn.execute("DELETE FROM connections WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    
+    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name FROM settings WHERE id = 1")
+        .map_err(|e| e.to_string())?;
+        
+    let mut rows = stmt.query_map([], |row| {
+        Ok(AppSettings {
+            theme: row.get(0)?,
+            language: row.get(1)?,
+            ai: AIConfig {
+                api_url: row.get(2)?,
+                api_key: row.get(3)?,
+                model_name: row.get(4)?,
+            }
+        })
+    }).map_err(|e| e.to_string())?;
+    
+    if let Some(row) = rows.next() {
+        row.map_err(|e| e.to_string())
+    } else {
+        Err("Settings not found".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    
+    conn.execute(
+        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5 WHERE id = 1",
+        params![
+            settings.theme, 
+            settings.language, 
+            settings.ai.api_url, 
+            settings.ai.api_key, 
+            settings.ai.model_name
+        ],
+    ).map_err(|e| e.to_string())?;
+    
     Ok(())
 }

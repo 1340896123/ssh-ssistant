@@ -1,5 +1,5 @@
-mod models;
 mod db;
+mod models;
 mod ssh;
 
 use tauri::Manager;
@@ -43,7 +43,9 @@ pub fn run() {
             db::get_connections,
             db::create_connection,
             db::update_connection,
-            db::delete_connection
+            db::delete_connection,
+            db::get_settings,
+            db::save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
