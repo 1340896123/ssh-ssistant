@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection, Result};
-use crate::models::{Connection as SshConnection, AppSettings, AIConfig};
+use crate::models::{Connection as SshConnection, AppSettings, AIConfig, TerminalAppearanceSettings};
 use tauri::{AppHandle, Manager};
 
 pub fn get_db_path(app_handle: &AppHandle) -> std::path::PathBuf {

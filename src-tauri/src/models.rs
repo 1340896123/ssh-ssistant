@@ -38,8 +38,18 @@ pub struct AIConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct TerminalAppearanceSettings {
+    pub font_size: i32,
+    pub font_family: String,
+    pub cursor_style: String,
+    pub line_height: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub theme: String,
     pub language: String,
     pub ai: AIConfig,
+    pub terminal_appearance: TerminalAppearanceSettings,
 }
