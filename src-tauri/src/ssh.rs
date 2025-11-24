@@ -203,6 +203,9 @@ pub async fn connect(
     let shell_id = id.clone();
     
     thread::spawn(move || {
+        // Wait for frontend to be ready
+        thread::sleep(Duration::from_millis(500));
+
         // Macro to retry operations on EAGAIN
         macro_rules! retry {
             ($e:expr) => {
@@ -237,7 +240,7 @@ pub async fn connect(
             match read_result {
                 Ok(n) if n > 0 => {
                     let data = buf[0..n].to_vec();
-                    let _ = app.emit(&format!("term-data://{}", shell_id), data);
+                    let _ = app.emit(&format!("term-data:{}", shell_id), data);
                 },
                 Ok(_) => {
                     // EOF
@@ -265,7 +268,7 @@ pub async fn connect(
 
             thread::sleep(Duration::from_millis(10));
         }
-        let _ = app.emit(&format!("term-exit://{}", shell_id), ());
+        let _ = app.emit(&format!("term-exit:{}", shell_id), ());
     });
     
     let client = SshClient {

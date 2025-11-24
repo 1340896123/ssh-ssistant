@@ -1,0 +1,65 @@
+{
+  "app": {
+    "title": "SSH 助手",
+    "newConnection": "新建连接",
+    "settings": "设置",
+    "selectConnectionToStart": "选择一个连接以开始使用"
+  },
+  "connections": {
+    "edit": "编辑",
+    "delete": "删除",
+    "new": "新建连接",
+    "editTitle": "编辑连接",
+    "name": "名称",
+    "host": "主机",
+    "port": "端口",
+    "username": "用户名",
+    "password": "密码",
+    "proxyJump": "代理跳转",
+    "proxyJumpOptional": "代理跳转（可选）",
+    "jumpHost": "跳转主机",
+    "jumpUsername": "跳转用户名",
+    "jumpPassword": "跳转密码",
+    "cancel": "取消",
+    "save": "保存"
+  },
+  "settings": {
+    "title": "设置",
+    "appearance": "外观和语言",
+    "language": "语言",
+    "theme": "主题",
+    "aiAssistant": "AI 助手",
+    "apiUrl": "API 基础地址",
+    "apiKey": "API 密钥",
+    "modelName": "模型名称",
+    "saveChanges": "保存更改",
+    "cancel": "取消"
+  },
+  "transfers": {
+    "title": "传输列表",
+    "clearCompleted": "清理已完成",
+    "pause": "暂停",
+    "resumeRetry": "恢复/重试",
+    "cancel": "取消",
+    "remove": "移除",
+    "status": {
+      "running": "运行中",
+      "failed": "失败",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "error": "错误",
+      "paused": "已暂停"
+    }
+  },
+  "aiAssistant": {
+    "welcome": "你好！我是你的 SSH AI 助手。我可以帮你执行命令和管理服务器。今天我能为你做些什么？"
+  },
+  "themes": {
+    "light": "浅色",
+    "dark": "深色"
+  },
+  "languages": {
+    "en": "English",
+    "zh": "中文"
+  }
+}

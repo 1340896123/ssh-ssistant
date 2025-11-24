@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import type { Settings } from '../types';
+import { setI18nLanguage } from '../i18n';
 
 export const useSettingsStore = defineStore('settings', {
   state: (): Settings => ({
@@ -18,6 +19,7 @@ export const useSettingsStore = defineStore('settings', {
         const settings = await invoke<Settings>('get_settings');
         this.$patch(settings);
         this.applyTheme();
+        await this.applyLanguage();
       } catch (e) {
         console.error('Failed to load settings', e);
       }
@@ -25,6 +27,9 @@ export const useSettingsStore = defineStore('settings', {
     async saveSettings(settings: Partial<Settings>) {
       this.$patch(settings);
       this.applyTheme();
+      if (settings.language) {
+        await this.applyLanguage();
+      }
       try {
         await invoke('save_settings', { settings: this.$state });
       } catch (e) {
@@ -37,6 +42,9 @@ export const useSettingsStore = defineStore('settings', {
       } else {
         document.documentElement.classList.remove('dark');
       }
+    },
+    async applyLanguage() {
+      await setI18nLanguage(this.language);
     }
   }
 });

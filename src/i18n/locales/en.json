@@ -1,0 +1,65 @@
+{
+  "app": {
+    "title": "SSH Assistant",
+    "newConnection": "New Connection",
+    "settings": "Settings",
+    "selectConnectionToStart": "Select a connection to start"
+  },
+  "connections": {
+    "edit": "Edit",
+    "delete": "Delete",
+    "new": "New Connection",
+    "editTitle": "Edit Connection",
+    "name": "Name",
+    "host": "Host",
+    "port": "Port",
+    "username": "Username",
+    "password": "Password",
+    "proxyJump": "Proxy Jump",
+    "proxyJumpOptional": "Proxy Jump (Optional)",
+    "jumpHost": "Jump Host",
+    "jumpUsername": "Jump Username",
+    "jumpPassword": "Jump Password",
+    "cancel": "Cancel",
+    "save": "Save"
+  },
+  "settings": {
+    "title": "Settings",
+    "appearance": "Appearance & Language",
+    "language": "Language",
+    "theme": "Theme",
+    "aiAssistant": "AI Assistant",
+    "apiUrl": "API Base URL",
+    "apiKey": "API Key",
+    "modelName": "Model Name",
+    "saveChanges": "Save Changes",
+    "cancel": "Cancel"
+  },
+  "transfers": {
+    "title": "Transfers",
+    "clearCompleted": "Clear Completed",
+    "pause": "Pause",
+    "resumeRetry": "Resume/Retry",
+    "cancel": "Cancel",
+    "remove": "Remove",
+    "status": {
+      "running": "running",
+      "failed": "failed",
+      "completed": "completed",
+      "cancelled": "cancelled",
+      "error": "error",
+      "paused": "paused"
+    }
+  },
+  "aiAssistant": {
+    "welcome": "Hello! I am your SSH AI Assistant. I can help you execute commands and manage your server. How can I help you today?"
+  },
+  "themes": {
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "languages": {
+    "en": "English",
+    "zh": "中文"
+  }
+}

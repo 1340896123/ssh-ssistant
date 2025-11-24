@@ -29,7 +29,18 @@ const selectedTraditionalIndex = ref(0);
 const aiCompletions = ref<string[]>([]);
 const selectedAiIndex = ref(0);
 const showAiCompletions = ref(false);
+
 const isAiLoading = ref(false);
+
+// Context Tracking
+const currentDir = ref('.');
+const homeDir = ref('');
+const remoteShell = ref('bash'); // Default to bash
+
+interface FileEntry {
+  name: string;
+  is_dir: boolean;
+}
 
 onMounted(async () => {
   if (!terminalContainer.value) return;
@@ -48,6 +59,26 @@ onMounted(async () => {
   term.loadAddon(fitAddon);
   term.open(terminalContainer.value);
   fitAddon.fit();
+
+
+
+  // OSC 7 Handler for CWD tracking
+  // Format: \x1b]7;file://hostname/path\x07
+  term.parser.registerOscHandler(7, (data) => {
+    try {
+      const url = new URL(data);
+      if (url.pathname) {
+        // Decode URI component to handle spaces etc
+        let path = decodeURIComponent(url.pathname);
+        // Windows paths might need adjustment if running on windows? 
+        // No, this is remote path.
+        currentDir.value = path;
+      }
+    } catch (e) {
+      console.warn("Failed to parse OSC 7:", e);
+    }
+    return true; // Handled
+  });
 
   // Listen to user input (direct terminal interaction)
   term.onData((data) => {
@@ -70,20 +101,54 @@ onMounted(async () => {
   }, 100);
 
   // Listen to backend data
-  unlisten = await listen<number[]>(`term-data://${props.sessionId}`, (event) => {
+  unlisten = await listen<number[]>(`term-data:${props.sessionId}`, (event) => {
     const data = new Uint8Array(event.payload);
     term?.write(data);
   });
 
-  const unlistenExit = await listen(`term-exit://${props.sessionId}`, () => {
+  const unlistenExit = await listen(`term-exit:${props.sessionId}`, () => {
     term?.write('\r\n[Process exited]\r\n');
   });
+
+  // Ensure focus and initial resize
+  term?.focus();
+  setTimeout(() => {
+    handleResize();
+    term?.focus();
+  }, 200);
 
   const oldUnlisten = unlisten;
   unlisten = () => {
     oldUnlisten();
     unlistenExit();
   };
+
+  // Initialize Context (Non-blocking)
+  (async () => {
+    try {
+      // 1. Get Home Directory
+      const pwd = await invoke<string>('exec_command', {
+        id: props.sessionId,
+        command: 'pwd'
+      });
+      if (pwd) {
+        homeDir.value = pwd.trim();
+        currentDir.value = homeDir.value;
+      }
+
+      // 2. Detect Shell
+      const shell = await invoke<string>('exec_command', {
+        id: props.sessionId,
+        command: 'echo $SHELL'
+      });
+      if (shell) {
+        const shellName = shell.trim().split('/').pop();
+        if (shellName) remoteShell.value = shellName;
+      }
+    } catch (e) {
+      console.error("Failed to init context:", e);
+    }
+  })();
 });
 
 function handleResize() {
@@ -99,6 +164,7 @@ onUnmounted(() => {
 // --- Input Box Logic ---
 
 // Watch input for traditional completion
+// Watch input for traditional completion
 watch(commandInput, async (newValue) => {
   // Reset AI completions when typing
   if (showAiCompletions.value) {
@@ -112,78 +178,99 @@ watch(commandInput, async (newValue) => {
     return;
   }
 
-  // If we are just navigating history, don't trigger completion immediately? 
-  // Actually, standard behavior is to complete what's there.
-
   const words = newValue.split(' ');
   let lastWord = words[words.length - 1];
 
-  // If last char is space, lastWord is empty. We might want to complete files in current dir.
-  // But be careful not to be too annoying.
-  // Let's try: if lastWord is empty, we try to complete files?
-  // Or maybe only if explicit trigger? 
-  // User said: "ls -l" (no space at end) -> lastWord is "-l".
-  // "ls -l " (space at end) -> lastWord is "".
+  // Determine if we are completing a command or a file
+  // Simple heuristic: if it's the first word, it's a command.
+  // If it's not the first word, it's likely a file/argument.
+  // Exception: pipe |, semicolon ;, etc. start new commands.
 
-  let commandToRun = '';
-  if (lastWord && lastWord.length > 0) {
-    // Try command completion first
-    commandToRun = `compgen -c ${lastWord} | head -10`;
-  } else if (words.length > 1) {
-    // If we have previous words, and last word is empty, maybe complete files?
-    // e.g. "ls " -> complete files.
-    commandToRun = `compgen -f | head -10`;
-    lastWord = ''; // For matching
-  }
+  // For simplicity, let's assume > 1 word is file completion.
+  const isCommand = words.length === 1;
 
-  if (commandToRun) {
-    try {
-      let result = await invoke<string>('exec_command', {
-        id: props.sessionId,
-        command: commandToRun
-      });
+  try {
+    let matches: string[] = [];
 
-      if (showAiCompletions.value) return;
-
-      let lines = result.split('\n').filter(line => line.trim() !== '');
-
-      // If no command matches, and we were trying command completion, try file completion
-      if (lines.length === 0 && lastWord && lastWord.length > 0) {
-        result = await invoke<string>('exec_command', {
+    if (isCommand) {
+      // Command Completion
+      // Use shell-specific logic, running in the currentDir context
+      const cmd = getShellCompletionCommand(remoteShell.value, lastWord, currentDir.value);
+      if (cmd) {
+        const result = await invoke<string>('exec_command', {
           id: props.sessionId,
-          command: `compgen -f ${lastWord} | head -10`
+          command: cmd
         });
-        
-        if (showAiCompletions.value) return;
+        matches = result.split('\n').filter(line => line.trim() !== '');
+      }
+    } else {
+      // File Completion using SFTP (More robust)
+      // We need to determine the directory to list.
+      // If lastWord is "/var/lo", dir is "/var", prefix is "lo".
+      // If lastWord is "lo", dir is currentDir, prefix is "lo".
 
-        lines = result.split('\n').filter(line => line.trim() !== '');
+      let searchDir = currentDir.value;
+      let filePrefix = lastWord;
+
+      if (lastWord.includes('/')) {
+        const lastSlash = lastWord.lastIndexOf('/');
+        const dirPart = lastWord.substring(0, lastSlash);
+        filePrefix = lastWord.substring(lastSlash + 1);
+
+        // Resolve dirPart relative to currentDir
+        searchDir = resolvePath(currentDir.value, dirPart, homeDir.value);
       }
 
-      // Filter to only those starting with lastWord to be sure
-      let matches = lines.filter(l => l.startsWith(lastWord));
+      try {
+        const files = await invoke<FileEntry[]>('list_files', {
+          id: props.sessionId,
+          path: searchDir
+        });
 
-      // Sort matches: exact match first, then shortest length, then alphabetical
-      matches.sort((a, b) => {
-        if (a === lastWord) return -1;
-        if (b === lastWord) return 1;
-        if (a.length !== b.length) return a.length - b.length;
-        return a.localeCompare(b);
-      });
+        matches = files
+          .filter(f => f.name.startsWith(filePrefix))
+          .map(f => {
+            // If we are completing a path, we want to append the name to the dirPart
+            // But the UI expects the full replacement for the last word?
+            // Or just the completion?
+            // The UI replaces `lastWord` with `completion`.
+            // So if lastWord is "/var/lo", completion should be "/var/log".
 
-      traditionalCompletions.value = matches;
-      selectedTraditionalIndex.value = 0;
-
-      if (matches.length > 0) {
-        updatePreview(matches[0], lastWord);
-      } else {
-        previewText.value = '';
+            if (lastWord.includes('/')) {
+              const lastSlash = lastWord.lastIndexOf('/');
+              const dirPart = lastWord.substring(0, lastSlash);
+              return `${dirPart}/${f.name}${f.is_dir ? '/' : ''}`;
+            }
+            return f.name + (f.is_dir ? '/' : '');
+          });
+      } catch (e) {
+        // SFTP failed (maybe permission denied or path invalid), ignore
       }
-    } catch (e) {
-      console.error("Completion error:", e);
-      traditionalCompletions.value = [];
+    }
+
+    // Filter matches again just in case (for command completion)
+    if (isCommand) {
+      matches = matches.filter(l => l.startsWith(lastWord));
+    }
+
+    // Sort matches
+    matches.sort((a, b) => {
+      if (a === lastWord) return -1;
+      if (b === lastWord) return 1;
+      if (a.length !== b.length) return a.length - b.length;
+      return a.localeCompare(b);
+    });
+
+    traditionalCompletions.value = matches;
+    selectedTraditionalIndex.value = 0;
+
+    if (matches.length > 0) {
+      updatePreview(matches[0], lastWord);
+    } else {
       previewText.value = '';
     }
-  } else {
+  } catch (e) {
+    console.error("Completion error:", e);
     traditionalCompletions.value = [];
     previewText.value = '';
   }
@@ -204,6 +291,9 @@ async function sendCommand() {
   if (!commandInput.value.trim()) return;
 
   const cmd = commandInput.value;
+
+  // Optimistically track CD
+  handleCd(cmd);
 
   // Add to history
   if (commandHistory.value[commandHistory.value.length - 1] !== cmd) {
@@ -433,6 +523,59 @@ function applyAiCompletion() {
 
   showAiCompletions.value = false;
   previewText.value = '';
+}
+
+
+function handleCd(cmd: string) {
+  const trimmed = cmd.trim();
+  if (trimmed.startsWith('cd ')) {
+    const args = trimmed.split(/\s+/);
+    if (args.length >= 2) {
+      const target = args[1];
+      currentDir.value = resolvePath(currentDir.value, target, homeDir.value);
+    }
+  } else if (trimmed === 'cd') {
+    currentDir.value = homeDir.value;
+  }
+}
+
+function resolvePath(current: string, target: string, home: string): string {
+  if (target.startsWith('/')) return target;
+  if (target === '~' || target.startsWith('~/')) {
+    return target.replace('~', home);
+  }
+
+  // Handle .. and .
+  const parts = current.split('/').filter(p => p);
+  const targetParts = target.split('/').filter(p => p);
+
+  for (const part of targetParts) {
+    if (part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+
+  const result = '/' + parts.join('/');
+  return result || '/';
+}
+
+function getShellCompletionCommand(shell: string, word: string, cwd: string): string {
+  // We wrap in cd to ensure context
+  const cdPrefix = `cd "${cwd}" && `;
+
+  if (shell === 'bash' || shell === 'sh') {
+    return `${cdPrefix}compgen -c ${word} | head -20`;
+  } else if (shell === 'zsh') {
+    // Zsh is complex, but we can try to use bash compgen if available, or just list binaries
+    // Fallback to bash compgen if possible
+    return `${cdPrefix}bash -c "compgen -c ${word}" 2>/dev/null || echo ""`;
+  } else {
+    // Generic fallback
+    return `${cdPrefix}compgen -c ${word} 2>/dev/null || echo ""`;
+  }
 }
 
 </script>

@@ -10,12 +10,14 @@ import SettingsModal from "./components/SettingsModal.vue";
 import { useSessionStore } from "./stores/sessions";
 import { useConnectionStore } from "./stores/connections";
 import { useSettingsStore } from "./stores/settings";
+import { useI18n } from "./composables/useI18n";
 import type { Connection } from "./types";
 import { Settings } from "lucide-vue-next";
 
 const sessionStore = useSessionStore();
 const connectionStore = useConnectionStore();
 const settingsStore = useSettingsStore();
+const { t } = useI18n();
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
 const editingConnection = ref<Connection | null>(null);
@@ -111,8 +113,8 @@ function openEditConnectionModal(conn: Connection) {
     <!-- Sidebar -->
     <aside class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0">
       <div class="p-4 border-b border-gray-700 flex justify-between items-center">
-        <h1 class="text-lg font-bold">SSH Assistant</h1>
-        <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" title="Settings">
+        <h1 class="text-lg font-bold">{{ t('app.title') }}</h1>
+        <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" :title="t('app.settings')">
           <Settings class="w-5 h-5" />
         </button>
       </div>
@@ -122,7 +124,7 @@ function openEditConnectionModal(conn: Connection) {
       <div class="p-4 border-t border-gray-700">
         <button @click="openNewConnectionModal"
           class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded cursor-pointer transition-colors">
-          New Connection
+          {{ t('app.newConnection') }}
         </button>
       </div>
     </aside>
@@ -163,7 +165,7 @@ function openEditConnectionModal(conn: Connection) {
         </div>
       </div>
       <div class="flex-1 flex items-center justify-center text-gray-500" v-else>
-        Select a connection to start
+        {{ t('app.selectConnectionToStart') }}
       </div>
     </main>
 
