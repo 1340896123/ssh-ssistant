@@ -1,0 +1,195 @@
+{
+  "schemaVersion": "1.0",
+  "id": "file-management-flow",
+  "metadata": {
+    "projectName": "SSH Assistant",
+    "description": "Analysis of file management flow from session creation to directory browsing and operations.",
+    "author": "Antigravity",
+    "createdAt": "2025-11-24T09:48:38+08:00",
+    "tags": [
+      "ssh",
+      "sftp",
+      "tauri",
+      "vue",
+      "file-manager"
+    ]
+  },
+  "title": "File Management Flow Analysis",
+  "traces": [
+    {
+      "id": "trace-1",
+      "title": "Session Creation to File Manager Activation",
+      "description": "Initialization of SSH session and activation of the file manager component.",
+      "locations": [
+        {
+          "path": "src/stores/sessions.ts",
+          "lineNumber": 14,
+          "lineContent": "async createSession(conn: Connection) {",
+          "title": "Initiate Session Creation",
+          "description": "Frontend store action to start a new session."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 66,
+          "lineContent": "pub async fn connect(",
+          "title": "Backend Connect Command",
+          "description": "Tauri command to establish SSH connection."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 277,
+          "lineContent": "state.clients.lock().map_err(|e| e.to_string())?.insert(id.clone(), client);",
+          "title": "Store Session",
+          "description": "SshClient instance is stored in AppState."
+        },
+        {
+          "path": "src/stores/sessions.ts",
+          "lineNumber": 47,
+          "lineContent": "setActiveTab(tab: 'terminal' | 'files' | 'ai') {",
+          "title": "Activate File Tab",
+          "description": "User switches to the 'files' tab."
+        },
+        {
+          "path": "src/components/FileManager.vue",
+          "lineNumber": 64,
+          "lineContent": "onMounted(async () => {",
+          "title": "Mount File Manager",
+          "description": "FileManager component initializes."
+        }
+      ],
+      "traceTextDiagram": "[User] -> [Session Store]\n             |\n             v\n      [Backend: connect] -> [AppState]\n             |\n             v\n      [FileManager Mount]",
+      "traceGuide": {
+        "motivation": "To establish a secure SSH connection and prepare the UI for file operations.",
+        "details": "The frontend calls the `connect` Tauri command. The backend establishes a TCP connection, performs the SSH handshake, and authenticates. The resulting session is stored in a global `AppState` map keyed by a UUID. The frontend receives this UUID and uses it for subsequent requests."
+      }
+    },
+    {
+      "id": "trace-2",
+      "title": "Directory Browsing Implementation",
+      "description": "Flow for listing files and directories via SFTP.",
+      "locations": [
+        {
+          "path": "src/components/FileManager.vue",
+          "lineNumber": 34,
+          "lineContent": "async function loadFiles(path: string) {",
+          "title": "Frontend Load Files",
+          "description": "Function to request file list for a path."
+        },
+        {
+          "path": "src/components/FileManager.vue",
+          "lineNumber": 36,
+          "lineContent": "files.value = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });",
+          "title": "Invoke List Files",
+          "description": "Calls the backend `list_files` command."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 325,
+          "lineContent": "pub async fn list_files(",
+          "title": "Backend List Files Command",
+          "description": "Handles the file listing request."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 340,
+          "lineContent": "let files = block_on(|| sftp.readdir(path_path)).map_err(|e| e.to_string())?;",
+          "title": "SFTP Read Directory",
+          "description": "Uses ssh2 SFTP to read directory contents."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 383,
+          "lineContent": "entries.push(FileEntry {",
+          "title": "Process Entries",
+          "description": "Converts SFTP entries to FileEntry structs."
+        }
+      ],
+      "traceTextDiagram": "[FileManager]\n     |\n     v\n[loadFiles()] -> [invoke('list_files')]\n                       |\n                       v\n                [Backend: list_files]\n                       |\n                       v\n                [SFTP: readdir]\n                       |\n                       v\n                [Return FileEntry[]]",
+      "traceGuide": {
+        "motivation": "To display the remote file system structure to the user.",
+        "details": "The frontend sends the session ID and path to the backend. The backend retrieves the corresponding `SshClient`, gets an SFTP instance, and calls `readdir`. It also resolves file owners (caching them for performance) and returns a list of `FileEntry` objects."
+      }
+    },
+    {
+      "id": "trace-3",
+      "title": "File Operation (Create Directory)",
+      "description": "Flow for creating a new directory on the remote server.",
+      "locations": [
+        {
+          "path": "src/components/FileManager.vue",
+          "lineNumber": 391,
+          "lineContent": "async function createFolder() {",
+          "title": "Frontend Create Folder",
+          "description": "User initiates folder creation."
+        },
+        {
+          "path": "src/components/FileManager.vue",
+          "lineNumber": 396,
+          "lineContent": "await invoke('create_directory', { id: props.sessionId, path: remotePath });",
+          "title": "Invoke Create Directory",
+          "description": "Calls backend command."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 407,
+          "lineContent": "pub async fn create_directory(",
+          "title": "Backend Create Directory",
+          "description": "Handles directory creation request."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 420,
+          "lineContent": "block_on(|| sftp.mkdir(std::path::Path::new(&path), 0o755)).map_err(|e| e.to_string())?;",
+          "title": "SFTP Make Directory",
+          "description": "Executes mkdir via SFTP."
+        },
+        {
+          "path": "src/components/FileManager.vue",
+          "lineNumber": 397,
+          "lineContent": "await loadFiles(currentPath.value);",
+          "title": "Refresh File List",
+          "description": "Updates the UI to show the new folder."
+        }
+      ],
+      "traceTextDiagram": "[User Input] -> [createFolder()]\n                      |\n                      v\n               [invoke('create_directory')]\n                      |\n                      v\n               [Backend: create_directory]\n                      |\n                      v\n               [SFTP: mkdir]\n                      |\n                      v\n               [Frontend: loadFiles()]",
+      "traceGuide": {
+        "motivation": "To allow users to organize files by creating new directories.",
+        "details": "The user provides a name. The frontend constructs the full path and invokes the backend command. The backend uses the SFTP `mkdir` method with default permissions (0755). Upon success, the frontend refreshes the file list."
+      }
+    },
+    {
+      "id": "trace-4",
+      "title": "Session State Management",
+      "description": "Managing session lifecycle and cleanup.",
+      "locations": [
+        {
+          "path": "src/stores/sessions.ts",
+          "lineNumber": 33,
+          "lineContent": "async closeSession(id: string) {",
+          "title": "Close Session",
+          "description": "Frontend action to close a session."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 283,
+          "lineContent": "pub async fn disconnect(",
+          "title": "Backend Disconnect",
+          "description": "Removes session from state."
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 30,
+          "lineContent": "pub struct AppState {",
+          "title": "AppState Structure",
+          "description": "Global state holding active sessions."
+        }
+      ],
+      "traceTextDiagram": "[User Close] -> [closeSession()]\n                      |\n                      v\n               [invoke('disconnect')]\n                      |\n                      v\n               [Backend: Remove Client]\n                      |\n                      v\n               [Update Store]",
+      "traceGuide": {
+        "motivation": "To ensure resources are freed when a session is ended.",
+        "details": "When a user closes a tab, the `closeSession` action is triggered. It calls the backend `disconnect` command, which removes the `SshClient` from the `AppState` map, dropping the SSH session and closing the connection. The frontend store is then updated to remove the session from the list."
+      }
+    }
+  ],
+  "mermaidDiagram": "graph TB\n    subgraph Frontend\n        A[Session Store] -->|createSession| B(FileManager.vue)\n        B -->|loadFiles| C[Tauri Invoke]\n        B -->|createFolder| C\n    end\n    subgraph API_Layer\n        C -->|connect| D[Command: connect]\n        C -->|list_files| E[Command: list_files]\n        C -->|create_directory| F[Command: create_directory]\n    end\n    subgraph Backend\n        D -->|Insert| G[AppState]\n        E -->|Get Client| G\n        E -->|sftp.readdir| H[SSH/SFTP Session]\n        F -->|Get Client| G\n        F -->|sftp.mkdir| H\n    end"
+}
