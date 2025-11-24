@@ -82,10 +82,14 @@ interface FileEntry {
 onMounted(async () => {
   if (!terminalContainer.value) return;
 
+  const appearance = settingsStore.terminalAppearance;
+
   term = new Terminal({
     cursorBlink: true,
-    fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontSize: appearance.fontSize,
+    fontFamily: appearance.fontFamily,
+    cursorStyle: appearance.cursorStyle,
+    lineHeight: appearance.lineHeight,
     theme: {
       background: '#000000',
     },
@@ -335,6 +339,18 @@ watch(searchText, (val) => {
         searchAddon?.findNext(val);
     }
 });
+
+watch(
+  () => settingsStore.terminalAppearance,
+  (val) => {
+    if (!term) return;
+    term.options.fontSize = val.fontSize;
+    term.options.fontFamily = val.fontFamily;
+    term.options.cursorStyle = val.cursorStyle;
+    term.options.lineHeight = val.lineHeight;
+  },
+  { deep: true }
+);
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize);
