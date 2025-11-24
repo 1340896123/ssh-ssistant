@@ -30,6 +30,7 @@ pub fn run() {
             ssh::create_file,
             ssh::delete_item,
             ssh::rename_item,
+            ssh::change_file_permission,
             ssh::download_file,
             ssh::upload_file,
             ssh::upload_file_with_progress,

@@ -328,6 +328,25 @@ async function handleDownload(file: FileEntry) {
     closeContextMenu();
 }
 
+async function handleChangePermissions(file: FileEntry) {
+    if (!file) return;
+    const newPerms = prompt("Enter new permissions (e.g., 755, u+x):", file.permissions ? file.permissions.toString() : '');
+    if (newPerms) {
+        try {
+            const remotePath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
+            await invoke('change_file_permission', {
+                id: props.sessionId,
+                path: remotePath,
+                perms: newPerms
+            });
+            await loadFiles(currentPath.value);
+        } catch (e) {
+            alert("Failed to change permissions: " + e);
+        }
+    }
+    closeContextMenu();
+}
+
 async function performDelete(skipConfirm: boolean) {
     if (selectedFiles.value.size === 0) return;
 
@@ -542,6 +561,8 @@ function formatDate(timestamp: number) {
             <div class="border-t border-gray-700 my-1"></div>
             <button @click.stop="copyPath(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Copy Path</button>
+            <button @click.stop="handleChangePermissions(contextMenu.file!)"
+                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Change Permissions</button>
         </div>
     </div>
 </template>

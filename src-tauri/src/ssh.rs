@@ -528,6 +528,17 @@ pub async fn rename_item(
 }
 
 #[tauri::command]
+pub async fn change_file_permission(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+    perms: String,
+) -> Result<(), String> {
+    let command = format!("chmod {} \"{}\"", perms, path);
+    exec_command(state, id, command).await.map(|_| ())
+}
+
+#[tauri::command]
 pub async fn download_file(
     state: State<'_, AppState>,
     id: String,
