@@ -433,13 +433,21 @@ function handleDrop(event: DragEvent) {
 }
 
 const isDraggingOver = ref(false);
+const dragCounter = ref(0);
 
 function onDragEnter() {
-  isDraggingOver.value = true;
+  dragCounter.value++;
+  if (dragCounter.value === 1) {
+    isDraggingOver.value = true;
+  }
 }
 
 function onDragLeave() {
-  isDraggingOver.value = false;
+  dragCounter.value--;
+  if (dragCounter.value <= 0) {
+    dragCounter.value = 0;
+    isDraggingOver.value = false;
+  }
 }
 
 function onDragOver(event: DragEvent) {
@@ -450,6 +458,7 @@ function onDragOver(event: DragEvent) {
 }
 
 function onDrop(event: DragEvent) {
+  dragCounter.value = 0;
   isDraggingOver.value = false;
   handleDrop(event);
 }
@@ -461,12 +470,14 @@ function removeContextPath(pathToRemove: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-900 text-white relative" @dragenter.stop.prevent="onDragEnter" @dragover.stop.prevent="onDragOver" @drop.stop.prevent="onDrop">
+  <div class="flex flex-col h-full bg-gray-900 text-white relative" @dragenter.stop.prevent="onDragEnter"
+    @dragleave.stop.prevent="onDragLeave" @dragover.stop.prevent="onDragOver" @drop.stop.prevent="onDrop">
 
     <!-- Drop Overlay -->
     <div v-if="isDraggingOver"
       class="absolute inset-0 z-50 bg-blue-900/90 flex flex-col items-center justify-center border-2 border-dashed border-blue-400 m-2 rounded-lg backdrop-blur-sm transition-opacity"
-      @dragleave.stop.prevent="onDragLeave" @dragover.stop.prevent="onDragOver" @drop.stop.prevent="onDrop">
+      @dragenter.stop.prevent="onDragEnter" @dragleave.stop.prevent="onDragLeave" @dragover.stop.prevent="onDragOver"
+      @drop.stop.prevent="onDrop">
       <ClipboardPlus class="w-12 h-12 text-blue-400 mb-2" />
       <div class="text-xl font-bold text-white pointer-events-none">
         Drop files to add context
@@ -549,7 +560,8 @@ function removeContextPath(pathToRemove: string) {
           title="Import terminal context">
           <ClipboardPlus class="w-5 h-5" />
         </button>
-        <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage" @dragover.prevent.stop="onDragOver" @drop.prevent.stop="onDrop"
+        <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage" @dragover.prevent.stop="onDragOver"
+          @drop.prevent.stop="onDrop"
           class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
           placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
         <button @click="sendMessage" :disabled="isLoading || !input.trim()"
