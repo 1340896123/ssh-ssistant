@@ -43,7 +43,7 @@ export const useTransferStore = defineStore('transfers', () => {
 
     function addTransfer(item: TransferItem) {
         items.value.unshift(item);
-        return startTransfer(item.id);
+        void startTransfer(item.id);
     }
 
     async function startTransfer(id: string) {

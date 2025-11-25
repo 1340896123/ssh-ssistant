@@ -37,6 +37,35 @@ export interface I18nMessages {
     saveChanges: string
     cancel: string
   }
+  fileManager: {
+    toolbar: {
+      upLevel: string
+      pathPlaceholder: string
+      refresh: string
+      newFile: string
+      newFolder: string
+      uploadFile: string
+      uploadDirectory: string
+    }
+    headers: {
+      name: string
+      size: string
+      dateModified: string
+      owner: string
+    }
+    emptyDirectory: string
+    contextMenu: {
+      download: string
+      rename: string
+      delete: string
+      copyPath: string
+      changePermissions: string
+    }
+    deleteConfirm: {
+      title: string
+      message: string
+    }
+  }
   transfers: {
     title: string
     clearCompleted: string

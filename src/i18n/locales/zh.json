@@ -56,6 +56,33 @@
     "viewMode": {
       "flat": "扁平",
       "tree": "树状"
+    },
+    "toolbar": {
+      "upLevel": "上一级",
+      "pathPlaceholder": "路径...",
+      "refresh": "刷新",
+      "newFile": "新建文件",
+      "newFolder": "新建文件夹",
+      "uploadFile": "上传文件",
+      "uploadDirectory": "上传目录"
+    },
+    "headers": {
+      "name": "名称",
+      "size": "大小",
+      "dateModified": "修改时间",
+      "owner": "拥有者"
+    },
+    "emptyDirectory": "空目录",
+    "contextMenu": {
+      "download": "下载",
+      "rename": "重命名",
+      "delete": "删除",
+      "copyPath": "复制路径",
+      "changePermissions": "修改权限"
+    },
+    "deleteConfirm": {
+      "title": "确认删除",
+      "message": "删除 {count} 个项目？"
     }
   },
   "transfers": {

@@ -56,6 +56,33 @@
     "viewMode": {
       "flat": "Flat",
       "tree": "Tree"
+    },
+    "toolbar": {
+      "upLevel": "Up level",
+      "pathPlaceholder": "Path...",
+      "refresh": "Refresh",
+      "newFile": "New File",
+      "newFolder": "New Folder",
+      "uploadFile": "Upload File",
+      "uploadDirectory": "Upload Directory"
+    },
+    "headers": {
+      "name": "Name",
+      "size": "Size",
+      "dateModified": "Date Modified",
+      "owner": "Owner"
+    },
+    "emptyDirectory": "Empty directory",
+    "contextMenu": {
+      "download": "Download",
+      "rename": "Rename",
+      "delete": "Delete",
+      "copyPath": "Copy Path",
+      "changePermissions": "Change Permissions"
+    },
+    "deleteConfirm": {
+      "title": "Confirm Deletion",
+      "message": "Delete {count} item(s)?"
     }
   },
   "transfers": {

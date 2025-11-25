@@ -9,6 +9,7 @@ import type { FileEntry, FileManagerViewMode } from '../types';
 import { useTransferStore } from '../stores/transfers';
 import { useSettingsStore } from '../stores/settings';
 import TransferList from './TransferList.vue';
+import { useI18n } from '../composables/useI18n';
 
 type ColumnKey = 'name' | 'size' | 'date' | 'owner';
 
@@ -21,12 +22,40 @@ interface TreeNode {
     loading: boolean;
 }
 
+function showTreeContextMenu(e: MouseEvent, node: TreeNode) {
+    e.preventDefault();
+
+    const next = new Set(selectedTreePaths.value);
+    if (!next.has(node.path)) {
+        next.clear();
+        next.add(node.path);
+        selectedTreePaths.value = next;
+    }
+
+    let x = e.clientX;
+    let y = e.clientY;
+
+    const menuWidth = 160;
+    const menuHeight = 180;
+
+    if (x + menuWidth > window.innerWidth) {
+        x = window.innerWidth - menuWidth - 10;
+    }
+
+    if (y + menuHeight > window.innerHeight) {
+        y = window.innerHeight - menuHeight - 10;
+    }
+
+    contextMenu.value = { show: true, x, y, file: node.entry, treePath: node.path, isTree: true };
+}
+
 const props = defineProps<{ sessionId: string }>();
+const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const viewMode = computed<FileManagerViewMode>(() => settingsStore.fileManager.viewMode);
 const currentPath = ref('.');
 const files = ref<FileEntry[]>([]);
-const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null }>({ show: false, x: 0, y: 0, file: null });
+const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null, treePath: string | null, isTree: boolean }>({ show: false, x: 0, y: 0, file: null, treePath: null, isTree: false });
 const isEditingPath = ref(false);
 const pathInput = ref('');
 const selectedFiles = ref<Set<string>>(new Set());
@@ -188,6 +217,7 @@ async function openTreeFile(node: TreeNode) {
 }
 
 function handleTreeSelection(node: TreeNode) {
+    closeContextMenu();
     const next = new Set(selectedTreePaths.value);
     if (next.has(node.path)) {
         next.delete(node.path);
@@ -237,7 +267,6 @@ onMounted(async () => {
 
         if (!paths || paths.length === 0) return;
 
-        const uploadPromises = [];
         for (const localPath of paths) {
             // Handle both slash and backslash, remove empty parts
             const parts = localPath.split(/[\\/]/).filter(p => p);
@@ -246,7 +275,7 @@ onMounted(async () => {
 
             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
-            uploadPromises.push(transferStore.addTransfer({
+            transferStore.addTransfer({
                 id: transferId,
                 type: 'upload',
                 name,
@@ -257,10 +286,8 @@ onMounted(async () => {
                 progress: 0,
                 status: 'pending',
                 sessionId: props.sessionId
-            }));
+            });
         }
-
-        await Promise.all(uploadPromises);
         loadFiles(currentPath.value);
     });
 });
@@ -318,6 +345,7 @@ function handlePathSubmit() {
 }
 
 function handleSelection(event: MouseEvent, file: FileEntry, index: number) {
+    closeContextMenu();
     if (event.ctrlKey || event.metaKey) {
         // Toggle selection
         if (selectedFiles.value.has(file.name)) {
@@ -369,7 +397,7 @@ function showContextMenu(e: MouseEvent, file: FileEntry) {
         y = window.innerHeight - menuHeight - 10;
     }
 
-    contextMenu.value = { show: true, x, y, file };
+    contextMenu.value = { show: true, x, y, file, treePath: null, isTree: false };
 }
 
 function closeContextMenu() {
@@ -388,7 +416,7 @@ async function handleUpload() {
 
             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
-            await transferStore.addTransfer({
+            transferStore.addTransfer({
                 id: transferId,
                 type: 'upload',
                 name,
@@ -425,7 +453,7 @@ async function processDirectory(localPath: string, remoteBasePath: string) {
             await processDirectory(fullLocalPath, fullRemotePath);
         } else {
             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
-            await transferStore.addTransfer({
+            transferStore.addTransfer({
                 id: transferId,
                 type: 'upload',
                 name: entry.name,
@@ -476,7 +504,9 @@ async function handleDownload(file: FileEntry) {
             title: 'Save file as'
         });
         if (savePath) {
-            const remotePath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
+            const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
+                ? contextMenu.value.treePath
+                : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
 
             transferStore.addTransfer({
                 id: crypto.randomUUID(),
@@ -503,7 +533,9 @@ async function handleChangePermissions(file: FileEntry) {
     const newPerms = prompt("Enter new permissions (e.g., 755, u+x):", file.permissions ? file.permissions.toString() : '');
     if (newPerms) {
         try {
-            const remotePath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
+            const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
+                ? contextMenu.value.treePath
+                : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
             await invoke('change_file_permission', {
                 id: props.sessionId,
                 path: remotePath,
@@ -518,12 +550,12 @@ async function handleChangePermissions(file: FileEntry) {
 }
 
 async function performDelete(skipConfirm: boolean) {
-    if (selectedFiles.value.size === 0) return;
+    if (!contextMenu.value.isTree && selectedFiles.value.size === 0) return;
 
     if (!skipConfirm) {
-        const count = selectedFiles.value.size;
-        const yes = await ask(`Delete ${count} item(s)?`, {
-            title: 'Confirm Deletion',
+        const count = contextMenu.value.isTree ? 1 : selectedFiles.value.size;
+        const yes = await ask(t('fileManager.deleteConfirm.message', { count }), {
+            title: t('fileManager.deleteConfirm.title'),
             kind: 'warning'
         });
         if (!yes) return;
@@ -531,14 +563,20 @@ async function performDelete(skipConfirm: boolean) {
 
     try {
         // Convert Set to Array for iteration
-        const targets = Array.from(selectedFiles.value);
-        for (const name of targets) {
-            // Find file entry to get isDir
-            const entry = files.value.find(f => f.name === name);
-            if (!entry) continue;
+        if (contextMenu.value.isTree && contextMenu.value.treePath && contextMenu.value.file) {
+            const path = contextMenu.value.treePath;
+            const isDir = contextMenu.value.file.isDir;
+            await invoke('delete_item', { id: props.sessionId, path, isDir });
+        } else {
+            const targets = Array.from(selectedFiles.value);
+            for (const name of targets) {
+                // Find file entry to get isDir
+                const entry = files.value.find(f => f.name === name);
+                if (!entry) continue;
 
-            const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
-            await invoke('delete_item', { id: props.sessionId, path: remotePath, isDir: entry.isDir });
+                const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+                await invoke('delete_item', { id: props.sessionId, path: remotePath, isDir: entry.isDir });
+            }
         }
         await loadFiles(currentPath.value);
     } catch (e) {
@@ -548,8 +586,10 @@ async function performDelete(skipConfirm: boolean) {
 }
 
 async function handleDelete(file?: FileEntry) {
-    if (selectedFiles.value.size === 0 && file) {
-        selectedFiles.value.add(file.name);
+    if (!contextMenu.value.isTree) {
+        if (selectedFiles.value.size === 0 && file) {
+            selectedFiles.value.add(file.name);
+        }
     }
     await performDelete(false);
 }
@@ -567,8 +607,19 @@ async function handleRename(file: FileEntry) {
     const newName = prompt("New name:", file.name);
     if (!newName || newName === file.name) return;
     try {
-        const oldPath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
-        const newPath = currentPath.value === '.' ? newName : `${currentPath.value}/${newName}`;
+        let oldPath: string;
+        let newPath: string;
+
+        if (contextMenu.value.isTree && contextMenu.value.treePath) {
+            oldPath = contextMenu.value.treePath;
+            const parts = oldPath.split('/');
+            parts.pop();
+            const parent = parts.join('/');
+            newPath = parent ? `${parent}/${newName}` : newName;
+        } else {
+            oldPath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
+            newPath = currentPath.value === '.' ? newName : `${currentPath.value}/${newName}`;
+        }
         await invoke('rename_item', { id: props.sessionId, oldPath, newPath });
         await loadFiles(currentPath.value);
     } catch (e) {
@@ -602,13 +653,28 @@ async function createFile() {
 }
 
 function copyPath(file: FileEntry) {
-    const remotePath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
+    const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
+        ? contextMenu.value.treePath
+        : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
     navigator.clipboard.writeText(remotePath);
     closeContextMenu();
 }
 
 function formatDate(timestamp: number) {
     return new Date(timestamp * 1000).toLocaleString();
+}
+
+function formatSize(size: number): string {
+    if (!Number.isFinite(size) || size < 0) return '-';
+    if (size === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = size;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex++;
+    }
+    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 </script>
 
@@ -618,15 +684,15 @@ function formatDate(timestamp: number) {
         <div class="flex flex-col space-y-2 mb-2 bg-gray-800 p-2 rounded">
             <!-- Path Bar -->
             <div class="flex items-center space-x-2">
-                <button @click="goUp" class="p-1 hover:bg-gray-700 rounded text-gray-300" title="Up level">
+                <button @click="goUp" class="p-1 hover:bg-gray-700 rounded text-gray-300" :title="t('fileManager.toolbar.upLevel')">
                     <ArrowUp class="w-4 h-4" />
                 </button>
                 <div class="flex-1 relative">
                     <input v-model="pathInput" @keydown.enter="handlePathSubmit"
                         class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm font-mono text-gray-300 focus:outline-none focus:border-blue-500"
-                        placeholder="Path..." />
+                        :placeholder="t('fileManager.toolbar.pathPlaceholder')" />
                 </div>
-                <button @click="refresh" class="p-1 hover:bg-gray-700 rounded text-gray-300" title="Refresh">
+                <button @click="refresh" class="p-1 hover:bg-gray-700 rounded text-gray-300" :title="t('fileManager.toolbar.refresh')">
                     <RefreshCw class="w-4 h-4" />
                 </button>
             </div>
@@ -635,29 +701,29 @@ function formatDate(timestamp: number) {
             <div class="flex items-center space-x-2 border-t border-gray-700 pt-2">
                 <button @click="createFile"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded"
-                    title="New File">
+                    :title="t('fileManager.toolbar.newFile')">
                     <FilePlus class="w-3 h-3" />
-                    <span>New File</span>
+                    <span>{{ t('fileManager.toolbar.newFile') }}</span>
                 </button>
                 <button @click="createFolder"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded"
-                    title="New Folder">
+                    :title="t('fileManager.toolbar.newFolder')">
                     <FolderPlus class="w-3 h-3" />
-                    <span>New Folder</span>
+                    <span>{{ t('fileManager.toolbar.newFolder') }}</span>
                 </button>
                 <div class="w-px h-4 bg-gray-700 mx-1"></div>
                 <button @click="handleUpload"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded"
-                    title="Upload File">
+                    :title="t('fileManager.toolbar.uploadFile')">
                     <Upload class="w-3 h-3" />
-                    <span>Upload File</span>
+                    <span>{{ t('fileManager.toolbar.uploadFile') }}</span>
                 </button>
                 <!-- Upload Directory placeholder -->
                 <button @click="handleUploadDirectory"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded"
-                    title="Upload Directory">
+                    :title="t('fileManager.toolbar.uploadDirectory')">
                     <FolderPlus class="w-3 h-3" />
-                    <span>Upload Dir</span>
+                    <span>{{ t('fileManager.toolbar.uploadDirectory') }}</span>
                 </button>
             </div>
         </div>
@@ -668,22 +734,22 @@ function formatDate(timestamp: number) {
             <div
                 class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold select-none">
                 <div class="flex items-center" :style="{ width: columnWidths.name + 'px' }">
-                    <span class="mr-1">Name</span>
+                    <span class="mr-1">{{ t('fileManager.headers.name') }}</span>
                     <span class="w-1 h-6 ml-auto cursor-col-resize"
                         @mousedown.stop="startResize('name', $event)"></span>
                 </div>
                 <div class="text-right" :style="{ width: columnWidths.size + 'px' }">
-                    <span>Size</span>
+                    <span>{{ t('fileManager.headers.size') }}</span>
                     <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle"
                         @mousedown.stop="startResize('size', $event)"></span>
                 </div>
                 <div :style="{ width: columnWidths.date + 'px' }">
-                    <span>Date Modified</span>
+                    <span>{{ t('fileManager.headers.dateModified') }}</span>
                     <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle"
                         @mousedown.stop="startResize('date', $event)"></span>
                 </div>
                 <div :style="{ width: columnWidths.owner + 'px' }">
-                    <span>Owner</span>
+                    <span>{{ t('fileManager.headers.owner') }}</span>
                     <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle"
                         @mousedown.stop="startResize('owner', $event)"></span>
                 </div>
@@ -704,7 +770,7 @@ function formatDate(timestamp: number) {
                     </div>
                     <span class="text-xs text-gray-500 font-mono text-right"
                         :style="{ width: columnWidths.size + 'px' }">{{
-                            file.size }}</span>
+                            file.isDir ? '' : formatSize(file.size) }}</span>
                     <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
                         formatDate(file.mtime) }}</span>
                     <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{
@@ -719,7 +785,7 @@ function formatDate(timestamp: number) {
                     class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
                     :class="{ 'bg-blue-900/50': selectedTreePaths.has(node.path), 'hover:bg-gray-800': !selectedTreePaths.has(node.path) }"
                     draggable="true" @dragstart="onTreeDragStart($event, node)" @click.stop="handleTreeSelection(node)"
-                    @dblclick.stop="openTreeFile(node)">
+                    @dblclick.stop="openTreeFile(node)" @contextmenu.stop.prevent="showTreeContextMenu($event, node)">
                     <div class="flex items-center min-w-0"
                         :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
                         <button v-if="node.entry.isDir"
@@ -735,7 +801,7 @@ function formatDate(timestamp: number) {
                     </div>
                     <span class="text-xs text-gray-500 font-mono text-right"
                         :style="{ width: columnWidths.size + 'px' }">{{
-                            node.entry.size }}</span>
+                            node.entry.isDir ? '' : formatSize(node.entry.size) }}</span>
                     <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
                         formatDate(node.entry.mtime) }}</span>
                     <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{
@@ -745,7 +811,7 @@ function formatDate(timestamp: number) {
             </template>
 
             <div v-if="files.length === 0" class="p-4 text-center text-gray-600 text-sm">
-                Empty directory
+                {{ t('fileManager.emptyDirectory') }}
             </div>
         </div>
 
@@ -757,20 +823,19 @@ function formatDate(timestamp: number) {
             class="fixed bg-gray-800 border border-gray-700 shadow-xl rounded z-50 py-1 min-w-[150px]">
             <button @click.stop="handleDownload(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
-                <span class="flex-1">Download</span>
+                <span class="flex-1">{{ t('fileManager.contextMenu.download') }}</span>
             </button>
             <button @click.stop="handleRename(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Rename</button>
+                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.rename') }}</button>
             <button @click.stop="handleDelete(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 text-red-400">
-                Delete {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : '' }}
+                {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : '' }}
             </button>
             <div class="border-t border-gray-700 my-1"></div>
             <button @click.stop="copyPath(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Copy
-                Path</button>
+                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.copyPath') }}</button>
             <button @click.stop="handleChangePermissions(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Change Permissions</button>
+                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.changePermissions') }}</button>
         </div>
     </div>
 </template>
