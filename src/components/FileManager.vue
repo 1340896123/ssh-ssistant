@@ -1,17 +1,29 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus } from 'lucide-vue-next';
 import { open, save, ask, message } from '@tauri-apps/plugin-dialog';
 import { readDir } from '@tauri-apps/plugin-fs';
-import type { FileEntry } from '../types';
+import type { FileEntry, FileManagerViewMode } from '../types';
 import { useTransferStore } from '../stores/transfers';
+import { useSettingsStore } from '../stores/settings';
 import TransferList from './TransferList.vue';
 
 type ColumnKey = 'name' | 'size' | 'date' | 'owner';
 
+interface TreeNode {
+    entry: FileEntry;
+    path: string;
+    depth: number;
+    parentPath: string | null;
+    childrenLoaded: boolean;
+    loading: boolean;
+}
+
 const props = defineProps<{ sessionId: string }>();
+const settingsStore = useSettingsStore();
+const viewMode = computed<FileManagerViewMode>(() => settingsStore.fileManager.viewMode);
 const currentPath = ref('.');
 const files = ref<FileEntry[]>([]);
 const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null }>({ show: false, x: 0, y: 0, file: null });
@@ -21,6 +33,10 @@ const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
 let unlistenDrop: (() => void) | null = null;
 const transferStore = useTransferStore();
+const treeRootPath = ref<string>('.');
+const treeNodes = ref<Map<string, TreeNode>>(new Map());
+const expandedPaths = ref<Set<string>>(new Set());
+const selectedTreePaths = ref<Set<string>>(new Set());
 const columnWidths = ref<Record<ColumnKey, number>>({
     name: 260,
     size: 100,
@@ -31,6 +47,37 @@ const resizingColumn = ref<ColumnKey | null>(null);
 const resizeStartX = ref(0);
 const resizeStartWidth = ref(0);
 
+const visibleTreeNodes = computed<TreeNode[]>(() => {
+    const result: TreeNode[] = [];
+    const nodes = treeNodes.value;
+
+    const collectChildren = (parentPath: string | null, depth: number) => {
+        const children: TreeNode[] = [];
+        nodes.forEach((node) => {
+            if (node.parentPath === parentPath) {
+                children.push({ ...node, depth });
+            }
+        });
+
+        children.sort((a, b) => {
+            if (a.entry.isDir === b.entry.isDir) {
+                return a.entry.name.localeCompare(b.entry.name);
+            }
+            return a.entry.isDir ? -1 : 1;
+        });
+
+        for (const child of children) {
+            result.push(child);
+            if (child.entry.isDir && expandedPaths.value.has(child.path)) {
+                collectChildren(child.path, depth + 1);
+            }
+        }
+    };
+
+    collectChildren(treeRootPath.value === '.' ? null : treeRootPath.value, 0);
+    return result;
+});
+
 async function loadFiles(path: string) {
     try {
         files.value = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
@@ -38,10 +85,107 @@ async function loadFiles(path: string) {
         pathInput.value = path;
         selectedFiles.value.clear();
         lastSelectedIndex.value = -1;
+
+        if (viewMode.value === 'tree') {
+            treeRootPath.value = path;
+            treeNodes.value = new Map();
+            expandedPaths.value = new Set();
+            selectedTreePaths.value = new Set();
+            const parentPath = path === '.' ? null : path;
+            for (const entry of files.value) {
+                const fullPath = path === '.' ? entry.name : `${path}/${entry.name}`;
+                treeNodes.value.set(fullPath, {
+                    entry,
+                    path: fullPath,
+                    depth: 0,
+                    parentPath,
+                    childrenLoaded: false,
+                    loading: false,
+                });
+            }
+        }
     } catch (e) {
         console.error(e);
         files.value = [];
     }
+}
+
+async function toggleDirectory(node: TreeNode) {
+    if (!node.entry.isDir) {
+        await openTreeFile(node);
+        return;
+    }
+
+    const isExpanded = expandedPaths.value.has(node.path);
+    if (isExpanded) {
+        expandedPaths.value.delete(node.path);
+        return;
+    }
+
+    expandedPaths.value.add(node.path);
+
+    if (node.childrenLoaded || node.loading) {
+        return;
+    }
+
+    const existing = treeNodes.value.get(node.path);
+    if (!existing) return;
+    existing.loading = true;
+    treeNodes.value.set(node.path, existing);
+
+    try {
+        const children = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path: node.path });
+        for (const child of children) {
+            const childPath = `${node.path}/${child.name}`;
+            if (!treeNodes.value.has(childPath)) {
+                treeNodes.value.set(childPath, {
+                    entry: child,
+                    path: childPath,
+                    depth: node.depth + 1,
+                    parentPath: node.path,
+                    childrenLoaded: false,
+                    loading: false,
+                });
+            }
+        }
+        existing.childrenLoaded = true;
+        treeNodes.value.set(node.path, existing);
+    } catch (e) {
+        console.error(e);
+    } finally {
+        const updated = treeNodes.value.get(node.path);
+        if (updated) {
+            updated.loading = false;
+            treeNodes.value.set(node.path, updated);
+        }
+    }
+}
+
+async function openTreeFile(node: TreeNode) {
+    if (node.entry.isDir) {
+        await toggleDirectory(node);
+        return;
+    }
+    try {
+        await invoke('edit_remote_file', {
+            id: props.sessionId,
+            remotePath: node.path,
+            remoteName: node.entry.name,
+        });
+    } catch (e) {
+        alert("Failed to open file: " + e);
+    }
+}
+
+function handleTreeSelection(node: TreeNode) {
+    const next = new Set(selectedTreePaths.value);
+    if (next.has(node.path)) {
+        next.delete(node.path);
+    } else {
+        next.clear();
+        next.add(node.path);
+    }
+    selectedTreePaths.value = next;
 }
 
 function startResize(column: ColumnKey, event: MouseEvent) {
@@ -99,6 +243,12 @@ onMounted(async () => {
         await Promise.all(uploadPromises);
         loadFiles(currentPath.value);
     });
+});
+
+watch(viewMode, (mode) => {
+    if (mode === 'tree') {
+        loadFiles(currentPath.value);
+    }
 });
 
 onUnmounted(() => {
@@ -519,23 +669,52 @@ function formatDate(timestamp: number) {
                 </div>
             </div>
 
-            <div v-for="(file, index) in files" :key="file.name"
-                class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
-                :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
-                @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
-                @contextmenu="showContextMenu($event, file)">
-                <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
-                    <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
-                    <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
-                    <span class="text-sm truncate">{{ file.name }}</span>
+            <!-- Flat View -->
+            <template v-if="viewMode === 'flat'">
+                <div v-for="(file, index) in files" :key="file.name"
+                    class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
+                    :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
+                    @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
+                    @contextmenu="showContextMenu($event, file)">
+                    <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
+                        <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
+                        <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
+                        <span class="text-sm truncate">{{ file.name }}</span>
+                    </div>
+                    <span class="text-xs text-gray-500 font-mono text-right" :style="{ width: columnWidths.size + 'px' }">{{
+                        file.size }}</span>
+                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
+                        formatDate(file.mtime) }}</span>
+                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{ file.owner
+                        }}</span>
                 </div>
-                <span class="text-xs text-gray-500 font-mono text-right" :style="{ width: columnWidths.size + 'px' }">{{
-                    file.size }}</span>
-                <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
-                    formatDate(file.mtime) }}</span>
-                <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{ file.owner
-                    }}</span>
-            </div>
+            </template>
+
+            <!-- Tree View: multi-level with lazy loading -->
+            <template v-else>
+                <div v-for="node in visibleTreeNodes" :key="node.path"
+                    class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
+                    :class="{ 'bg-blue-900/50': selectedTreePaths.has(node.path), 'hover:bg-gray-800': !selectedTreePaths.has(node.path) }"
+                    @click.stop="handleTreeSelection(node)" @dblclick.stop="openTreeFile(node)">
+                    <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
+                        <button v-if="node.entry.isDir" class="mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400"
+                            @click.stop="toggleDirectory(node)">
+                            <span v-if="expandedPaths.has(node.path)">-</span>
+                            <span v-else>+</span>
+                        </button>
+                        <span v-else class="mr-4"></span>
+                        <Folder v-if="node.entry.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
+                        <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
+                        <span class="text-sm truncate">{{ node.entry.name }}</span>
+                    </div>
+                    <span class="text-xs text-gray-500 font-mono text-right" :style="{ width: columnWidths.size + 'px' }">{{
+                        node.entry.size }}</span>
+                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
+                        formatDate(node.entry.mtime) }}</span>
+                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{ node.entry.owner
+                        }}</span>
+                </div>
+            </template>
 
             <div v-if="files.length === 0" class="p-4 text-center text-gray-600 text-sm">
                 Empty directory
