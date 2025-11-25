@@ -470,7 +470,7 @@ pub async fn list_files(
                         } else {
                             // Try to resolve via remote command: id -nu <uid>
                             let username = {
-                                let mut name = uid.to_string();
+                                let mut name = if uid == 0 { "root".to_string() } else { "-".to_string() };
                                 if let Ok(mut channel) = sess.channel_session() {
                                     let cmd = format!("id -nu {}", uid);
                                     if channel.exec(&cmd).is_ok() {
@@ -492,7 +492,7 @@ pub async fn list_files(
                             username
                         }
                     } else {
-                        uid.to_string()
+                        if uid == 0 { "root".to_string() } else { "-".to_string() }
                     }
                 };
                 entries.push(FileEntry {
@@ -882,7 +882,7 @@ fn get_dir_size(path: &std::path::Path) -> u64 {
 }
 
 fn upload_recursive_progress(
-    sess: &Session,
+    client_sess: &Arc<Mutex<Session>>,
     sftp: &ssh2::Sftp,
     local_path: &std::path::Path,
     remote_path: &str,
@@ -906,8 +906,8 @@ fn upload_recursive_progress(
             let name = path.file_name().ok_or("Invalid file name")?.to_string_lossy();
             // Always use forward slashes for remote SFTP paths
             let new_remote = format!("{}/{}", remote_path.trim_end_matches('/'), name);
-            
-            upload_recursive_progress(sess, sftp, &path, &new_remote, cancel_flag, app, transfer_id, total_size, transferred, resume)?;
+
+            upload_recursive_progress(client_sess, sftp, &path, &new_remote, cancel_flag, app, transfer_id, total_size, transferred, resume)?;
         }
     } else {
         let mut local_file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
@@ -935,9 +935,14 @@ fn upload_recursive_progress(
                         
                         // Verify Checksum before resuming
                         let local_hash = compute_local_file_hash(local_path, size)?;
-                        
-                        // Use passed session
-                        if let Ok(Some(remote_hash)) = get_remote_file_hash(sess, remote_path) {
+
+                        // Lock session only while computing remote hash
+                        let remote_hash_result = {
+                            let sess = client_sess.lock().map_err(|e| e.to_string())?;
+                            get_remote_file_hash(&sess, remote_path)
+                        };
+
+                        if let Ok(Some(remote_hash)) = remote_hash_result {
                             if remote_hash.len() == 64 && local_hash == remote_hash {
                                 offset = size;
                             } else if remote_hash.len() == 32 {
@@ -1073,9 +1078,14 @@ pub async fn upload_file_with_progress(
     let cancel_flag = Arc::new(AtomicBool::new(false));
     state.transfers.lock().map_err(|e| e.to_string())?.insert(transfer_id.clone(), cancel_flag.clone());
 
-    let sess = client_sess.lock().map_err(|e| e.to_string())?;
-    let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    
+    // Only lock the SSH session long enough to create the SFTP handle,
+    // then release it so other commands (like list_files) can run while
+    // a long transfer is in progress.
+    let sftp = {
+        let sess = client_sess.lock().map_err(|e| e.to_string())?;
+        block_on(|| sess.sftp()).map_err(|e| e.to_string())?
+    };
+
     let local_p = std::path::Path::new(&local_path);
     let total_size = if local_p.is_dir() {
         get_dir_size(local_p)
@@ -1085,7 +1095,7 @@ pub async fn upload_file_with_progress(
     
     let mut transferred = 0;
     
-    let res = upload_recursive_progress(&sess, &sftp, local_p, &remote_path, &cancel_flag, &app, &transfer_id, total_size, &mut transferred, resume);
+    let res = upload_recursive_progress(&client_sess, &sftp, local_p, &remote_path, &cancel_flag, &app, &transfer_id, total_size, &mut transferred, resume);
     
     state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
     
