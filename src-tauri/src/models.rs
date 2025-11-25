@@ -47,9 +47,16 @@ pub struct TerminalAppearanceSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct FileManagerSettings {
+    pub view_mode: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub theme: String,
     pub language: String,
     pub ai: AIConfig,
     pub terminal_appearance: TerminalAppearanceSettings,
+    pub file_manager: FileManagerSettings,
 }

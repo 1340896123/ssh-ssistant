@@ -1,0 +1,204 @@
+{
+  "schemaVersion": "1.0",
+  "id": "ssh-assistant-complete-architecture-20251125",
+  "metadata": {
+    "name": "SSH Assistant Complete Architecture Analysis",
+    "description": "Complete code architecture and functionality map for SSH Assistant application",
+    "author": "Code Analysis Agent",
+    "createdAt": "2025-11-25T00:00:00Z",
+    "version": "1.0.0",
+    "tags": ["ssh", "terminal", "file-manager", "ai-assistant", "tauri", "vue"]
+  },
+  "title": "SSH远程连接助手 - 完整功能架构图",
+  "traces": [
+    {
+      "id": "trace-1",
+      "title": "应用启动与初始化流程",
+      "description": "从应用启动到用户界面的完整初始化过程",
+      "locations": [
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\main.ts",
+          "lineNumber": 8,
+          "lineContent": "const initApp = async () => {",
+          "title": "应用初始化入口",
+          "description": "Vue应用的异步初始化函数，负责设置语言和挂载应用"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\main.ts",
+          "lineNumber": 10,
+          "lineContent": "const savedLanguage = (localStorage.getItem('preferred-locale') as 'zh' | 'en') || 'zh';",
+          "title": "语言设置加载",
+          "description": "从本地存储加载用户保存的语言偏好设置"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\main.ts",
+          "lineNumber": 15,
+          "lineContent": "const app = createApp(App);",
+          "title": "Vue应用创建",
+          "description": "创建Vue应用实例"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src-tauri\\src\\lib.rs",
+          "lineNumber": 19,
+          "lineContent": "db::init_db(app.handle())?;",
+          "title": "数据库初始化",
+          "description": "在Tauri后端初始化SQLite数据库"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src-tauri\\src\\db.rs",
+          "lineNumber": 13,
+          "lineContent": "pub fn init_db(app_handle: &AppHandle) -> Result<()> {",
+          "title": "数据库表结构初始化",
+          "description": "创建connections和settings表结构"
+        }
+      ],
+      "traceTextDiagram": "应用启动流程:\n┌─────────────────┐\n│ main.ts启动     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 加载语言设置    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 创建Vue实例     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 挂载App.vue     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ Tauri初始化     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 数据库初始化    │\n└─────────────────┘",
+      "traceGuide": {
+        "motivation": "确保应用在启动时正确初始化所有必要组件，包括国际化支持、状态管理、数据库连接等核心功能。",
+        "details": "应用启动时，首先从localStorage读取用户的语言偏好设置，然后创建Vue应用实例，集成Pinia状态管理和i18n国际化支持。在Tauri后端，初始化SQLite数据库，创建连接配置表和系统设置表，支持数据持久化存储。整个过程采用异步初始化模式，确保所有依赖正确加载后再显示用户界面。"
+      }
+    },
+    {
+      "id": "trace-2",
+      "title": "SSH连接建立与会话管理",
+      "description": "从连接配置到SSH会话建立的完整流程",
+      "locations": [
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\stores\\sessions.ts",
+          "lineNumber": 14,
+          "lineContent": "async createSession(conn: Connection) {",
+          "title": "会话创建入口",
+          "description": "前端状态管理中的会话创建函数"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\stores\\sessions.ts",
+          "lineNumber": 16,
+          "lineContent": "const id = await invoke<string>('connect', { config: conn });",
+          "title": "SSH连接调用",
+          "description": "通过Tauri invoke调用后端SSH连接功能"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src-tauri\\src\\ssh.rs",
+          "lineNumber": 67,
+          "lineContent": "pub async fn connect(",
+          "title": "SSH连接处理",
+          "description": "后端SSH连接实现，支持跳板机连接"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src-tauri\\src\\ssh.rs",
+          "lineNumber": 74,
+          "lineContent": "let tcp_stream = if let Some(jump_host) = &config.jump_host {",
+          "title": "跳板机连接逻辑",
+          "description": "支持通过跳板机建立SSH连接的复杂网络拓扑"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\SessionTabs.vue",
+          "lineNumber": 11,
+          "lineContent": ":class=\"{ '!bg-gray-900 border-t-2 border-t-blue-500': session.id === sessionStore.activeSessionId }\"",
+          "title": "会话状态显示",
+          "description": "在SessionTabs组件中显示活动会话状态"
+        }
+      ],
+      "traceTextDiagram": "SSH连接流程:\n┌─────────────────┐\n│ 用户选择连接    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ createSession   │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ invoke('connect')│\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 检查跳板机配置  │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 建立TCP连接     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ SSH握手认证     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 创建会话记录    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 更新UI显示      │\n└─────────────────┘",
+      "traceGuide": {
+        "motivation": "提供安全可靠的SSH连接建立过程，支持直接连接和跳板机连接模式，确保连接状态的实时反馈。",
+        "details": "当用户点击连接时，前端SessionStore的createSession方法被调用，通过Tauri的invoke机制调用后端的connect函数。后端根据配置判断是否需要跳板机，建立相应的TCP连接和SSH会话。连接成功后，返回会话ID，前端创建Session对象并更新UI，在标签页中显示连接状态。整个过程包含错误处理、连接超时控制和状态管理。"
+      }
+    },
+    {
+      "id": "trace-3",
+      "title": "文件管理核心功能",
+      "description": "远程文件浏览、上传下载的完整实现流程",
+      "locations": [
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\FileManager.vue",
+          "lineNumber": 34,
+          "lineContent": "async function loadFiles(path: string) {",
+          "title": "文件列表加载",
+          "description": "加载指定路径下的文件和目录列表"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\FileManager.vue",
+          "lineNumber": 36,
+          "lineContent": "files.value = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });",
+          "title": "后端文件列表调用",
+          "description": "调用Rust后端获取远程文件列表"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\FileManager.vue",
+          "lineNumber": 70,
+          "lineContent": "unlistenDrop = await listen('tauri://drag-drop', async (event) => {",
+          "title": "拖拽上传处理",
+          "description": "监听文件拖拽事件，实现拖拽上传功能"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\stores\\transfers.ts",
+          "lineNumber": 1,
+          "lineContent": "import { defineStore } from 'pinia';",
+          "title": "传输状态管理",
+          "description": "管理文件上传下载的传输状态和进度"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src-tauri\\src\\ssh.rs",
+          "lineNumber": 400,
+          "lineContent": "pub async fn download_temp_and_open(",
+          "title": "临时下载并打开",
+          "description": "下载文件到本地临时目录并自动打开编辑"
+        }
+      ],
+      "traceTextDiagram": "文件管理流程:\n┌─────────────────┐\n│ 用户浏览文件    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ loadFiles()     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ invoke(list_files)│\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ SSH SFTP操作    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 返回文件列表    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 渲染文件表格    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 双击文件下载    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 自动打开编辑    │\n└─────────────────┘",
+      "traceGuide": {
+        "motivation": "提供直观的远程文件管理界面，支持文件浏览、上传、下载、编辑等操作，提升用户操作效率。",
+        "details": "FileManager组件负责远程文件操作的核心功能。通过SFTP协议与远程服务器交互，实现文件列表的获取、目录切换、文件上传下载。支持拖拽上传文件，通过TransferStore管理传输进度和状态。实现文件双击自动下载到本地并使用默认程序打开，编辑后自动上传回服务器的便捷工作流。提供文件权限管理、重命名、删除等基础操作。"
+      }
+    },
+    {
+      "id": "trace-4",
+      "title": "终端交互与AI助手集成",
+      "description": "终端命令执行和AI智能辅助的完整工作流程",
+      "locations": [
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\TerminalView.vue",
+          "lineNumber": 87,
+          "lineContent": "term = new Terminal({",
+          "title": "终端实例创建",
+          "description": "使用xterm.js创建终端实例，配置外观和行为"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\TerminalView.vue",
+          "lineNumber": 17,
+          "lineContent": "function getContent(): string {",
+          "title": "终端内容获取",
+          "description": "获取终端最近50行内容用于AI上下文分析"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\AIAssistant.vue",
+          "lineNumber": 38,
+          "lineContent": "const messages = ref<Message[]>([",
+          "title": "AI对话历史",
+          "description": "维护与AI助手的对话历史记录"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src\\components\\AIAssistant.vue",
+          "lineNumber": 47,
+          "lineContent": "const DANGEROUS_COMMANDS = [",
+          "title": "危险命令检测",
+          "description": "定义危险命令模式，防止AI执行破坏性操作"
+        },
+        {
+          "path": "D:\\source\\ssh-ssistant\\src-tauri\\src\\ssh.rs",
+          "lineNumber": 600,
+          "lineContent": "pub async fn exec_command(",
+          "title": "命令执行接口",
+          "description": "后端命令执行接口，支持AI调用终端命令"
+        }
+      ],
+      "traceTextDiagram": "终端与AI交互:\n┌─────────────────┐\n│ 用户输入命令    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 终端直接执行    │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ SSH PTY输出     │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 更新终端显示    │\n└─────────┬───────┘\n          │\n┌─────────────────┐\n│ AI助手请求      │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 获取终端上下文  │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ AI分析响应      │\n└─────────┬───────┘\n          │\n┌─────────▼───────┐\n│ 执行工具命令    │\n└─────────────────┘",
+      "traceGuide": {
+        "motivation": "结合传统终端交互和AI智能辅助，提供更高效的服务器管理体验，支持命令自动补全和智能操作建议。",
+        "details": "TerminalView组件基于xterm.js实现完整的终端功能，支持PTY伪终端交互、命令历史记录、传统自动补全等功能。AIAssistant组件集成大语言模型，能够理解用户意图并提供智能帮助。AI可以获取终端当前内容作为上下文，执行安全的系统命令，提供操作建议。系统内置危险命令检测机制，防止AI执行可能造成系统损害的操作。终端和AI助手共享会话状态，实现协同工作。"
+      }
+    }
+  ],
+  "mermaidDiagram": "graph TB\n    subgraph Frontend [前端层 Vue.js + TypeScript]\n        A1[main.ts 应用入口]\n        A2[App.vue 主应用组件]\n        A3[SessionTabs.vue 会话标签]\n        A4[TerminalView.vue 终端视图]\n        A5[FileManager.vue 文件管理]\n        A6[AIAssistant.vue AI助手]\n        A7[ConnectionList.vue 连接列表]\n        A8[SettingsModal.vue 设置界面]\n        \n        subgraph State [状态管理 Pinia]\n            S1[sessions.ts 会话状态]\n            S2[connections.ts 连接状态]\n            S3[settings.ts 设置状态]\n            S4[transfers.ts 传输状态]\n        end\n        \n        subgraph Components [UI组件]\n            C1[ConnectionModal.vue 连接编辑]\n            C2[TransferList.vue 传输列表]\n        end\n    end\n    \n    subgraph APILayer [API层 Tauri IPC]\n        B1[invoke() 调用接口]\n        B2[listen() 事件监听]\n        B3[Tauri Commands 命令接口]\n    end\n    \n    subgraph Backend [后端层 Rust + Tauri]\n        C1[lib.rs 应用初始化]\n        C2[ssh.rs SSH核心模块]\n        C3[db.rs 数据库模块]\n        C4[models.rs 数据模型]\n        \n        subgraph SSH [SSH功能]\n            SSH1[connect 连接管理]\n            SSH2[exec_command 命令执行]\n            SSH3[list_files 文件列表]\n            SSH4[upload/download 文件传输]\n        end\n        \n        subgraph DB [数据库]\n            DB1[connections 连接配置]\n            DB2[settings 系统设置]\n        end\n    end\n    \n    subgraph External [外部依赖]\n        E1[SSH服务器]\n        E2[AI API服务]\n        E3[本地文件系统]\n        E4[SQLite数据库]\n    end\n    \n    %% 主要数据流\n    A1 --> A2\n    A2 --> A3\n    A2 --> A4\n    A2 --> A5\n    A2 --> A6\n    A2 --> A7\n    A2 --> A8\n    \n    A3 --> S1\n    A4 --> S1\n    A5 --> S1\n    A6 --> S1\n    \n    A7 --> S2\n    A8 --> S3\n    A5 --> S4\n    \n    A1 --> B1\n    B1 --> B3\n    B3 --> C2\n    B3 --> C3\n    \n    C2 --> SSH1\n    C2 --> SSH2\n    C2 --> SSH3\n    C2 --> SSH4\n    \n    C3 --> DB1\n    C3 --> DB2\n    \n    SSH1 --> E1\n    SSH2 --> E1\n    SSH3 --> E1\n    SSH4 --> E1\n    \n    A6 --> E2\n    SSH4 --> E3\n    C3 --> E4\n    \n    %% 状态同步\n    B2 --> A4\n    B2 --> A5\n    B2 --> A6\n    \n    S1 <--> B1\n    S2 <--> B1\n    S3 <--> B1\n    S4 <--> B1"
+}

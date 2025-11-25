@@ -37,11 +37,18 @@ export interface TerminalAppearanceSettings {
   lineHeight: number;
 }
 
+export type FileManagerViewMode = 'flat' | 'tree';
+
+export interface FileManagerSettings {
+  viewMode: FileManagerViewMode;
+}
+
 export interface Settings {
   theme: 'light' | 'dark';
   language: 'en' | 'zh';
   ai: AIConfig;
   terminalAppearance: TerminalAppearanceSettings;
+  fileManager: FileManagerSettings;
 }
 
 export interface Session {

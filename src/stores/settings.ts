@@ -17,6 +17,9 @@ export const useSettingsStore = defineStore('settings', {
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       cursorStyle: 'block',
       lineHeight: 1.0
+    },
+    fileManager: {
+      viewMode: 'flat'
     }
   }),
   actions: {

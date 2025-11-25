@@ -33,7 +33,28 @@
     "apiKey": "API 密钥",
     "modelName": "模型名称",
     "saveChanges": "保存更改",
-    "cancel": "取消"
+    "cancel": "取消",
+    "general": "通用",
+    "terminalAppearance": "终端外观",
+    "terminalFontSize": "字体大小",
+    "terminalFontFamily": "字体",
+    "terminalCursorStyle": "光标样式",
+    "terminalLineHeight": "行高",
+    "fileManagement": "文件管理",
+    "fileManagerViewMode": "视图模式"
+  },
+  "terminal": {
+    "cursor": {
+      "block": "块状",
+      "underline": "下划线",
+      "bar": "竖线"
+    }
+  },
+  "fileManager": {
+    "viewMode": {
+      "flat": "扁平",
+      "tree": "树状"
+    }
   },
   "transfers": {
     "title": "传输列表",

@@ -33,7 +33,28 @@
     "apiKey": "API Key",
     "modelName": "Model Name",
     "saveChanges": "Save Changes",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "general": "General",
+    "terminalAppearance": "Terminal Appearance",
+    "terminalFontSize": "Font Size",
+    "terminalFontFamily": "Font Family",
+    "terminalCursorStyle": "Cursor Style",
+    "terminalLineHeight": "Line Height",
+    "fileManagement": "File Management",
+    "fileManagerViewMode": "View Mode"
+  },
+  "terminal": {
+    "cursor": {
+      "block": "Block",
+      "underline": "Underline",
+      "bar": "Bar"
+    }
+  },
+  "fileManager": {
+    "viewMode": {
+      "flat": "Flat",
+      "tree": "Tree"
+    }
   },
   "transfers": {
     "title": "Transfers",
