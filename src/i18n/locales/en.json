@@ -3,7 +3,9 @@
     "title": "SSH Assistant",
     "newConnection": "New Connection",
     "settings": "Settings",
-    "selectConnectionToStart": "Select a connection to start"
+    "selectConnectionToStart": "Select a connection to start",
+    "sessionDuration": "Session duration",
+    "loadingStatus": "Loading status..."
   },
   "connections": {
     "edit": "Edit",

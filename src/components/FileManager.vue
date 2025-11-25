@@ -110,6 +110,15 @@ async function loadFiles(path: string) {
     }
 }
 
+function onTreeDragStart(event: DragEvent, node: TreeNode) {
+    const targetPath = node.path;
+    if (event.dataTransfer) {
+        event.dataTransfer.setData('text/plain', targetPath);
+        event.dataTransfer.setData('application/x-ssh-assistant-path', JSON.stringify({ path: targetPath, isDir: node.entry.isDir }));
+        event.dataTransfer.effectAllowed = 'copy';
+    }
+}
+
 async function toggleDirectory(node: TreeNode) {
     if (!node.entry.isDir) {
         await openTreeFile(node);
@@ -706,6 +715,8 @@ function formatDate(timestamp: number) {
                 <div v-for="node in visibleTreeNodes" :key="node.path"
                     class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
                     :class="{ 'bg-blue-900/50': selectedTreePaths.has(node.path), 'hover:bg-gray-800': !selectedTreePaths.has(node.path) }"
+                    draggable="true"
+                    @dragstart="onTreeDragStart($event, node)"
                     @click.stop="handleTreeSelection(node)" @dblclick.stop="openTreeFile(node)">
                     <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
                         <button v-if="node.entry.isDir" class="mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400"

@@ -119,6 +119,15 @@ async function scrollToBottom() {
   }
 }
 
+function handleDragOver(event: DragEvent) {
+  if (!event.dataTransfer) return;
+  event.dataTransfer.dropEffect = 'copy';
+  console.log('AI handleDragOver event', {
+    types: event.dataTransfer.types,
+    dropEffect: event.dataTransfer.dropEffect,
+  });
+}
+
 const tools = [
   {
     type: "function",
@@ -404,8 +413,12 @@ async function processChat() {
 
 function handleDrop(event: DragEvent) {
   if (!event.dataTransfer) return;
+  console.log('AI handleDrop event', {
+    types: event.dataTransfer.types,
+  });
   const rawCustom = event.dataTransfer.getData('application/x-ssh-assistant-path');
   const rawText = event.dataTransfer.getData('text/plain');
+  console.log('AI handleDrop data', { rawCustom, rawText });
   if (!rawCustom && !rawText) return;
 
   try {
@@ -430,8 +443,16 @@ function handleDrop(event: DragEvent) {
 
 <template>
   <div class="flex flex-col h-full bg-gray-900 text-white"
-       @dragover.prevent
+       @dragover.prevent="handleDragOver"
        @drop.prevent="handleDrop">
+    <div v-if="contextPaths.length" class="px-4 pt-3 pb-1 border-b border-gray-800 text-xs text-gray-400 space-y-1">
+      <div class="font-semibold text-gray-300">Context paths</div>
+      <ul class="space-y-0.5 max-h-16 overflow-y-auto">
+        <li v-for="c in contextPaths" :key="c.path" class="truncate font-mono text-[11px]">
+          {{ c.isDir ? '[DIR]' : '[FILE]' }} {{ c.path }}
+        </li>
+      </ul>
+    </div>
     <!-- Messages Area -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
       <div v-for="(msg, index) in displayMessages" :key="index" class="flex flex-col space-y-1">

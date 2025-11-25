@@ -3,7 +3,9 @@
     "title": "SSH 助手",
     "newConnection": "新建连接",
     "settings": "设置",
-    "selectConnectionToStart": "选择一个连接以开始使用"
+    "selectConnectionToStart": "选择一个连接以开始使用",
+    "sessionDuration": "会话时长",
+    "loadingStatus": "正在加载状态..."
   },
   "connections": {
     "edit": "编辑",
