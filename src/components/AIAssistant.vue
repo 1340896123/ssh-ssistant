@@ -35,6 +35,13 @@ interface Message {
   tool_calls?: any[];
 }
 
+interface ContextPath {
+  path: string;
+  isDir: boolean;
+}
+
+const contextPaths = ref<ContextPath[]>([]);
+
 const messages = ref<Message[]>([
   { role: 'assistant', content: 'Hello! I am your SSH AI Assistant. I can help you execute commands and manage your server. How can I help you today?' }
 ]);
@@ -129,6 +136,81 @@ const tools = [
         required: ["command"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Read the content of a remote file path that the user has shared or that you know.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Remote file path to read. Prefer using paths provided by the user via drag-and-drop."
+          },
+          maxBytes: {
+            type: "number",
+            description: "Soft limit for number of bytes to return to avoid extremely large responses.",
+            default: 16384
+          }
+        },
+        required: ["path"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_file",
+      description: "Write text content to a remote file (overwrite or append). Use with caution.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Remote file path to write to. Prefer paths explicitly provided by the user."
+          },
+          content: {
+            type: "string",
+            description: "Full text content to write (UTF-8)."
+          },
+          mode: {
+            type: "string",
+            enum: ["overwrite", "append"],
+            description: "Whether to overwrite the file or append to the end.",
+            default: "overwrite"
+          }
+        },
+        required: ["path", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_files",
+      description: "Search for a text pattern under a given remote directory using grep -n.",
+      parameters: {
+        type: "object",
+        properties: {
+          root: {
+            type: "string",
+            description: "Directory path to search under."
+          },
+          pattern: {
+            type: "string",
+            description: "Text pattern to search for (passed to grep)."
+          },
+          maxResults: {
+            type: "number",
+            description: "Maximum number of matching lines to return.",
+            default: 200
+          }
+        },
+        required: ["root", "pattern"]
+      }
+    }
   }
 ];
 
@@ -150,7 +232,12 @@ async function processChat() {
   const apiMessages = JSON.parse(JSON.stringify(messages.value));
   if (props.terminalContext && apiMessages.length > 0 && apiMessages[apiMessages.length - 1].role === 'user') {
       const lastMsg = apiMessages[apiMessages.length - 1];
-      lastMsg.content = `Here is the current terminal output for context:\n\n---\n${props.terminalContext}\n---\n\nMy request is: ${lastMsg.content}`;
+      let contextText = lastMsg.content;
+      if (contextPaths.value.length > 0) {
+        const list = contextPaths.value.map((c) => `${c.path}${c.isDir ? '/' : ''}`).join('\n');
+        contextText = `Here are the remote paths I am working with (from the file manager drag-and-drop):\n\n${list}\n\nMy request is: ${contextText}`;
+      }
+      lastMsg.content = `Here is the current terminal output for context:\n\n---\n${props.terminalContext}\n---\n\n${contextText}`;
   }
 
 
@@ -188,7 +275,8 @@ async function processChat() {
 
       // Handle tool calls
       for (const toolCall of message.tool_calls) {
-        if (toolCall.function.name === 'run_command') {
+        const name = toolCall.function.name;
+        if (name === 'run_command') {
           const args = JSON.parse(toolCall.function.arguments);
           const cmd = args.command;
 
@@ -226,6 +314,74 @@ async function processChat() {
               content: `Error executing command: ${e}`
             });
           }
+        } else if (name === 'read_file') {
+          const args = JSON.parse(toolCall.function.arguments) as { path: string; maxBytes?: number };
+          try {
+            const result = await invoke<string>('read_remote_file', {
+              id: props.sessionId,
+              path: args.path,
+              maxBytes: args.maxBytes ?? 16384,
+            });
+            messages.value.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name,
+              content: result || '(Empty file or no data)'
+            });
+          } catch (e) {
+            messages.value.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name,
+              content: `Error reading file: ${e}`
+            });
+          }
+        } else if (name === 'write_file') {
+          const args = JSON.parse(toolCall.function.arguments) as { path: string; content: string; mode?: 'overwrite' | 'append' };
+          try {
+            await invoke('write_remote_file', {
+              id: props.sessionId,
+              path: args.path,
+              content: args.content,
+              mode: args.mode ?? 'overwrite',
+            });
+            messages.value.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name,
+              content: `Write to ${args.path} completed (mode=${args.mode ?? 'overwrite'}).`
+            });
+          } catch (e) {
+            messages.value.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name,
+              content: `Error writing file: ${e}`
+            });
+          }
+        } else if (name === 'search_files') {
+          const args = JSON.parse(toolCall.function.arguments) as { root: string; pattern: string; maxResults?: number };
+          try {
+            const result = await invoke<string>('search_remote_files', {
+              id: props.sessionId,
+              root: args.root,
+              pattern: args.pattern,
+              maxResults: args.maxResults ?? 200,
+            });
+            messages.value.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name,
+              content: result || '(No matches)'
+            });
+          } catch (e) {
+            messages.value.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name,
+              content: `Error searching files: ${e}`
+            });
+          }
         }
       }
 
@@ -246,10 +402,36 @@ async function processChat() {
   }
 }
 
+function handleDrop(event: DragEvent) {
+  if (!event.dataTransfer) return;
+  const rawCustom = event.dataTransfer.getData('application/x-ssh-assistant-path');
+  const rawText = event.dataTransfer.getData('text/plain');
+  if (!rawCustom && !rawText) return;
+
+  try {
+    let parsed: ContextPath;
+    if (rawCustom) {
+      parsed = JSON.parse(rawCustom) as ContextPath;
+    } else {
+      const path = rawText;
+      parsed = { path, isDir: path.endsWith('/') } as ContextPath;
+    }
+
+    const exists = contextPaths.value.some((c: ContextPath) => c.path === parsed.path);
+    if (!exists) {
+      contextPaths.value.push(parsed);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-900 text-white">
+  <div class="flex flex-col h-full bg-gray-900 text-white"
+       @dragover.prevent
+       @drop.prevent="handleDrop">
     <!-- Messages Area -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
       <div v-for="(msg, index) in displayMessages" :key="index" class="flex flex-col space-y-1">

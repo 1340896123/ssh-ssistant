@@ -205,6 +205,15 @@ function stopResize() {
     resizingColumn.value = null;
 }
 
+function onDragStart(event: DragEvent, entry: FileEntry) {
+    const targetPath = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
+    if (event.dataTransfer) {
+        event.dataTransfer.setData('text/plain', targetPath);
+        event.dataTransfer.setData('application/x-ssh-assistant-path', JSON.stringify({ path: targetPath, isDir: entry.isDir }));
+        event.dataTransfer.effectAllowed = 'copy';
+    }
+}
+
 onMounted(async () => {
     loadFiles('.');
     transferStore.initListeners();
@@ -674,6 +683,8 @@ function formatDate(timestamp: number) {
                 <div v-for="(file, index) in files" :key="file.name"
                     class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
                     :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
+                    draggable="true"
+                    @dragstart="onDragStart($event, file)"
                     @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
                     @contextmenu="showContextMenu($event, file)">
                     <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">

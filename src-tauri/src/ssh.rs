@@ -299,6 +299,101 @@ pub async fn disconnect(
 }
 
 #[tauri::command]
+pub async fn read_remote_file(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+    max_bytes: Option<u64>,
+) -> Result<String, String> {
+    let client_sess = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        let client = clients.get(&id).ok_or("Session not found").map_err(|e| e.to_string())?;
+        client.session.clone()
+    };
+    let sess = client_sess.lock().map_err(|e| e.to_string())?;
+    let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
+    let remote_path = std::path::Path::new(&path);
+
+    let mut file = block_on(|| sftp.open(remote_path)).map_err(|e| e.to_string())?;
+    let mut buf = Vec::new();
+    use std::io::Read as _;
+    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+
+    let limit = max_bytes.unwrap_or(16384) as usize;
+    if buf.len() > limit {
+        buf.truncate(limit);
+    }
+
+    String::from_utf8(buf).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn write_remote_file(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+    content: String,
+    mode: Option<String>,
+) -> Result<(), String> {
+    let client_sess = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        let client = clients.get(&id).ok_or("Session not found").map_err(|e| e.to_string())?;
+        client.session.clone()
+    };
+    let sess = client_sess.lock().map_err(|e| e.to_string())?;
+    let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
+    let remote_path = std::path::Path::new(&path);
+
+    let open_mode = mode.unwrap_or_else(|| "overwrite".to_string());
+    let mut file = if open_mode == "append" {
+        use ssh2::OpenFlags;
+        block_on(|| sftp.open_mode(remote_path, OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::APPEND, 0o644, ssh2::OpenType::File))
+            .map_err(|e| e.to_string())?
+    } else {
+        use ssh2::OpenFlags;
+        block_on(|| sftp.open_mode(remote_path, OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE, 0o644, ssh2::OpenType::File))
+            .map_err(|e| e.to_string())?
+    };
+
+    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn search_remote_files(
+    state: State<'_, AppState>,
+    id: String,
+    root: String,
+    pattern: String,
+    max_results: Option<u32>,
+) -> Result<String, String> {
+    let client_sess = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        let client = clients.get(&id).ok_or("Session not found").map_err(|e| e.to_string())?;
+        client.session.clone()
+    };
+    let sess = client_sess.lock().map_err(|e| e.to_string())?;
+    let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
+
+    let limit = max_results.unwrap_or(200);
+    // Use grep -R with head to limit number of lines
+    let safe_root = root.replace("'", "'\\''");
+    let safe_pattern = pattern.replace("'", "'\\''");
+    let cmd = format!(
+        "cd '{}' && grep -R -n --line-number --text -- '{}' | head -n {}",
+        safe_root,
+        safe_pattern,
+        limit
+    );
+
+    block_on(|| channel.exec(&cmd)).map_err(|e| e.to_string())?;
+    let mut output = String::new();
+    use std::io::Read as StdRead;
+    channel.read_to_string(&mut output).map_err(|e| e.to_string())?;
+    Ok(output)
+}
+
+#[tauri::command]
 pub async fn write_to_pty(
     state: State<'_, AppState>,
     id: String,
