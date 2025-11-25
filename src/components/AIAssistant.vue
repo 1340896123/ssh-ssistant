@@ -52,17 +52,17 @@ const toolStates = ref<Record<string, boolean>>({});
 
 // --- Command Safety ---
 const DANGEROUS_COMMANDS = [
-    /^\s*rm\s+.*(-f|--force)\s+.*\//, //  rm with force flag on root dir
-    new RegExp("^\\s*rm\\s+-rf\\s+\\/\\*?\\s*$"), // rm -rf / or rm -rf /*
-    /^\s*dd\s+/,
-    /^\s*mkfs\./,
-    /^\s*fdisk\s+/,
-    /^\s*wipefs\s+/,
-    /^\s*mv\s+[^\s]+\s+\/dev\/null/, // mv to /dev/null
-    />\s*\/dev\/sd/, // Redirecting output to a disk device
+  /^\s*rm\s+.*(-f|--force)\s+.*\//, //  rm with force flag on root dir
+  new RegExp("^\\s*rm\\s+-rf\\s+\\/\\*?\\s*$"), // rm -rf / or rm -rf /*
+  /^\s*dd\s+/,
+  /^\s*mkfs\./,
+  /^\s*fdisk\s+/,
+  /^\s*wipefs\s+/,
+  /^\s*mv\s+[^\s]+\s+\/dev\/null/, // mv to /dev/null
+  />\s*\/dev\/sd/, // Redirecting output to a disk device
 ];
 function isDangerous(command: string): boolean {
-    return DANGEROUS_COMMANDS.some(regex => regex.test(command));
+  return DANGEROUS_COMMANDS.some(regex => regex.test(command));
 }
 
 
@@ -90,7 +90,7 @@ const displayMessages = computed(() => {
         let command = 'Unknown command';
         try {
           command = JSON.parse(tc.function.arguments).command;
-        } catch (e) { } 
+        } catch (e) { }
 
         return {
           id: tc.id,
@@ -119,14 +119,7 @@ async function scrollToBottom() {
   }
 }
 
-function handleDragOver(event: DragEvent) {
-  if (!event.dataTransfer) return;
-  event.dataTransfer.dropEffect = 'copy';
-  console.log('AI handleDragOver event', {
-    types: event.dataTransfer.types,
-    dropEffect: event.dataTransfer.dropEffect,
-  });
-}
+
 
 const tools = [
   {
@@ -240,13 +233,13 @@ async function processChat() {
   // Clone messages for API to avoid mutating UI state, and inject context
   const apiMessages = JSON.parse(JSON.stringify(messages.value));
   if (props.terminalContext && apiMessages.length > 0 && apiMessages[apiMessages.length - 1].role === 'user') {
-      const lastMsg = apiMessages[apiMessages.length - 1];
-      let contextText = lastMsg.content;
-      if (contextPaths.value.length > 0) {
-        const list = contextPaths.value.map((c) => `${c.path}${c.isDir ? '/' : ''}`).join('\n');
-        contextText = `Here are the remote paths I am working with (from the file manager drag-and-drop):\n\n${list}\n\nMy request is: ${contextText}`;
-      }
-      lastMsg.content = `Here is the current terminal output for context:\n\n---\n${props.terminalContext}\n---\n\n${contextText}`;
+    const lastMsg = apiMessages[apiMessages.length - 1];
+    let contextText = lastMsg.content;
+    if (contextPaths.value.length > 0) {
+      const list = contextPaths.value.map((c) => `${c.path}${c.isDir ? '/' : ''}`).join('\n');
+      contextText = `Here are the remote paths I am working with (from the file manager drag-and-drop):\n\n${list}\n\nMy request is: ${contextText}`;
+    }
+    lastMsg.content = `Here is the current terminal output for context:\n\n---\n${props.terminalContext}\n---\n\n${contextText}`;
   }
 
 
@@ -293,13 +286,13 @@ async function processChat() {
           if (isDangerous(cmd)) {
             const confirmed = await confirm(`DANGEROUS COMMAND DETECTED!\n\nAre you sure you want to execute:\n\n${cmd}`);
             if (!confirmed) {
-                messages.value.push({
-                    role: 'tool',
-                    tool_call_id: toolCall.id,
-                    name: toolCall.function.name,
-                    content: `Command execution cancelled by user.`
-                });
-                continue; // Skip to next tool call
+              messages.value.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: toolCall.function.name,
+                content: `Command execution cancelled by user.`
+              });
+              continue; // Skip to next tool call
             }
           }
 
@@ -439,17 +432,58 @@ function handleDrop(event: DragEvent) {
   }
 }
 
+const isDraggingOver = ref(false);
+
+function onDragEnter() {
+  isDraggingOver.value = true;
+}
+
+function onDragLeave() {
+  isDraggingOver.value = false;
+}
+
+function onDragOver(event: DragEvent) {
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy';
+  }
+}
+
+function onDrop(event: DragEvent) {
+  isDraggingOver.value = false;
+  handleDrop(event);
+}
+
+function removeContextPath(pathToRemove: string) {
+  contextPaths.value = contextPaths.value.filter((c) => c.path !== pathToRemove);
+}
+
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-900 text-white"
-       @dragover.prevent="handleDragOver"
-       @drop.prevent="handleDrop">
+  <div class="flex flex-col h-full bg-gray-900 text-white relative" @dragenter.stop.prevent="onDragEnter" @dragover.stop.prevent="onDragOver" @drop.stop.prevent="onDrop">
+
+    <!-- Drop Overlay -->
+    <div v-if="isDraggingOver"
+      class="absolute inset-0 z-50 bg-blue-900/90 flex flex-col items-center justify-center border-2 border-dashed border-blue-400 m-2 rounded-lg backdrop-blur-sm transition-opacity"
+      @dragleave.stop.prevent="onDragLeave" @dragover.stop.prevent="onDragOver" @drop.stop.prevent="onDrop">
+      <ClipboardPlus class="w-12 h-12 text-blue-400 mb-2" />
+      <div class="text-xl font-bold text-white pointer-events-none">
+        Drop files to add context
+      </div>
+      <div class="text-sm text-blue-200 mt-1 pointer-events-none">
+        Release to add file paths to AI context
+      </div>
+    </div>
+
     <div v-if="contextPaths.length" class="px-4 pt-3 pb-1 border-b border-gray-800 text-xs text-gray-400 space-y-1">
       <div class="font-semibold text-gray-300">Context paths</div>
       <ul class="space-y-0.5 max-h-16 overflow-y-auto">
-        <li v-for="c in contextPaths" :key="c.path" class="truncate font-mono text-[11px]">
-          {{ c.isDir ? '[DIR]' : '[FILE]' }} {{ c.path }}
+        <li v-for="c in contextPaths" :key="c.path" class="truncate font-mono text-[11px] flex items-center group">
+          <span class="flex-1">{{ c.isDir ? '[DIR]' : '[FILE]' }} {{ c.path }}</span>
+          <button @click="removeContextPath(c.path)" class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400">
+            &times;
+          </button>
         </li>
       </ul>
     </div>
@@ -510,12 +544,12 @@ function handleDrop(event: DragEvent) {
     <!-- Input Area -->
     <div class="p-4 bg-gray-800 border-t border-gray-700">
       <div class="relative flex items-center">
-        <button @click="emit('refresh-context')" 
-          class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors" 
+        <button @click="emit('refresh-context')"
+          class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
           title="Import terminal context">
           <ClipboardPlus class="w-5 h-5" />
         </button>
-        <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
+        <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage" @dragover.prevent.stop="onDragOver" @drop.prevent.stop="onDrop"
           class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
           placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
         <button @click="sendMessage" :disabled="isLoading || !input.trim()"
@@ -545,7 +579,8 @@ function handleDrop(event: DragEvent) {
 }
 
 :deep(.markdown-content pre) {
-  background-color: #111827; /* gray-900 */
+  background-color: #111827;
+  /* gray-900 */
   padding: 0.5rem;
   border-radius: 0.375rem;
   overflow-x: auto;
@@ -565,7 +600,8 @@ function handleDrop(event: DragEvent) {
   background-color: transparent;
   padding: 0;
   font-size: 0.9em;
-  color: #e5e7eb; /* gray-200 */
+  color: #e5e7eb;
+  /* gray-200 */
 }
 
 :deep(.markdown-content ul),
@@ -580,7 +616,8 @@ function handleDrop(event: DragEvent) {
 }
 
 :deep(.markdown-content a) {
-  color: #60a5fa; /* blue-400 */
+  color: #60a5fa;
+  /* blue-400 */
   text-decoration: underline;
 }
 </style>

@@ -111,11 +111,12 @@ async function loadFiles(path: string) {
 }
 
 function onTreeDragStart(event: DragEvent, node: TreeNode) {
+    event.stopPropagation();
     const targetPath = node.path;
     if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'copy';
         event.dataTransfer.setData('text/plain', targetPath);
         event.dataTransfer.setData('application/x-ssh-assistant-path', JSON.stringify({ path: targetPath, isDir: node.entry.isDir }));
-        event.dataTransfer.effectAllowed = 'copy';
     }
 }
 
@@ -215,11 +216,12 @@ function stopResize() {
 }
 
 function onDragStart(event: DragEvent, entry: FileEntry) {
+    event.stopPropagation();
     const targetPath = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
     if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'copy';
         event.dataTransfer.setData('text/plain', targetPath);
         event.dataTransfer.setData('application/x-ssh-assistant-path', JSON.stringify({ path: targetPath, isDir: entry.isDir }));
-        event.dataTransfer.effectAllowed = 'copy';
     }
 }
 
@@ -692,8 +694,7 @@ function formatDate(timestamp: number) {
                 <div v-for="(file, index) in files" :key="file.name"
                     class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
                     :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
-                    draggable="true"
-                    @dragstart="onDragStart($event, file)"
+                    :draggable="true" @dragstart="onDragStart($event, file)"
                     @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
                     @contextmenu="showContextMenu($event, file)">
                     <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
@@ -701,12 +702,14 @@ function formatDate(timestamp: number) {
                         <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
                         <span class="text-sm truncate">{{ file.name }}</span>
                     </div>
-                    <span class="text-xs text-gray-500 font-mono text-right" :style="{ width: columnWidths.size + 'px' }">{{
-                        file.size }}</span>
+                    <span class="text-xs text-gray-500 font-mono text-right"
+                        :style="{ width: columnWidths.size + 'px' }">{{
+                            file.size }}</span>
                     <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
                         formatDate(file.mtime) }}</span>
-                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{ file.owner
-                        }}</span>
+                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{
+                        file.owner
+                    }}</span>
                 </div>
             </template>
 
@@ -715,11 +718,12 @@ function formatDate(timestamp: number) {
                 <div v-for="node in visibleTreeNodes" :key="node.path"
                     class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
                     :class="{ 'bg-blue-900/50': selectedTreePaths.has(node.path), 'hover:bg-gray-800': !selectedTreePaths.has(node.path) }"
-                    draggable="true"
-                    @dragstart="onTreeDragStart($event, node)"
-                    @click.stop="handleTreeSelection(node)" @dblclick.stop="openTreeFile(node)">
-                    <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
-                        <button v-if="node.entry.isDir" class="mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400"
+                    draggable="true" @dragstart="onTreeDragStart($event, node)" @click.stop="handleTreeSelection(node)"
+                    @dblclick.stop="openTreeFile(node)">
+                    <div class="flex items-center min-w-0"
+                        :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
+                        <button v-if="node.entry.isDir"
+                            class="mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400"
                             @click.stop="toggleDirectory(node)">
                             <span v-if="expandedPaths.has(node.path)">-</span>
                             <span v-else>+</span>
@@ -729,12 +733,14 @@ function formatDate(timestamp: number) {
                         <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
                         <span class="text-sm truncate">{{ node.entry.name }}</span>
                     </div>
-                    <span class="text-xs text-gray-500 font-mono text-right" :style="{ width: columnWidths.size + 'px' }">{{
-                        node.entry.size }}</span>
+                    <span class="text-xs text-gray-500 font-mono text-right"
+                        :style="{ width: columnWidths.size + 'px' }">{{
+                            node.entry.size }}</span>
                     <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
                         formatDate(node.entry.mtime) }}</span>
-                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{ node.entry.owner
-                        }}</span>
+                    <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{
+                        node.entry.owner
+                    }}</span>
                 </div>
             </template>
 
@@ -761,7 +767,8 @@ function formatDate(timestamp: number) {
             </button>
             <div class="border-t border-gray-700 my-1"></div>
             <button @click.stop="copyPath(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Copy Path</button>
+                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Copy
+                Path</button>
             <button @click.stop="handleChangePermissions(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">Change Permissions</button>
         </div>
