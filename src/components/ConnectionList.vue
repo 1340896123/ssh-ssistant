@@ -2,7 +2,7 @@
 import { useConnectionStore } from '../stores/connections';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
-import { onMounted, computed, ref } from 'vue';
+import { onMounted, computed, ref, watch } from 'vue';
 import { FolderPlus, ChevronRight, ChevronDown, FolderOpen, Folder } from 'lucide-vue-next';
 import ConnectionTreeItem from './ConnectionTreeItem.vue';
 import type { Connection, ConnectionGroup } from '../types';
@@ -20,6 +20,11 @@ onMounted(() => {
 });
 
 const treeData = computed(() => connectionStore.treeData);
+const localTreeData = ref<(Connection | ConnectionGroup)[]>([]);
+
+watch(treeData, (newVal) => {
+  localTreeData.value = [...newVal];
+}, { immediate: true });
 
 function connect(conn: Connection) {
   sessionStore.createSession(conn);
@@ -97,8 +102,8 @@ async function onRootChange(event: any) {
 
     <!-- Root Children -->
     <div v-if="isRootExpanded" class="flex-1 overflow-y-auto">
-      <draggable :list="treeData" group="connections" :item-key="getItemKey" class="space-y-0.5 min-h-[50px]"
-        @change="onRootChange">
+      <draggable v-model="localTreeData" group="connections" :item-key="getItemKey" class="space-y-0.5 min-h-[50px]"
+        ghost-class="ghost" drag-class="drag" @change="onRootChange">
         <template #item="{ element }">
           <ConnectionTreeItem :item="element" :level="1" @connect="connect" @edit="handleEdit" @delete="handleDelete"
             @create-group="handleCreateGroup" @edit-group="handleEditGroup" @delete-group="handleDeleteGroup" />
@@ -110,3 +115,16 @@ async function onRootChange(event: any) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.ghost {
+  opacity: 0.5;
+  background: #374151;
+  border: 1px dashed #6b7280;
+}
+
+.drag {
+  opacity: 1;
+  background: #1f2937;
+}
+</style>

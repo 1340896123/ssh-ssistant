@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2, Plus } from 'lucide-vue-next';
 import type { Connection, ConnectionGroup } from '../types';
 import { useI18n } from '../composables/useI18n';
@@ -19,6 +19,13 @@ const isExpanded = ref(false);
 
 const isGroup = computed(() => 'children' in props.item || 'parentId' in props.item);
 const paddingLeft = computed(() => `${props.level * 16 + 8}px`);
+
+const children = computed(() => (props.item as ConnectionGroup).children || []);
+const localChildren = ref<(Connection | ConnectionGroup)[]>([]);
+
+watch(children, (newVal) => {
+    localChildren.value = [...newVal];
+}, { immediate: true });
 
 function toggleExpand() {
     if (isGroup.value) {
@@ -109,8 +116,8 @@ async function onGroupChange(event: any) {
         </div>
 
         <div v-if="isGroup && isExpanded">
-            <draggable :list="(item as ConnectionGroup).children" group="connections" :item-key="getItemKey"
-                class="min-h-[10px]" @change="onGroupChange">
+            <draggable v-model="localChildren" group="connections" :item-key="getItemKey" class="min-h-[10px]"
+                ghost-class="ghost" drag-class="drag" @change="onGroupChange">
                 <template #item="{ element }">
                     <ConnectionTreeItem :item="element" :level="level + 1" @connect="$emit('connect', $event)"
                         @edit="$emit('edit', $event)" @delete="$emit('delete', $event)"
@@ -125,3 +132,16 @@ async function onGroupChange(event: any) {
         </div>
     </div>
 </template>
+
+<style scoped>
+.ghost {
+    opacity: 0.5;
+    background: #374151;
+    border: 1px dashed #6b7280;
+}
+
+.drag {
+    opacity: 1;
+    background: #1f2937;
+}
+</style>
