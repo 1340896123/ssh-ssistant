@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
+import draggable from 'vuedraggable';
 
 const md = new MarkdownIt({
   html: false,
@@ -404,63 +405,14 @@ async function processChat() {
   }
 }
 
-function handleDrop(event: DragEvent) {
-  if (!event.dataTransfer) return;
-  console.log('AI handleDrop event', {
-    types: event.dataTransfer.types,
-  });
-  const rawCustom = event.dataTransfer.getData('application/x-ssh-assistant-path');
-  const rawText = event.dataTransfer.getData('text/plain');
-  console.log('AI handleDrop data', { rawCustom, rawText });
-  if (!rawCustom && !rawText) return;
-
-  try {
-    let parsed: ContextPath;
-    if (rawCustom) {
-      parsed = JSON.parse(rawCustom) as ContextPath;
-    } else {
-      const path = rawText;
-      parsed = { path, isDir: path.endsWith('/') } as ContextPath;
+function onContextChange(evt: any) {
+  if (evt.added) {
+    const unique = new Map();
+    for (const p of contextPaths.value) {
+      unique.set(p.path, p);
     }
-
-    const exists = contextPaths.value.some((c: ContextPath) => c.path === parsed.path);
-    if (!exists) {
-      contextPaths.value.push(parsed);
-    }
-  } catch (e) {
-    console.error(e);
+    contextPaths.value = Array.from(unique.values());
   }
-}
-
-const isDraggingOver = ref(false);
-const dragCounter = ref(0);
-
-function onDragEnter() {
-  dragCounter.value++;
-  if (dragCounter.value === 1) {
-    isDraggingOver.value = true;
-  }
-}
-
-function onDragLeave() {
-  dragCounter.value--;
-  if (dragCounter.value <= 0) {
-    dragCounter.value = 0;
-    isDraggingOver.value = false;
-  }
-}
-
-function onDragOver(event: DragEvent) {
-  event.preventDefault();
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'copy';
-  }
-}
-
-function onDrop(event: DragEvent) {
-  dragCounter.value = 0;
-  isDraggingOver.value = false;
-  handleDrop(event);
 }
 
 function removeContextPath(pathToRemove: string) {
@@ -470,33 +422,30 @@ function removeContextPath(pathToRemove: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-900 text-white relative" @dragenter.stop.prevent="onDragEnter"
-    @dragleave.stop.prevent="onDragLeave" @dragover.stop.prevent="onDragOver" @drop.stop.prevent="onDrop">
+  <div class="flex flex-col h-full bg-gray-900 text-white relative">
 
-    <!-- Drop Overlay -->
-    <div v-if="isDraggingOver"
-      class="absolute inset-0 z-50 bg-blue-900/90 flex flex-col items-center justify-center border-2 border-dashed border-blue-400 m-2 rounded-lg backdrop-blur-sm transition-opacity"
-      @dragenter.stop.prevent="onDragEnter" @dragleave.stop.prevent="onDragLeave" @dragover.stop.prevent="onDragOver"
-      @drop.stop.prevent="onDrop">
-      <ClipboardPlus class="w-12 h-12 text-blue-400 mb-2" />
-      <div class="text-xl font-bold text-white pointer-events-none">
-        Drop files to add context
-      </div>
-      <div class="text-sm text-blue-200 mt-1 pointer-events-none">
-        Release to add file paths to AI context
-      </div>
-    </div>
 
-    <div v-if="contextPaths.length" class="px-4 pt-3 pb-1 border-b border-gray-800 text-xs text-gray-400 space-y-1">
+    <div class="px-4 pt-3 pb-1 border-b border-gray-800 text-xs text-gray-400 space-y-1">
       <div class="font-semibold text-gray-300">Context paths</div>
-      <ul class="space-y-0.5 max-h-16 overflow-y-auto">
-        <li v-for="c in contextPaths" :key="c.path" class="truncate font-mono text-[11px] flex items-center group">
-          <span class="flex-1">{{ c.isDir ? '[DIR]' : '[FILE]' }} {{ c.path }}</span>
-          <button @click="removeContextPath(c.path)" class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400">
-            &times;
-          </button>
-        </li>
-      </ul>
+      <draggable v-model="contextPaths" item-key="path" :group="{ name: 'files', pull: false, put: true }"
+        class="space-y-0.5 max-h-16 overflow-y-auto min-h-[2rem] border border-dashed border-gray-800 rounded p-1"
+        @change="onContextChange">
+        <template #item="{ element: c }">
+          <div
+            class="truncate font-mono text-[11px] flex items-center group cursor-default bg-gray-800/50 rounded px-1">
+            <span class="flex-1">{{ c.isDir ? '[DIR]' : '[FILE]' }} {{ c.path }}</span>
+            <button @click="removeContextPath(c.path)"
+              class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400">
+              &times;
+            </button>
+          </div>
+        </template>
+        <template #footer>
+          <div v-if="contextPaths.length === 0" class="text-gray-600 italic text-center py-1 select-none">
+            Drop files here
+          </div>
+        </template>
+      </draggable>
     </div>
     <!-- Messages Area -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
@@ -560,8 +509,7 @@ function removeContextPath(pathToRemove: string) {
           title="Import terminal context">
           <ClipboardPlus class="w-5 h-5" />
         </button>
-        <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage" @dragover.prevent.stop="onDragOver"
-          @drop.prevent.stop="onDrop"
+        <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
           class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
           placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
         <button @click="sendMessage" :disabled="isLoading || !input.trim()"
