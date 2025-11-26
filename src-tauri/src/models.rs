@@ -14,6 +14,15 @@ pub struct Connection {
     pub jump_port: Option<u16>,
     pub jump_username: Option<String>,
     pub jump_password: Option<String>,
+    pub group_id: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionGroup {
+    pub id: Option<i64>,
+    pub name: String,
+    pub parent_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

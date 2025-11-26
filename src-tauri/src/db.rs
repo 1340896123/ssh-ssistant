@@ -1,9 +1,15 @@
+use crate::models::{
+    AIConfig, AppSettings, Connection as SshConnection, ConnectionGroup, FileManagerSettings,
+    TerminalAppearanceSettings,
+};
 use rusqlite::{params, Connection, Result};
-use crate::models::{Connection as SshConnection, AppSettings, AIConfig, TerminalAppearanceSettings, FileManagerSettings};
 use tauri::{AppHandle, Manager};
 
 pub fn get_db_path(app_handle: &AppHandle) -> std::path::PathBuf {
-    let app_dir = app_handle.path().app_data_dir().expect("failed to get app data dir");
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .expect("failed to get app data dir");
     if !app_dir.exists() {
         std::fs::create_dir_all(&app_dir).expect("failed to create app data dir");
     }
@@ -13,7 +19,7 @@ pub fn get_db_path(app_handle: &AppHandle) -> std::path::PathBuf {
 pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     let db_path = get_db_path(app_handle);
     let conn = Connection::open(db_path)?;
-    
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS connections (
             id INTEGER PRIMARY KEY,
@@ -43,10 +49,7 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     )?;
 
     // Ensure default row exists
-    conn.execute(
-        "INSERT OR IGNORE INTO settings (id) VALUES (1)",
-        [],
-    )?;
+    conn.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)", [])?;
 
     // Migrations: Add jump host columns if they don't exist
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_host TEXT", []);
@@ -55,14 +58,40 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_password TEXT", []);
 
     // Migrations: Add terminal appearance columns if they don't exist
-    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_font_size INTEGER NOT NULL DEFAULT 14"#, []);
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN terminal_font_size INTEGER NOT NULL DEFAULT 14"#,
+        [],
+    );
     let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_font_family TEXT NOT NULL DEFAULT 'Menlo, Monaco, "Courier New", monospace'"#, []);
-    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_cursor_style TEXT NOT NULL DEFAULT 'block'"#, []);
-    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN terminal_line_height REAL NOT NULL DEFAULT 1.0"#, []);
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN terminal_cursor_style TEXT NOT NULL DEFAULT 'block'"#,
+        [],
+    );
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN terminal_line_height REAL NOT NULL DEFAULT 1.0"#,
+        [],
+    );
 
     // Migration: Add file manager view mode
-    let _ = conn.execute(r#"ALTER TABLE settings ADD COLUMN file_manager_view_mode TEXT NOT NULL DEFAULT 'flat'"#, []);
-    
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN file_manager_view_mode TEXT NOT NULL DEFAULT 'flat'"#,
+        [],
+    );
+
+    // Groups table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS connection_groups (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id INTEGER,
+            FOREIGN KEY(parent_id) REFERENCES connection_groups(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Migration: Add group_id to connections
+    let _ = conn.execute("ALTER TABLE connections ADD COLUMN group_id INTEGER REFERENCES connection_groups(id) ON DELETE SET NULL", []);
+
     Ok(())
 }
 
@@ -70,25 +99,28 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
 pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-    
-    let mut stmt = conn.prepare("SELECT id, name, host, port, username, password, jump_host, jump_port, jump_username, jump_password FROM connections")
+
+    let mut stmt = conn.prepare("SELECT id, name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id FROM connections")
         .map_err(|e| e.to_string())?;
-    
-    let rows = stmt.query_map([], |row| {
-        Ok(SshConnection {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            host: row.get(2)?,
-            port: row.get(3)?,
-            username: row.get(4)?,
-            password: row.get(5)?,
-            jump_host: row.get(6)?,
-            jump_port: row.get(7)?,
-            jump_username: row.get(8)?,
-            jump_password: row.get(9)?,
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SshConnection {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                host: row.get(2)?,
+                port: row.get(3)?,
+                username: row.get(4)?,
+                password: row.get(5)?,
+                jump_host: row.get(6)?,
+                jump_port: row.get(7)?,
+                jump_username: row.get(8)?,
+                jump_password: row.get(9)?,
+                group_id: row.get(10)?,
+            })
         })
-    }).map_err(|e| e.to_string())?;
-    
+        .map_err(|e| e.to_string())?;
+
     let mut connections = Vec::new();
     for row in rows {
         connections.push(row.map_err(|e| e.to_string())?);
@@ -97,14 +129,40 @@ pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, Stri
 }
 
 #[tauri::command]
+pub fn get_groups(app_handle: AppHandle) -> Result<Vec<ConnectionGroup>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, parent_id FROM connection_groups")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(ConnectionGroup {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                parent_id: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut groups = Vec::new();
+    for row in rows {
+        groups.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(groups)
+}
+
+#[tauri::command]
 pub fn create_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(), String> {
     println!("Creating connection: {:?}", conn);
     let db_path = get_db_path(&app_handle);
     let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-    
+
     db_conn.execute(
-        "INSERT INTO connections (name, host, port, username, password, jump_host, jump_port, jump_username, jump_password) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password],
+        "INSERT INTO connections (name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id],
     ).map_err(|e| {
         println!("Error inserting connection: {}", e);
         e.to_string()
@@ -117,10 +175,10 @@ pub fn create_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(
 pub fn update_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(), String> {
     let db_path = get_db_path(&app_handle);
     let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-    
+
     db_conn.execute(
-        "UPDATE connections SET name=?1, host=?2, port=?3, username=?4, password=?5, jump_host=?6, jump_port=?7, jump_username=?8, jump_password=?9 WHERE id=?10",
-        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.id],
+        "UPDATE connections SET name=?1, host=?2, port=?3, username=?4, password=?5, jump_host=?6, jump_port=?7, jump_username=?8, jump_password=?9, group_id=?10 WHERE id=?11",
+        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.id],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -129,8 +187,50 @@ pub fn update_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(
 pub fn delete_connection(app_handle: AppHandle, id: i64) -> Result<(), String> {
     let db_path = get_db_path(&app_handle);
     let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-    
-    db_conn.execute("DELETE FROM connections WHERE id = ?1", params![id])
+
+    db_conn
+        .execute("DELETE FROM connections WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn create_group(app_handle: AppHandle, group: ConnectionGroup) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    db_conn
+        .execute(
+            "INSERT INTO connection_groups (name, parent_id) VALUES (?1, ?2)",
+            params![group.name, group.parent_id],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_group(app_handle: AppHandle, group: ConnectionGroup) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    db_conn
+        .execute(
+            "UPDATE connection_groups SET name=?1, parent_id=?2 WHERE id=?3",
+            params![group.name, group.parent_id, group.id],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_group(app_handle: AppHandle, id: i64) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    // Note: ON DELETE CASCADE on parent_id handles subgroups
+    // But for connections, we set group_id to NULL (ON DELETE SET NULL)
+    db_conn
+        .execute("DELETE FROM connection_groups WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -139,31 +239,39 @@ pub fn delete_connection(app_handle: AppHandle, id: i64) -> Result<(), String> {
 pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-    
+
     let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode FROM settings WHERE id = 1")
         .map_err(|e| e.to_string())?;
-        
-    let mut rows = stmt.query_map([], |row| {
-        Ok(AppSettings {
-            theme: row.get(0)?,
-            language: row.get(1)?,
-            ai: AIConfig {
-                api_url: row.get(2)?,
-                api_key: row.get(3)?,
-                model_name: row.get(4)?,
-            },
-            terminal_appearance: TerminalAppearanceSettings {
-                font_size: row.get::<_, Option<i32>>(5)?.unwrap_or(14),
-                font_family: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Menlo, Monaco, \"Courier New\", monospace".to_string()),
-                cursor_style: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "block".to_string()),
-                line_height: row.get::<_, Option<f32>>(8)?.unwrap_or(1.0),
-            },
-            file_manager: FileManagerSettings {
-                view_mode: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "flat".to_string()),
-            },
+
+    let mut rows = stmt
+        .query_map([], |row| {
+            Ok(AppSettings {
+                theme: row.get(0)?,
+                language: row.get(1)?,
+                ai: AIConfig {
+                    api_url: row.get(2)?,
+                    api_key: row.get(3)?,
+                    model_name: row.get(4)?,
+                },
+                terminal_appearance: TerminalAppearanceSettings {
+                    font_size: row.get::<_, Option<i32>>(5)?.unwrap_or(14),
+                    font_family: row
+                        .get::<_, Option<String>>(6)?
+                        .unwrap_or_else(|| "Menlo, Monaco, \"Courier New\", monospace".to_string()),
+                    cursor_style: row
+                        .get::<_, Option<String>>(7)?
+                        .unwrap_or_else(|| "block".to_string()),
+                    line_height: row.get::<_, Option<f32>>(8)?.unwrap_or(1.0),
+                },
+                file_manager: FileManagerSettings {
+                    view_mode: row
+                        .get::<_, Option<String>>(9)?
+                        .unwrap_or_else(|| "flat".to_string()),
+                },
+            })
         })
-    }).map_err(|e| e.to_string())?;
-    
+        .map_err(|e| e.to_string())?;
+
     if let Some(row) = rows.next() {
         row.map_err(|e| e.to_string())
     } else {
@@ -175,7 +283,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
 pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(), String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-    
+
     conn.execute(
         "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10 WHERE id = 1",
         params![
@@ -191,6 +299,6 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
             settings.file_manager.view_mode,
         ],
     ).map_err(|e| e.to_string())?;
-    
+
     Ok(())
 }

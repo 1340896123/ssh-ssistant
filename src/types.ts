@@ -10,6 +10,14 @@ export interface Connection {
   jumpPort?: number;
   jumpUsername?: string;
   jumpPassword?: string;
+  groupId?: number | null;
+}
+
+export interface ConnectionGroup {
+  id?: number;
+  name: string;
+  parentId?: number | null;
+  children?: (ConnectionGroup | Connection)[]; // For UI tree structure
 }
 
 export interface FileEntry {

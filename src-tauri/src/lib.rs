@@ -49,7 +49,11 @@ pub fn run() {
             db::update_connection,
             db::delete_connection,
             db::get_settings,
-            db::save_settings
+            db::save_settings,
+            db::get_groups,
+            db::create_group,
+            db::update_group,
+            db::delete_group
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
