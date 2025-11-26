@@ -2,8 +2,8 @@
 import { useConnectionStore } from '../stores/connections';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
-import { onMounted, computed } from 'vue';
-import { FolderPlus } from 'lucide-vue-next';
+import { onMounted, computed, ref } from 'vue';
+import { FolderPlus, ChevronRight, ChevronDown, FolderOpen, Folder } from 'lucide-vue-next';
 import ConnectionTreeItem from './ConnectionTreeItem.vue';
 import type { Connection, ConnectionGroup } from '../types';
 import draggable from 'vuedraggable';
@@ -12,6 +12,8 @@ const connectionStore = useConnectionStore();
 const sessionStore = useSessionStore();
 const { t } = useI18n();
 const emit = defineEmits(['edit']);
+
+const isRootExpanded = ref(true);
 
 onMounted(() => {
   connectionStore.loadConnections();
@@ -72,21 +74,38 @@ async function onRootChange(event: any) {
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex justify-end px-2 py-1">
-      <button @click="handleCreateGroup()" class="p-1 text-gray-400 hover:text-white" title="New Group">
-        <FolderPlus class="w-4 h-4" />
-      </button>
+    <!-- Root Node -->
+    <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none"
+      @click="isRootExpanded = !isRootExpanded">
+      <div class="flex items-center space-x-2 overflow-hidden flex-1">
+        <button class="p-0.5 hover:bg-gray-600 rounded text-gray-400">
+          <ChevronDown v-if="isRootExpanded" class="w-3 h-3" />
+          <ChevronRight v-else class="w-3 h-3" />
+        </button>
+        <FolderOpen v-if="isRootExpanded" class="w-4 h-4 text-yellow-400" />
+        <Folder v-else class="w-4 h-4 text-yellow-400" />
+        <span class="text-sm text-gray-200 font-bold">Root</span>
+      </div>
+
+      <div class="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <button @click.stop="handleCreateGroup()" class="p-1 text-gray-500 hover:text-green-400 cursor-pointer"
+          title="New Group">
+          <FolderPlus class="w-3 h-3" />
+        </button>
+      </div>
     </div>
-    <div class="flex-1 overflow-y-auto">
+
+    <!-- Root Children -->
+    <div v-if="isRootExpanded" class="flex-1 overflow-y-auto">
       <draggable :list="treeData" group="connections" :item-key="getItemKey" class="space-y-0.5 min-h-[50px]"
         @change="onRootChange">
         <template #item="{ element }">
-          <ConnectionTreeItem :item="element" :level="0" @connect="connect" @edit="handleEdit" @delete="handleDelete"
+          <ConnectionTreeItem :item="element" :level="1" @connect="connect" @edit="handleEdit" @delete="handleDelete"
             @create-group="handleCreateGroup" @edit-group="handleEditGroup" @delete-group="handleDeleteGroup" />
         </template>
       </draggable>
-      <div v-if="treeData.length === 0" class="text-center text-gray-500 text-sm py-4">
-        No connections found.
+      <div v-if="treeData.length === 0" class="text-center text-gray-500 text-sm py-4 ml-4">
+        (Empty)
       </div>
     </div>
   </div>
