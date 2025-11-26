@@ -78,7 +78,8 @@
       "rename": "重命名",
       "delete": "删除",
       "copyPath": "复制路径",
-      "changePermissions": "修改权限"
+      "changePermissions": "修改权限",
+      "copyName": "复制名称"
     },
     "deleteConfirm": {
       "title": "确认删除",

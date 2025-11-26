@@ -78,7 +78,8 @@
       "rename": "Rename",
       "delete": "Delete",
       "copyPath": "Copy Path",
-      "changePermissions": "Change Permissions"
+      "changePermissions": "Change Permissions",
+      "copyName": "Copy Name"
     },
     "deleteConfirm": {
       "title": "Confirm Deletion",

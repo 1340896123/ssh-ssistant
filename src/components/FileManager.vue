@@ -673,6 +673,11 @@ function copyPath(file: FileEntry) {
     closeContextMenu();
 }
 
+function copyName(file: FileEntry) {
+    navigator.clipboard.writeText(file.name);
+    closeContextMenu();
+}
+
 function formatDate(timestamp: number) {
     return new Date(timestamp * 1000).toLocaleString();
 }
@@ -866,6 +871,9 @@ function formatSize(size: number): string {
             <button @click.stop="copyPath(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
                     t('fileManager.contextMenu.copyPath') }}</button>
+            <button @click.stop="copyName(contextMenu.file!)"
+                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
+                    t('fileManager.contextMenu.copyName') }}</button>
             <button @click.stop="handleChangePermissions(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
                     t('fileManager.contextMenu.changePermissions')
