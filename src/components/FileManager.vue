@@ -76,6 +76,7 @@ const columnWidths = ref<Record<ColumnKey, number>>({
 const resizingColumn = ref<ColumnKey | null>(null);
 const resizeStartX = ref(0);
 const resizeStartWidth = ref(0);
+const isOpeningFile = ref(false);
 
 const visibleTreeNodes = computed<TreeNode[]>(() => {
     const result: TreeNode[] = [];
@@ -221,6 +222,7 @@ async function openTreeFile(node: TreeNode) {
         await toggleDirectory(node);
         return;
     }
+    isOpeningFile.value = true;
     try {
         await invoke('edit_remote_file', {
             id: props.sessionId,
@@ -229,6 +231,8 @@ async function openTreeFile(node: TreeNode) {
         });
     } catch (e) {
         alert("Failed to open file: " + e);
+    } finally {
+        isOpeningFile.value = false;
     }
 }
 
@@ -319,6 +323,7 @@ async function navigate(entry: FileEntry) {
         loadFiles(newPath);
     } else {
         // Edit remote file
+        isOpeningFile.value = true;
         try {
             await invoke('edit_remote_file', {
                 id: props.sessionId,
@@ -327,6 +332,8 @@ async function navigate(entry: FileEntry) {
             });
         } catch (e) {
             alert("Failed to open file: " + e);
+        } finally {
+            isOpeningFile.value = false;
         }
     }
 }
@@ -834,6 +841,12 @@ function formatSize(size: number): string {
 
         <!-- Transfer List -->
         <TransferList />
+
+        <!-- Opening File Indicator -->
+        <div v-if="isOpeningFile"
+            class="fixed bottom-4 right-4 bg-gray-800/90 text-gray-100 text-xs px-3 py-2 rounded shadow-lg border border-gray-700 z-50">
+            正在打开...
+        </div>
 
         <!-- Context Menu -->
         <div v-if="contextMenu.show" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
