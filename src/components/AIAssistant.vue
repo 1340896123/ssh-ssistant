@@ -405,13 +405,20 @@ async function processChat() {
   }
 }
 
-function onContextChange(evt: any) {
+
+const inputQueue = ref([]);
+
+function handleInputDrop(evt: any) {
   if (evt.added) {
-    const unique = new Map();
-    for (const p of contextPaths.value) {
-      unique.set(p.path, p);
+    const item = evt.added.element;
+    const exists = contextPaths.value.some(c => c.path === item.path);
+    if (!exists) {
+      contextPaths.value.push(item);
     }
-    contextPaths.value = Array.from(unique.values());
+    // Clear queue to remove the dropped item from the input area
+    nextTick(() => {
+      inputQueue.value = [];
+    });
   }
 }
 
@@ -425,28 +432,6 @@ function removeContextPath(pathToRemove: string) {
   <div class="flex flex-col h-full bg-gray-900 text-white relative">
 
 
-    <div class="px-4 pt-3 pb-1 border-b border-gray-800 text-xs text-gray-400 space-y-1">
-      <div class="font-semibold text-gray-300">Context paths</div>
-      <draggable v-model="contextPaths" item-key="path" :group="{ name: 'files', pull: false, put: true }"
-        class="space-y-0.5 max-h-16 overflow-y-auto min-h-[2rem] border border-dashed border-gray-800 rounded p-1"
-        @change="onContextChange">
-        <template #item="{ element: c }">
-          <div
-            class="truncate font-mono text-[11px] flex items-center group cursor-default bg-gray-800/50 rounded px-1">
-            <span class="flex-1">{{ c.isDir ? '[DIR]' : '[FILE]' }} {{ c.path }}</span>
-            <button @click="removeContextPath(c.path)"
-              class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400">
-              &times;
-            </button>
-          </div>
-        </template>
-        <template #footer>
-          <div v-if="contextPaths.length === 0" class="text-gray-600 italic text-center py-1 select-none">
-            Drop files here
-          </div>
-        </template>
-      </draggable>
-    </div>
     <!-- Messages Area -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
       <div v-for="(msg, index) in displayMessages" :key="index" class="flex flex-col space-y-1">
@@ -503,20 +488,41 @@ function removeContextPath(pathToRemove: string) {
 
     <!-- Input Area -->
     <div class="p-4 bg-gray-800 border-t border-gray-700">
-      <div class="relative flex items-center">
-        <button @click="emit('refresh-context')"
-          class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
-          title="Import terminal context">
-          <ClipboardPlus class="w-5 h-5" />
-        </button>
-        <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
-          class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
-          placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
-        <button @click="sendMessage" :disabled="isLoading || !input.trim()"
-          class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors">
-          <Send class="w-5 h-5" />
-        </button>
-      </div>
+      <draggable v-model="inputQueue" group="{ name: 'files', put: true }" item-key="path" class="w-full"
+        :ghost-class="'opacity-50'" @change="handleInputDrop">
+        <template #item="{ }">
+          <div class="hidden"></div>
+        </template>
+        <template #footer>
+          <div class="flex flex-col space-y-2">
+            <!-- Context Chips -->
+            <div v-if="contextPaths.length > 0" class="flex flex-wrap gap-2 px-1">
+              <div v-for="c in contextPaths" :key="c.path"
+                class="flex items-center bg-blue-900/50 border border-blue-700/50 rounded px-2 py-1 text-xs text-blue-200 max-w-full">
+                <span class="truncate font-mono mr-2">{{ c.isDir ? '[DIR]' : '' }} {{ c.path }}</span>
+                <button @click="removeContextPath(c.path)" class="text-blue-400 hover:text-red-400">
+                  &times;
+                </button>
+              </div>
+            </div>
+
+            <div class="relative flex items-center">
+              <button @click="emit('refresh-context')"
+                class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
+                title="Import terminal context">
+                <ClipboardPlus class="w-5 h-5" />
+              </button>
+              <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
+                class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+                placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
+              <button @click="sendMessage" :disabled="isLoading || !input.trim()"
+                class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors">
+                <Send class="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </template>
+      </draggable>
       <div class="mt-2 text-xs text-gray-500 text-center">
         AI can execute commands. Exercise caution.
       </div>
