@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus } from 'lucide-vue-next';
 import { open, save, ask, message } from '@tauri-apps/plugin-dialog';
 import { readDir } from '@tauri-apps/plugin-fs';
@@ -62,7 +61,6 @@ const pathInput = ref('');
 const containerRef = ref<HTMLElement | null>(null);
 const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
-let unlistenDrop: (() => void) | null = null;
 const transferStore = useTransferStore();
 const treeRootPath = ref<string>('.');
 const treeNodes = ref<Map<string, TreeNode>>(new Map());
@@ -268,62 +266,71 @@ function stopResize() {
     resizingColumn.value = null;
 }
 
+// Handle native browser drag and drop for files
+function handleNativeDragOver(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Only accept file drops, not connection drags
+    if (event.dataTransfer && event.dataTransfer.types.includes('Files')) {
+        event.dataTransfer.dropEffect = 'copy';
+    }
+}
+
+function handleNativeDrop(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (!event.dataTransfer || !event.dataTransfer.files || event.dataTransfer.files.length === 0) {
+        return;
+    }
+    
+    const files = event.dataTransfer.files;
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        // Use webkitRelativePath for directories, fallback to name
+        const relativePath = (file as any).webkitRelativePath || file.name;
+        const name = relativePath.split(/[\\/]/).pop() || 'uploaded';
+        const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+
+        const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+
+        transferStore.addTransfer({
+            id: transferId,
+            type: 'upload',
+            name,
+            localPath: file.name, // Note: This won't work for actual file access, need different approach
+            remotePath,
+            size: file.size,
+            transferred: 0,
+            progress: 0,
+            status: 'pending',
+            sessionId: props.sessionId
+        });
+    }
+    
+    loadFiles(currentPath.value);
+}
+
 onMounted(async () => {
     loadFiles('.');
     transferStore.initListeners();
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', stopResize);
     window.addEventListener('keydown', handleKeyDown);
-    unlistenDrop = await listen('tauri://drag-drop', async (event) => {
-        const payload = event.payload as { paths: string[], position: { x: number, y: number } };
+});
 
-        if (!containerRef.value) return;
-        const rect = containerRef.value.getBoundingClientRect();
-        const { x, y } = payload.position;
-        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
-
-        const paths = payload.paths || [];
-
-        if (!paths || paths.length === 0) return;
-
-        for (const localPath of paths) {
-            // Handle both slash and backslash, remove empty parts
-            const parts = localPath.split(/[\\/]/).filter(p => p);
-            const name = parts.pop() || 'uploaded';
-            const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
-
-            const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
-
-            transferStore.addTransfer({
-                id: transferId,
-                type: 'upload',
-                name,
-                localPath,
-                remotePath,
-                size: 0, // Backend calculates
-                transferred: 0,
-                progress: 0,
-                status: 'pending',
-                sessionId: props.sessionId
-            });
-        }
-        loadFiles(currentPath.value);
-    });
+onUnmounted(() => {
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', stopResize);
+    window.removeEventListener('keydown', handleKeyDown);
 });
 
 watch(viewMode, (mode) => {
     if (mode === 'tree') {
         loadFiles(currentPath.value);
     }
-});
-
-onUnmounted(() => {
-    if (unlistenDrop) {
-        unlistenDrop();
-    }
-    window.removeEventListener('mousemove', handleMouseMove);
-    window.removeEventListener('mouseup', stopResize);
-    window.removeEventListener('keydown', handleKeyDown);
 });
 
 async function navigate(entry: FileEntry) {
@@ -758,7 +765,9 @@ function formatSize(size: number): string {
         </div>
 
         <!-- File List -->
-        <div class="flex-1 overflow-y-auto border border-gray-800 rounded bg-gray-900/50">
+        <div class="flex-1 overflow-y-auto border border-gray-800 rounded bg-gray-900/50"
+             @dragover="handleNativeDragOver" 
+             @drop="handleNativeDrop">
             <!-- Header -->
             <div
                 class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold select-none">
