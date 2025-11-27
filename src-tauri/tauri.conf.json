@@ -14,7 +14,8 @@
       {
         "title": "SshStar",
         "width": 1600,
-        "height": 900
+        "height": 900,
+        "dragDropEnabled": true
       }
     ],
     "security": {
