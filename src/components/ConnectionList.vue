@@ -7,6 +7,9 @@ import { FolderPlus, ChevronRight, ChevronDown, FolderOpen, Folder } from 'lucid
 import ConnectionTreeItem from './ConnectionTreeItem.vue';
 import type { Connection, ConnectionGroup } from '../types';
 import draggable from 'vuedraggable';
+import { listen } from '@tauri-apps/api/event';
+import { readTextFile } from '@tauri-apps/plugin-fs';
+import { onUnmounted } from 'vue';
 
 const connectionStore = useConnectionStore();
 const sessionStore = useSessionStore();
@@ -14,9 +17,50 @@ const { t } = useI18n();
 const emit = defineEmits(['edit']);
 
 const isRootExpanded = ref(true);
+const containerRef = ref<HTMLElement | null>(null);
+let unlistenDrop: (() => void) | null = null;
 
-onMounted(() => {
+onMounted(async () => {
   connectionStore.loadConnections();
+
+  unlistenDrop = await listen('tauri://drag-drop', async (event) => {
+    const payload = event.payload as { paths: string[], position: { x: number, y: number } };
+    if (!containerRef.value) return;
+    const rect = containerRef.value.getBoundingClientRect();
+    const { x, y } = payload.position;
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+
+    const paths = payload.paths || [];
+    for (const path of paths) {
+      if (path.toLowerCase().endsWith('.json')) {
+        try {
+          const content = await readTextFile(path);
+          const data = JSON.parse(content);
+          const conns = Array.isArray(data) ? data : (data.connections || []);
+          let importedCount = 0;
+          for (const c of conns) {
+            if (c.host && c.username) {
+              // Ensure new connection
+              const { id, ...rest } = c;
+              await connectionStore.addConnection(rest as any);
+              importedCount++;
+            }
+          }
+          if (importedCount > 0) {
+            alert(`Imported ${importedCount} connections.`);
+          }
+        } catch (e) {
+          console.error('Failed to import connections:', e);
+        }
+      }
+    }
+  });
+});
+
+onUnmounted(() => {
+  if (unlistenDrop) {
+    unlistenDrop();
+  }
 });
 
 const treeData = computed(() => connectionStore.treeData);
@@ -78,7 +122,7 @@ async function onRootChange(event: any) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div ref="containerRef" class="flex flex-col h-full">
     <!-- Root Node -->
     <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none"
       @click="isRootExpanded = !isRootExpanded">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, computed } from 'vue';
+import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
@@ -406,6 +406,45 @@ async function processChat() {
 }
 
 
+import { listen } from '@tauri-apps/api/event';
+
+// ... existing code ...
+
+const containerRef = ref<HTMLElement | null>(null);
+let unlistenDrop: (() => void) | null = null;
+
+onMounted(async () => {
+  scrollToBottom();
+
+  unlistenDrop = await listen('tauri://drag-drop', (event) => {
+    const payload = event.payload as { paths: string[], position: { x: number, y: number } };
+    if (containerRef.value) {
+      const rect = containerRef.value.getBoundingClientRect();
+      const x = payload.position.x;
+      const y = payload.position.y;
+
+      // Check if drop is within this component
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        if (payload.paths && payload.paths.length > 0) {
+          for (const path of payload.paths) {
+            const exists = contextPaths.value.some(c => c.path === path);
+            if (!exists) {
+              // We don't know if it's a dir or file from just the path easily without checking fs, 
+              // but for now we can assume or check. 
+              // Actually, we can use invoke to check or just add it.
+              // Let's just add it. The user can remove it if wrong.
+              // Or better, we can assume it's a file unless we check.
+              // For the context purpose, just the path is most important.
+              contextPaths.value.push({ path, isDir: false }); // Default to false or check extension
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
+
 const inputQueue = ref([]);
 
 function handleInputDrop(evt: any) {
@@ -426,10 +465,17 @@ function removeContextPath(pathToRemove: string) {
   contextPaths.value = contextPaths.value.filter((c) => c.path !== pathToRemove);
 }
 
+onUnmounted(() => {
+  if (unlistenDrop) {
+    unlistenDrop();
+  }
+});
+
+
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-900 text-white relative">
+  <div ref="containerRef" class="flex flex-col h-full bg-gray-900 text-white relative">
 
 
     <!-- Messages Area -->

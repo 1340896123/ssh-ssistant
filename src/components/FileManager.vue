@@ -59,6 +59,7 @@ const files = ref<FileEntry[]>([]);
 const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null, treePath: string | null, isTree: boolean }>({ show: false, x: 0, y: 0, file: null, treePath: null, isTree: false });
 const isEditingPath = ref(false);
 const pathInput = ref('');
+const containerRef = ref<HTMLElement | null>(null);
 const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
 let unlistenDrop: (() => void) | null = null;
@@ -272,8 +273,14 @@ onMounted(async () => {
     window.addEventListener('mouseup', stopResize);
     window.addEventListener('keydown', handleKeyDown);
     unlistenDrop = await listen('tauri://drag-drop', async (event) => {
-        const payload = event.payload as { paths: string[] };
-        const paths = payload.paths || (Array.isArray(payload) ? payload : []);
+        const payload = event.payload as { paths: string[], position: { x: number, y: number } };
+
+        if (!containerRef.value) return;
+        const rect = containerRef.value.getBoundingClientRect();
+        const { x, y } = payload.position;
+        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+
+        const paths = payload.paths || [];
 
         if (!paths || paths.length === 0) return;
 
@@ -697,7 +704,7 @@ function formatSize(size: number): string {
 </script>
 
 <template>
-    <div class="h-full bg-gray-900 text-white p-2 flex flex-col" @click="closeContextMenu">
+    <div ref="containerRef" class="h-full bg-gray-900 text-white p-2 flex flex-col" @click="closeContextMenu">
         <!-- Toolbar -->
         <div class="flex flex-col space-y-2 mb-2 bg-gray-800 p-2 rounded">
             <!-- Path Bar -->
