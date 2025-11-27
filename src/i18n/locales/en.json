@@ -75,6 +75,7 @@
     "emptyDirectory": "Empty directory",
     "contextMenu": {
       "download": "Download",
+      "batchDownload": "Batch Download",
       "rename": "Rename",
       "delete": "Delete",
       "copyPath": "Copy Path",

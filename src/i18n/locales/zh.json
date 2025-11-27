@@ -75,6 +75,7 @@
     "emptyDirectory": "空目录",
     "contextMenu": {
       "download": "下载",
+      "batchDownload": "批量下载",
       "rename": "重命名",
       "delete": "删除",
       "copyPath": "复制路径",

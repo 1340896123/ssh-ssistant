@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useTransferStore } from '../stores/transfers';
-import { X, Pause, RefreshCw, Trash2, FileUp, FileDown, ChevronUp, ChevronDown } from 'lucide-vue-next';
+import { X, Pause, RefreshCw, Trash2, FileUp, FileDown, ChevronUp, ChevronDown, Folder, Play, Square } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 
 const store = useTransferStore();
@@ -16,6 +16,12 @@ const summary = computed(() => {
     if (failed > 0) return `${failed} failed`;
     return `${total} items`;
 });
+
+// 批量操作按钮的可见性计算
+const canBatchPause = computed(() => store.items.some(i => i.status === 'running'));
+const canBatchResume = computed(() => store.items.some(i => ['paused', 'error', 'cancelled'].includes(i.status)));
+const canBatchCancel = computed(() => store.items.some(i => ['running', 'paused', 'pending'].includes(i.status)));
+const canBatchDelete = computed(() => store.items.some(i => ['completed', 'cancelled', 'error', 'paused'].includes(i.status)));
 
 function formatSize(bytes: number) {
     if (bytes === 0) return '0 B';
@@ -41,6 +47,20 @@ function toggleExpand() {
                  <span class="bg-gray-700 px-1.5 rounded-full text-[10px]">{{ summary }}</span>
             </div>
             <div class="flex space-x-2" @click.stop>
+                <!-- 批量操作按钮 -->
+                <button v-if="isExpanded && canBatchPause" @click="store.batchPause()" title="Batch Pause" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                    <Pause class="w-3 h-3" />
+                </button>
+                <button v-if="isExpanded && canBatchResume" @click="store.batchResume()" title="Batch Resume" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                    <Play class="w-3 h-3" />
+                </button>
+                <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel()" title="Batch Cancel" class="p-0.5 hover:bg-gray-700 rounded text-yellow-400">
+                    <Square class="w-3 h-3" />
+                </button>
+                <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete()" title="Batch Delete" class="p-0.5 hover:bg-gray-700 rounded text-red-400">
+                    <Trash2 class="w-3 h-3" />
+                </button>
+                <!-- 原有的清除已完成按钮 -->
                 <button v-if="isExpanded" @click="store.clearHistory()" title="Clear Completed" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
                     <Trash2 class="w-3 h-3" />
                 </button>
@@ -53,8 +73,10 @@ function toggleExpand() {
                 <div class="flex items-center justify-between mb-1">
                     <div class="flex items-center space-x-2 truncate">
                         <FileUp v-if="item.type === 'upload'" class="w-3 h-3 text-blue-400" />
-                        <FileDown v-else class="w-3 h-3 text-green-400" />
+                        <FileDown v-else-if="!item.isDirectory" class="w-3 h-3 text-green-400" />
+                        <Folder v-else class="w-3 h-3 text-yellow-400" />
                         <span class="truncate font-medium text-gray-200" :title="item.name">{{ item.name }}</span>
+                        <span v-if="item.isDirectory" class="text-xs text-gray-400">({{ item.completedFiles || 0 }}/{{ item.childFiles || 0 }} files)</span>
                     </div>
                     <span class="text-gray-400 whitespace-nowrap ml-2">
                         {{ item.status }}
@@ -78,13 +100,13 @@ function toggleExpand() {
                 <div class="flex items-center justify-between text-gray-400">
                     <span>{{ formatSize(item.transferred) }} / {{ formatSize(item.size) }}</span>
                     <div class="flex items-center space-x-1">
-                        <button v-if="item.status === 'running'" @click="store.pauseTransfer(item.id)" class="p-1 hover:text-white" title="Pause">
+                        <button v-if="item.status === 'running' && !item.isDirectory" @click="store.pauseTransfer(item.id)" class="p-1 hover:text-white" title="Pause">
                             <Pause class="w-3 h-3" />
                         </button>
-                        <button v-if="item.status === 'paused' || item.status === 'error' || item.status === 'cancelled'" @click="store.resumeTransfer(item.id)" class="p-1 hover:text-white" title="Resume/Retry">
+                        <button v-if="(item.status === 'paused' || item.status === 'error' || item.status === 'cancelled') && !item.isDirectory" @click="store.resumeTransfer(item.id)" class="p-1 hover:text-white" title="Resume/Retry">
                             <RefreshCw class="w-3 h-3" />
                         </button>
-                        <button v-if="['running', 'paused', 'pending'].includes(item.status)" @click="store.cancelTransfer(item.id)" class="p-1 hover:text-red-400" title="Cancel">
+                        <button v-if="['running', 'paused', 'pending'].includes(item.status) && !item.isDirectory" @click="store.cancelTransfer(item.id)" class="p-1 hover:text-red-400" title="Cancel">
                             <X class="w-3 h-3" />
                         </button>
                         <button v-if="['completed', 'cancelled', 'error'].includes(item.status)" @click="store.removeTransfer(item.id)" class="p-1 hover:text-red-400" title="Remove">
