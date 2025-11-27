@@ -3,18 +3,16 @@ import { ref, computed, watch } from 'vue';
 import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2, Plus } from 'lucide-vue-next';
 import type { Connection, ConnectionGroup } from '../types';
 import { useI18n } from '../composables/useI18n';
-import { useConnectionStore } from '../stores/connections';
-import draggable from 'vuedraggable';
+// import draggable from 'vuedraggable'; // Removed
 
 const props = defineProps<{
     item: Connection | ConnectionGroup;
     level: number;
 }>();
 
-const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group']);
+const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group', 'drag-start', 'drop-item']);
 
 const { t } = useI18n();
-const connectionStore = useConnectionStore();
 const isExpanded = ref(false);
 
 const isGroup = computed(() => 'children' in props.item || 'parentId' in props.item);
@@ -69,20 +67,41 @@ function getItemKey(item: Connection | ConnectionGroup) {
     return getItemType(item) + '-' + item.id;
 }
 
-async function onGroupChange(event: any) {
-    if (event.added) {
-        const item = event.added.element;
-        const type = getItemType(item);
-        await connectionStore.moveItem(type, item.id, props.item.id!);
-        isExpanded.value = true;
+// Drag and Drop
+const isDragOver = ref(false);
+
+function onDragStart(event: DragEvent) {
+    emit('drag-start', event, props.item);
+}
+
+function onDragOver(event: DragEvent) {
+    if (isGroup.value) {
+        event.preventDefault();
+        isDragOver.value = true;
     }
 }
+
+function onDragLeave(_: DragEvent) {
+    isDragOver.value = false;
+}
+
+function onDrop(event: DragEvent) {
+    if (isGroup.value) {
+        event.preventDefault();
+        event.stopPropagation(); // Prevent dropping on parent group
+        isDragOver.value = false;
+        emit('drop-item', event, props.item.id);
+    }
+}
+
 </script>
 
 <template>
-    <div>
+    <div :draggable="true" @dragstart.stop="onDragStart">
         <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none transition-colors duration-200"
-            :style="{ paddingLeft }" @click="toggleExpand" @dblclick="handleConnect">
+            :class="{ 'bg-blue-500/20 border border-blue-500': isDragOver }" :style="{ paddingLeft }"
+            @click="toggleExpand" @dblclick="handleConnect" @dragover="onDragOver" @dragleave="onDragLeave"
+            @drop="onDrop">
             <div class="flex items-center space-x-2 overflow-hidden flex-1">
                 <template v-if="isGroup">
                     <button class="p-0.5 hover:bg-gray-600 rounded text-gray-400">
@@ -116,15 +135,14 @@ async function onGroupChange(event: any) {
         </div>
 
         <div v-if="isGroup && isExpanded">
-            <draggable v-model="localChildren" group="connections" :item-key="getItemKey" class="min-h-[10px]"
-                ghost-class="ghost" drag-class="drag" @change="onGroupChange">
-                <template #item="{ element }">
-                    <ConnectionTreeItem :item="element" :level="level + 1" @connect="$emit('connect', $event)"
-                        @edit="$emit('edit', $event)" @delete="$emit('delete', $event)"
-                        @create-group="$emit('create-group', $event)" @edit-group="$emit('edit-group', $event)"
-                        @delete-group="$emit('delete-group', $event)" />
-                </template>
-            </draggable>
+            <div class="min-h-[10px]">
+                <ConnectionTreeItem v-for="child in localChildren" :key="getItemKey(child)" :item="child"
+                    :level="level + 1" @connect="$emit('connect', $event)" @edit="$emit('edit', $event)"
+                    @delete="$emit('delete', $event)" @create-group="$emit('create-group', $event)"
+                    @edit-group="$emit('edit-group', $event)" @delete-group="$emit('delete-group', $event)"
+                    @drag-start="(e, i) => $emit('drag-start', e, i)"
+                    @drop-item="(e, id) => $emit('drop-item', e, id)" />
+            </div>
             <div v-if="!(item as ConnectionGroup).children?.length" class="text-xs text-gray-500 py-1"
                 :style="{ paddingLeft: `${(level + 1) * 16 + 24}px` }">
                 (Empty)

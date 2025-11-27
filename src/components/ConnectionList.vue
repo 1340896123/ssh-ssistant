@@ -2,11 +2,11 @@
 import { useConnectionStore } from '../stores/connections';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
-import { onMounted, computed, ref, watch } from 'vue';
+import { onMounted, computed, ref } from 'vue';
 import { FolderPlus, ChevronRight, ChevronDown, FolderOpen, Folder } from 'lucide-vue-next';
 import ConnectionTreeItem from './ConnectionTreeItem.vue';
 import type { Connection, ConnectionGroup } from '../types';
-import draggable from 'vuedraggable';
+// import draggable from 'vuedraggable'; // Removed
 import { listen } from '@tauri-apps/api/event';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import { onUnmounted } from 'vue';
@@ -19,11 +19,26 @@ const emit = defineEmits(['edit']);
 const isRootExpanded = ref(true);
 const containerRef = ref<HTMLElement | null>(null);
 let unlistenDrop: (() => void) | null = null;
+let unlistenDragEnter: (() => void) | null = null;
+let unlistenDragLeave: (() => void) | null = null;
+const isDragOver = ref(false);
 
 onMounted(async () => {
   connectionStore.loadConnections();
 
+  unlistenDragEnter = await listen('tauri://drag-enter', () => {
+    console.log("Drag enter");
+    isDragOver.value = true;
+  });
+
+  unlistenDragLeave = await listen('tauri://drag-leave', () => {
+    console.log("Drag leave");
+    isDragOver.value = false;
+  });
+
   unlistenDrop = await listen('tauri://drag-drop', async (event) => {
+    console.log("Dropped files:", event);
+    isDragOver.value = false;
     const payload = event.payload as { paths: string[], position: { x: number, y: number } };
     if (!containerRef.value) return;
     const rect = containerRef.value.getBoundingClientRect();
@@ -58,17 +73,48 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (unlistenDrop) {
-    unlistenDrop();
-  }
+  if (unlistenDrop) unlistenDrop();
+  if (unlistenDragEnter) unlistenDragEnter();
+  if (unlistenDragLeave) unlistenDragLeave();
 });
 
 const treeData = computed(() => connectionStore.treeData);
-const localTreeData = ref<(Connection | ConnectionGroup)[]>([]);
 
-watch(treeData, (newVal) => {
-  localTreeData.value = [...newVal];
-}, { immediate: true });
+// Drag and Drop Logic
+const draggedItem = ref<{ type: 'connection' | 'group', id: number } | null>(null);
+
+function onDragStart(event: DragEvent, item: Connection | ConnectionGroup) {
+  if (event.dataTransfer) {
+    const type = getItemType(item);
+    draggedItem.value = { type, id: item.id! };
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/json', JSON.stringify({ type, id: item.id }));
+    // Add a small delay to let the drag image be created before hiding the element (optional)
+  }
+}
+
+function onDragOver(event: DragEvent) {
+  event.preventDefault(); // Necessary to allow dropping
+  // Visual feedback could be handled here or via CSS :hover-like states if we use a specific class
+}
+
+async function onDrop(event: DragEvent, targetGroupId: number | null) {
+  event.preventDefault();
+  const data = event.dataTransfer?.getData('application/json');
+  if (data) {
+    try {
+      const { type, id } = JSON.parse(data);
+      // Prevent dropping into itself or its children (for groups) - simplified check
+      if (type === 'group' && id === targetGroupId) return;
+
+      await connectionStore.moveItem(type, id, targetGroupId);
+    } catch (e) {
+      console.error("Invalid drop data", e);
+    }
+  }
+  draggedItem.value = null;
+}
+
 
 function connect(conn: Connection) {
   sessionStore.createSession(conn);
@@ -112,17 +158,18 @@ function getItemKey(item: Connection | ConnectionGroup) {
   return getItemType(item) + '-' + item.id;
 }
 
-async function onRootChange(event: any) {
-  if (event.added) {
-    const item = event.added.element;
-    const type = getItemType(item);
-    await connectionStore.moveItem(type, item.id, null);
-  }
-}
+// Removed onRootChange as we use native drop
+
 </script>
 
 <template>
-  <div ref="containerRef" class="flex flex-col h-full">
+  <div ref="containerRef" class="flex flex-col h-full relative">
+    <div v-if="isDragOver"
+      class="absolute inset-0 bg-blue-500/10 border-2 border-blue-500 z-50 rounded pointer-events-none flex items-center justify-center">
+      <div class="bg-gray-800 text-blue-400 px-4 py-2 rounded shadow-lg font-medium">
+        Drop JSON to Import
+      </div>
+    </div>
     <!-- Root Node -->
     <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none"
       @click="isRootExpanded = !isRootExpanded">
@@ -145,14 +192,12 @@ async function onRootChange(event: any) {
     </div>
 
     <!-- Root Children -->
-    <div v-if="isRootExpanded" class="flex-1 overflow-y-auto">
-      <draggable v-model="localTreeData" group="connections" :item-key="getItemKey" class="space-y-0.5 min-h-[50px]"
-        ghost-class="ghost" drag-class="drag" @change="onRootChange">
-        <template #item="{ element }">
-          <ConnectionTreeItem :item="element" :level="1" @connect="connect" @edit="handleEdit" @delete="handleDelete"
-            @create-group="handleCreateGroup" @edit-group="handleEditGroup" @delete-group="handleDeleteGroup" />
-        </template>
-      </draggable>
+    <div v-if="isRootExpanded" class="flex-1 overflow-y-auto" @dragover="onDragOver" @drop="onDrop($event, null)">
+      <div class="space-y-0.5 min-h-[50px]">
+        <ConnectionTreeItem v-for="item in treeData" :key="getItemKey(item)" :item="item" :level="1" @connect="connect"
+          @edit="handleEdit" @delete="handleDelete" @create-group="handleCreateGroup" @edit-group="handleEditGroup"
+          @delete-group="handleDeleteGroup" @drag-start="onDragStart" @drop-item="onDrop" />
+      </div>
       <div v-if="treeData.length === 0" class="text-center text-gray-500 text-sm py-4 ml-4">
         (Empty)
       </div>

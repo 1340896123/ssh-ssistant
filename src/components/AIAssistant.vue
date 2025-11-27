@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
-import draggable from 'vuedraggable';
+// import draggable from 'vuedraggable'; // Removed
 
 const md = new MarkdownIt({
   html: false,
@@ -445,19 +445,34 @@ onMounted(async () => {
 });
 
 
-const inputQueue = ref([]);
+// const inputQueue = ref([]); // Removed
+const isDragOverInput = ref(false);
 
-function handleInputDrop(evt: any) {
-  if (evt.added) {
-    const item = evt.added.element;
-    const exists = contextPaths.value.some(c => c.path === item.path);
-    if (!exists) {
-      contextPaths.value.push(item);
+function onInputDragOver(event: DragEvent) {
+  event.preventDefault();
+  isDragOverInput.value = true;
+}
+
+function onInputDragLeave(_: DragEvent) {
+  isDragOverInput.value = false;
+}
+
+function onInputDrop(event: DragEvent) {
+  event.preventDefault();
+  isDragOverInput.value = false;
+  const data = event.dataTransfer?.getData('application/json');
+  if (data) {
+    try {
+      const item = JSON.parse(data);
+      if (item.path) {
+        const exists = contextPaths.value.some(c => c.path === item.path);
+        if (!exists) {
+          contextPaths.value.push(item);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to parse drop data", e);
     }
-    // Clear queue to remove the dropped item from the input area
-    nextTick(() => {
-      inputQueue.value = [];
-    });
   }
 }
 
@@ -533,42 +548,37 @@ onUnmounted(() => {
     </div>
 
     <!-- Input Area -->
-    <div class="p-4 bg-gray-800 border-t border-gray-700">
-      <draggable v-model="inputQueue" group="{ name: 'files', put: true }" item-key="path" class="w-full"
-        :ghost-class="'opacity-50'" @change="handleInputDrop">
-        <template #item="{ }">
-          <div class="hidden"></div>
-        </template>
-        <template #footer>
-          <div class="flex flex-col space-y-2">
-            <!-- Context Chips -->
-            <div v-if="contextPaths.length > 0" class="flex flex-wrap gap-2 px-1">
-              <div v-for="c in contextPaths" :key="c.path"
-                class="flex items-center bg-blue-900/50 border border-blue-700/50 rounded px-2 py-1 text-xs text-blue-200 max-w-full">
-                <span class="truncate font-mono mr-2">{{ c.isDir ? '[DIR]' : '' }} {{ c.path }}</span>
-                <button @click="removeContextPath(c.path)" class="text-blue-400 hover:text-red-400">
-                  &times;
-                </button>
-              </div>
-            </div>
-
-            <div class="relative flex items-center">
-              <button @click="emit('refresh-context')"
-                class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
-                title="Import terminal context">
-                <ClipboardPlus class="w-5 h-5" />
-              </button>
-              <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
-                class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
-                placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
-              <button @click="sendMessage" :disabled="isLoading || !input.trim()"
-                class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors">
-                <Send class="w-5 h-5" />
+    <div class="p-4 bg-gray-800 border-t border-gray-700" @dragover="onInputDragOver" @dragleave="onInputDragLeave"
+      @drop="onInputDrop">
+      <div class="w-full" :class="{ 'opacity-50 border-2 border-dashed border-blue-500 rounded-lg': isDragOverInput }">
+        <div class="flex flex-col space-y-2">
+          <!-- Context Chips -->
+          <div v-if="contextPaths.length > 0" class="flex flex-wrap gap-2 px-1">
+            <div v-for="c in contextPaths" :key="c.path"
+              class="flex items-center bg-blue-900/50 border border-blue-700/50 rounded px-2 py-1 text-xs text-blue-200 max-w-full">
+              <span class="truncate font-mono mr-2">{{ c.isDir ? '[DIR]' : '' }} {{ c.path }}</span>
+              <button @click="removeContextPath(c.path)" class="text-blue-400 hover:text-red-400">
+                &times;
               </button>
             </div>
           </div>
-        </template>
-      </draggable>
+
+          <div class="relative flex items-center">
+            <button @click="emit('refresh-context')"
+              class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
+              title="Import terminal context">
+              <ClipboardPlus class="w-5 h-5" />
+            </button>
+            <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
+              class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+              placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
+            <button @click="sendMessage" :disabled="isLoading || !input.trim()"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors">
+              <Send class="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="mt-2 text-xs text-gray-500 text-center">
         AI can execute commands. Exercise caution.
       </div>

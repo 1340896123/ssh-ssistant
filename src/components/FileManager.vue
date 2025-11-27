@@ -10,7 +10,7 @@ import { useTransferStore } from '../stores/transfers';
 import { useSettingsStore } from '../stores/settings';
 import TransferList from './TransferList.vue';
 import { useI18n } from '../composables/useI18n';
-import draggable from 'vuedraggable';
+// import draggable from 'vuedraggable'; // Removed
 
 type ColumnKey = 'name' | 'size' | 'date' | 'owner';
 
@@ -111,12 +111,9 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
     return result;
 });
 
-const draggableTreeNodes = computed({
-    get: () => visibleTreeNodes.value,
-    set: () => { /* Read-only for drag source */ }
-});
 
-function cloneFile(element: FileEntry | TreeNode) {
+
+function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
     let entry: FileEntry;
     let path: string;
 
@@ -128,10 +125,15 @@ function cloneFile(element: FileEntry | TreeNode) {
         path = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
     }
 
-    return {
+    const data = {
         path: path,
         isDir: entry.isDir
     };
+
+    if (event.dataTransfer) {
+        event.dataTransfer.setData('application/json', JSON.stringify(data));
+        event.dataTransfer.effectAllowed = 'copy';
+    }
 }
 
 async function loadFiles(path: string) {
@@ -784,66 +786,63 @@ function formatSize(size: number): string {
 
             <!-- Flat View -->
             <template v-if="viewMode === 'flat'">
-                <draggable v-model="files" item-key="name" :group="{ name: 'files', pull: 'clone', put: false }"
-                    :sort="false" :clone="cloneFile">
-                    <template #item="{ element: file, index }">
-                        <div class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
-                            :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
-                            @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
-                            @contextmenu="showContextMenu($event, file)">
-                            <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
-                                <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
-                                <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
-                                <span class="text-sm truncate">{{ file.name }}</span>
-                            </div>
-                            <span class="text-xs text-gray-500 font-mono text-right"
-                                :style="{ width: columnWidths.size + 'px' }">{{
-                                    file.isDir ? '' : formatSize(file.size) }}</span>
-                            <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
-                                formatDate(file.mtime) }}</span>
-                            <span class="text-xs text-gray-500 truncate"
-                                :style="{ width: columnWidths.owner + 'px' }">{{
-                                    file.owner
-                                }}</span>
+                <div class="flex flex-col">
+                    <div v-for="(file, index) in files" :key="file.name"
+                        class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
+                        :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
+                        draggable="true" @dragstart="onDragStart($event, file)"
+                        @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
+                        @contextmenu="showContextMenu($event, file)">
+                        <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
+                            <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
+                            <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
+                            <span class="text-sm truncate">{{ file.name }}</span>
                         </div>
-                    </template>
-                </draggable>
+                        <span class="text-xs text-gray-500 font-mono text-right"
+                            :style="{ width: columnWidths.size + 'px' }">{{
+                                formatSize(file.size) }}</span>
+                        <span class="text-xs text-gray-500 font-mono ml-4"
+                            :style="{ width: columnWidths.date + 'px' }">{{
+                                formatDate(file.mtime) }}</span>
+                        <span class="text-xs text-gray-500 font-mono ml-4"
+                            :style="{ width: columnWidths.owner + 'px' }">{{
+                                file.permissions || '-' }}</span>
+                    </div>
+                </div>
             </template>
 
-            <!-- Tree View: multi-level with lazy loading -->
+            <!-- Tree View -->
             <template v-else>
-                <draggable v-model="draggableTreeNodes" item-key="path"
-                    :group="{ name: 'files', pull: 'clone', put: false }" :sort="false" :clone="cloneFile">
-                    <template #item="{ element: node }">
-                        <div class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
-                            :class="{ 'bg-blue-900/50': selectedTreePaths.has(node.path), 'hover:bg-gray-800': !selectedTreePaths.has(node.path) }"
-                            @click.stop="handleTreeSelection(node)" @dblclick.stop="openTreeFile(node)"
-                            @contextmenu.stop.prevent="showTreeContextMenu($event, node)">
-                            <div class="flex items-center min-w-0"
-                                :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
-                                <button v-if="node.entry.isDir"
-                                    class="mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400"
-                                    @click.stop="toggleDirectory(node)">
-                                    <span v-if="expandedPaths.has(node.path)">-</span>
-                                    <span v-else>+</span>
-                                </button>
-                                <span v-else class="mr-4"></span>
-                                <Folder v-if="node.entry.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
-                                <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
-                                <span class="text-sm truncate">{{ node.entry.name }}</span>
-                            </div>
-                            <span class="text-xs text-gray-500 font-mono text-right"
-                                :style="{ width: columnWidths.size + 'px' }">{{
-                                    node.entry.isDir ? '' : formatSize(node.entry.size) }}</span>
-                            <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
-                                formatDate(node.entry.mtime) }}</span>
-                            <span class="text-xs text-gray-500 truncate"
-                                :style="{ width: columnWidths.owner + 'px' }">{{
-                                    node.entry.owner
-                                }}</span>
+                <div class="flex flex-col">
+                    <div v-for="node in visibleTreeNodes" :key="node.path"
+                        class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
+                        :class="{ 'bg-blue-900/50': selectedTreePaths.has(node.path), 'hover:bg-gray-800': !selectedTreePaths.has(node.path) }"
+                        draggable="true" @dragstart="onDragStart($event, node)" @click.stop="handleTreeSelection(node)"
+                        @dblclick.stop="openTreeFile(node)"
+                        @contextmenu.stop.prevent="showTreeContextMenu($event, node)">
+                        <div class="flex items-center min-w-0"
+                            :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
+                            <button v-if="node.entry.isDir"
+                                class="mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400"
+                                @click.stop="toggleDirectory(node)">
+                                <span v-if="expandedPaths.has(node.path)">-</span>
+                                <span v-else>+</span>
+                            </button>
+                            <span v-else class="mr-4"></span>
+                            <Folder v-if="node.entry.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
+                            <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
+                            <span class="text-sm truncate">{{ node.entry.name }}</span>
                         </div>
-                    </template>
-                </draggable>
+                        <span class="text-xs text-gray-500 font-mono text-right"
+                            :style="{ width: columnWidths.size + 'px' }">{{
+                                node.entry.isDir ? '' : formatSize(node.entry.size) }}</span>
+                        <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
+                            formatDate(node.entry.mtime) }}</span>
+                        <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{
+                            node.entry.owner
+                            }}</span>
+                    </div>
+                </div>
             </template>
 
             <div v-if="files.length === 0" class="p-4 text-center text-gray-600 text-sm">
