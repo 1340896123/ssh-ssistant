@@ -84,30 +84,53 @@ const treeData = computed(() => connectionStore.treeData);
 const draggedItem = ref<{ type: 'connection' | 'group', id: number } | null>(null);
 
 function onDragStart(event: DragEvent, item: Connection | ConnectionGroup) {
+  console.log('ConnectionList: Drag start:', item.name, 'Type:', getItemType(item));
   if (event.dataTransfer) {
     const type = getItemType(item);
     draggedItem.value = { type, id: item.id! };
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('application/json', JSON.stringify({ type, id: item.id }));
-    // Add a small delay to let the drag image be created before hiding the element (optional)
+    const data = JSON.stringify({ type, id: item.id });
+    event.dataTransfer.setData('application/json', data);
+    console.log('ConnectionList: Set drag data:', data);
   }
 }
 
 function onDragOver(event: DragEvent) {
-  event.preventDefault(); // Necessary to allow dropping
-  // Visual feedback could be handled here or via CSS :hover-like states if we use a specific class
+  event.preventDefault();
+  event.dataTransfer!.dropEffect = 'move';
 }
 
 async function onDrop(event: DragEvent, targetGroupId: number | null) {
+  console.log('ConnectionList: Drop event, targetGroupId:', targetGroupId);
   event.preventDefault();
   const data = event.dataTransfer?.getData('application/json');
+  console.log('ConnectionList: Got drop data:', data);
   if (data) {
     try {
       const { type, id } = JSON.parse(data);
-      // Prevent dropping into itself or its children (for groups) - simplified check
+      console.log('ConnectionList: Parsed data:', { type, id });
+      
+      // Prevent dropping into itself or its children (for groups)
       if (type === 'group' && id === targetGroupId) return;
+      
+      // Check if we're trying to drop a group into its own child
+      if (type === 'group' && targetGroupId !== null) {
+        const isDescendant = (groupId: number, targetId: number): boolean => {
+          const group = connectionStore.groups.find(g => g.id === groupId);
+          if (!group) return false;
+          if (group.parentId === targetId) return true;
+          return group.parentId ? isDescendant(group.parentId, targetId) : false;
+        };
+        
+        if (isDescendant(id, targetGroupId)) {
+          console.log('Cannot drop group into its own descendant');
+          return;
+        }
+      }
 
+      console.log('ConnectionList: Calling moveItem:', type, id, targetGroupId);
       await connectionStore.moveItem(type, id, targetGroupId);
+      console.log(`ConnectionList: Moved ${type} ${id} to group ${targetGroupId}`);
     } catch (e) {
       console.error("Invalid drop data", e);
     }

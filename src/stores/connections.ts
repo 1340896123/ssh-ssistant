@@ -95,16 +95,23 @@ export const useConnectionStore = defineStore('connections', {
       await this.loadConnections();
     },
     async moveItem(type: 'connection' | 'group', id: number, targetGroupId: number | null) {
+      console.log('Store: moveItem called:', type, id, targetGroupId);
       if (type === 'connection') {
         const conn = this.connections.find(c => c.id === id);
         if (conn) {
+          console.log('Store: Moving connection', conn.name, 'to group', targetGroupId);
           await this.updateConnection({ ...conn, groupId: targetGroupId });
+        } else {
+          console.error('Store: Connection not found:', id);
         }
       } else {
         const group = this.groups.find(g => g.id === id);
         if (group) {
           if (targetGroupId === id) return; // Prevent self-loop
+          console.log('Store: Moving group', group.name, 'to parent', targetGroupId);
           await this.updateGroup({ ...group, parentId: targetGroupId });
+        } else {
+          console.error('Store: Group not found:', id);
         }
       }
     }

@@ -69,38 +69,74 @@ function getItemKey(item: Connection | ConnectionGroup) {
 
 // Drag and Drop
 const isDragOver = ref(false);
+const isDragging = ref(false);
 
 function onDragStart(event: DragEvent) {
+    console.log('Drag start:', props.item.name, 'Type:', getItemType(props.item));
+    isDragging.value = true;
     emit('drag-start', event, props.item);
+    // Add visual feedback
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        const data = JSON.stringify({ type: getItemType(props.item), id: props.item.id });
+        event.dataTransfer.setData('application/json', data);
+        console.log('Set drag data:', data);
+    }
+}
+
+function onDragEnd() {
+    isDragging.value = false;
 }
 
 function onDragOver(event: DragEvent) {
-    if (isGroup.value) {
-        event.preventDefault();
+    // Allow drop on both groups and root level
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'move';
+    
+    // Allow drop on groups or root level items (connections without groupId or groups without parentId)
+    const isRootLevel = isGroup.value ? !(props.item as ConnectionGroup).parentId : !(props.item as Connection).groupId;
+    if (isGroup.value || isRootLevel) {
         isDragOver.value = true;
+        console.log('Drag over:', props.item.name, 'isGroup:', isGroup.value, 'isRootLevel:', isRootLevel);
     }
 }
 
-function onDragLeave(_: DragEvent) {
-    isDragOver.value = false;
+function onDragLeave(event: DragEvent) {
+    // Only set false if actually leaving the element
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = event.clientX;
+    const y = event.clientY;
+    
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+        isDragOver.value = false;
+    }
 }
 
 function onDrop(event: DragEvent) {
-    if (isGroup.value) {
-        event.preventDefault();
-        event.stopPropagation(); // Prevent dropping on parent group
-        isDragOver.value = false;
-        emit('drop-item', event, props.item.id);
-    }
+    console.log('Drop on:', props.item.name, 'isGroup:', isGroup.value);
+    event.preventDefault();
+    event.stopPropagation();
+    isDragOver.value = false;
+    
+    const targetId = isGroup.value ? props.item.id : null;
+    console.log('Emitting drop-item with targetId:', targetId);
+    emit('drop-item', event, targetId);
 }
 
 </script>
 
 <template>
-    <div :draggable="true" @dragstart.stop="onDragStart">
+    <div :draggable="true" 
+         @dragstart.stop="onDragStart" 
+         @dragend="onDragEnd"
+         :class="{ 'opacity-50': isDragging }">
         <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none transition-colors duration-200"
-            :class="{ 'bg-blue-500/20 border border-blue-500': isDragOver }" :style="{ paddingLeft }"
-            @click="toggleExpand" @dblclick="handleConnect" @dragover="onDragOver" @dragleave="onDragLeave"
+            :class="{ 'bg-blue-500/20 border border-blue-500': isDragOver, 'border-2 border-dashed border-blue-400': isDragOver && isGroup }" 
+            :style="{ paddingLeft }"
+            @click="toggleExpand" 
+            @dblclick="handleConnect" 
+            @dragover="onDragOver" 
+            @dragleave="onDragLeave"
             @drop="onDrop">
             <div class="flex items-center space-x-2 overflow-hidden flex-1">
                 <template v-if="isGroup">
