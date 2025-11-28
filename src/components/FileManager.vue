@@ -1087,7 +1087,7 @@ function formatSize(size: number): string {
                                 formatDate(file.mtime) }}</span>
                         <span class="text-xs text-gray-500 font-mono ml-4"
                             :style="{ width: columnWidths.owner + 'px' }">{{
-                                file.permissions || '-' }}</span>
+                                file.owner || '-' }}</span>
                     </div>
                 </div>
             </template>
