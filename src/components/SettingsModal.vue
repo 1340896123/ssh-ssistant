@@ -16,7 +16,8 @@ const form = ref({
   language: store.language,
   ai: { ...store.ai },
   terminalAppearance: { ...store.terminalAppearance },
-  fileManager: { ...store.fileManager }
+  fileManager: { ...store.fileManager },
+  sshPool: { ...store.sshPool }
 });
 
 watch(() => props.show, (val) => {
@@ -27,7 +28,8 @@ watch(() => props.show, (val) => {
       language: store.language,
       ai: { ...store.ai },
       terminalAppearance: { ...store.terminalAppearance },
-      fileManager: { ...store.fileManager }
+      fileManager: { ...store.fileManager },
+      sshPool: { ...store.sshPool }
     };
   }
 });
@@ -42,6 +44,7 @@ const tabs = [
   { id: 'ai', label: 'settings.aiAssistant' },
   { id: 'terminal', label: 'settings.terminalAppearance' },
   { id: 'fileManager', label: 'settings.fileManagement' },
+  { id: 'sshPool', label: 'settings.sshPool' },
 ];
 
 </script>
@@ -160,6 +163,32 @@ const tabs = [
                     <option value="flat">{{ t('fileManager.viewMode.flat') }}</option>
                     <option value="tree">{{ t('fileManager.viewMode.tree') }}</option>
                   </select>
+                </div>
+              </div>
+            </section>
+          </div>
+          
+          <!-- SSH Pool Tab -->
+          <div v-if="activeTab === 'sshPool'" class="space-y-6">
+            <section>
+              <h3 class="text-lg font-semibold text-white mb-4">{{ t('settings.sshPool') }}</h3>
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.maxBackgroundSessions') }}</label>
+                  <input v-model.number="form.sshPool.maxBackgroundSessions" type="number" min="1" max="10" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  <p class="text-xs text-gray-400 mt-1">{{ t('settings.maxBackgroundSessionsDesc') }}</p>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.enableAutoCleanup') }}</label>
+                  <div class="flex items-center">
+                    <input v-model="form.sshPool.enableAutoCleanup" type="checkbox" class="bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800 focus:ring-offset-0" />
+                    <span class="ml-2 text-sm text-gray-300">{{ t('settings.enableAutoCleanupDesc') }}</span>
+                  </div>
+                </div>
+                <div v-if="form.sshPool.enableAutoCleanup">
+                  <label class="block text-sm font-medium text-gray-300 mb-1">{{ t('settings.cleanupIntervalMinutes') }}</label>
+                  <input v-model.number="form.sshPool.cleanupIntervalMinutes" type="number" min="1" max="60" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  <p class="text-xs text-gray-400 mt-1">{{ t('settings.cleanupIntervalMinutesDesc') }}</p>
                 </div>
               </div>
             </section>

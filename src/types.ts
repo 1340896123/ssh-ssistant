@@ -51,12 +51,19 @@ export interface FileManagerSettings {
   viewMode: FileManagerViewMode;
 }
 
+export interface SshPoolSettings {
+  maxBackgroundSessions: number; // 最大后台会话数量
+  enableAutoCleanup: boolean; // 是否启用自动清理
+  cleanupIntervalMinutes: number; // 清理间隔（分钟）
+}
+
 export interface Settings {
   theme: 'light' | 'dark';
   language: 'en' | 'zh';
   ai: AIConfig;
   terminalAppearance: TerminalAppearanceSettings;
   fileManager: FileManagerSettings;
+  sshPool: SshPoolSettings;
 }
 
 export interface Session {

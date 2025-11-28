@@ -43,7 +43,14 @@
     "terminalCursorStyle": "光标样式",
     "terminalLineHeight": "行高",
     "fileManagement": "文件管理",
-    "fileManagerViewMode": "视图模式"
+    "fileManagerViewMode": "视图模式",
+    "sshPool": "SSH 连接池",
+    "maxBackgroundSessions": "最大后台会话数",
+    "maxBackgroundSessionsDesc": "用于文件操作和命令执行的后台SSH会话的最大数量",
+    "enableAutoCleanup": "启用自动清理",
+    "enableAutoCleanupDesc": "自动清理断开的SSH会话",
+    "cleanupIntervalMinutes": "清理间隔（分钟）",
+    "cleanupIntervalMinutesDesc": "检查和清理断开会话的频率"
   },
   "terminal": {
     "cursor": {

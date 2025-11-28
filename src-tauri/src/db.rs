@@ -1,6 +1,6 @@
 use crate::models::{
     AIConfig, AppSettings, Connection as SshConnection, ConnectionGroup, FileManagerSettings,
-    TerminalAppearanceSettings,
+    SshPoolSettings, TerminalAppearanceSettings,
 };
 use rusqlite::{params, Connection, Result};
 use tauri::{AppHandle, Manager};
@@ -75,6 +75,20 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     // Migration: Add file manager view mode
     let _ = conn.execute(
         r#"ALTER TABLE settings ADD COLUMN file_manager_view_mode TEXT NOT NULL DEFAULT 'flat'"#,
+        [],
+    );
+
+    // Migration: Add SSH pool settings
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN ssh_max_background_sessions INTEGER NOT NULL DEFAULT 3"#,
+        [],
+    );
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN ssh_enable_auto_cleanup INTEGER NOT NULL DEFAULT 1"#,
+        [],
+    );
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN ssh_cleanup_interval_minutes INTEGER NOT NULL DEFAULT 5"#,
         [],
     );
 
@@ -240,7 +254,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode FROM settings WHERE id = 1")
+    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes FROM settings WHERE id = 1")
         .map_err(|e| e.to_string())?;
 
     let mut rows = stmt
@@ -268,6 +282,11 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
                         .get::<_, Option<String>>(9)?
                         .unwrap_or_else(|| "flat".to_string()),
                 },
+                ssh_pool: SshPoolSettings {
+                    max_background_sessions: row.get::<_, Option<i32>>(10)?.unwrap_or(3),
+                    enable_auto_cleanup: row.get::<_, Option<bool>>(11)?.unwrap_or(true),
+                    cleanup_interval_minutes: row.get::<_, Option<i32>>(12)?.unwrap_or(5),
+                },
             })
         })
         .map_err(|e| e.to_string())?;
@@ -285,7 +304,7 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     conn.execute(
-        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10 WHERE id = 1",
+        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, ssh_max_background_sessions=?11, ssh_enable_auto_cleanup=?12, ssh_cleanup_interval_minutes=?13 WHERE id = 1",
         params![
             settings.theme,
             settings.language,
@@ -297,6 +316,9 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
             settings.terminal_appearance.cursor_style,
             settings.terminal_appearance.line_height,
             settings.file_manager.view_mode,
+            settings.ssh_pool.max_background_sessions,
+            settings.ssh_pool.enable_auto_cleanup,
+            settings.ssh_pool.cleanup_interval_minutes,
         ],
     ).map_err(|e| e.to_string())?;
 

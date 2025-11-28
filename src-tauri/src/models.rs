@@ -62,10 +62,19 @@ pub struct FileManagerSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct SshPoolSettings {
+    pub max_background_sessions: i32,
+    pub enable_auto_cleanup: bool,
+    pub cleanup_interval_minutes: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub theme: String,
     pub language: String,
     pub ai: AIConfig,
     pub terminal_appearance: TerminalAppearanceSettings,
     pub file_manager: FileManagerSettings,
+    pub ssh_pool: SshPoolSettings,
 }

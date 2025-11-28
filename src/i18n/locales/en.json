@@ -43,7 +43,14 @@
     "terminalCursorStyle": "Cursor Style",
     "terminalLineHeight": "Line Height",
     "fileManagement": "File Management",
-    "fileManagerViewMode": "View Mode"
+    "fileManagerViewMode": "View Mode",
+    "sshPool": "SSH Pool",
+    "maxBackgroundSessions": "Max Background Sessions",
+    "maxBackgroundSessionsDesc": "Maximum number of background SSH sessions for file operations and command execution",
+    "enableAutoCleanup": "Enable Auto Cleanup",
+    "enableAutoCleanupDesc": "Automatically clean up disconnected SSH sessions",
+    "cleanupIntervalMinutes": "Cleanup Interval (Minutes)",
+    "cleanupIntervalMinutesDesc": "How often to check and clean up disconnected sessions"
   },
   "terminal": {
     "cursor": {

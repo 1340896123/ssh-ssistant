@@ -20,6 +20,11 @@ export const useSettingsStore = defineStore('settings', {
     },
     fileManager: {
       viewMode: 'flat'
+    },
+    sshPool: {
+      maxBackgroundSessions: 3,
+      enableAutoCleanup: true,
+      cleanupIntervalMinutes: 5
     }
   }),
   actions: {
