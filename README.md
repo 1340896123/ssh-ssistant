@@ -1,110 +1,109 @@
-# SSH Assistant (SSH 远程连接助手)
+# SSH Assistant
 
-基于 Tauri + Vue 3 + TypeScript 构建的现代化 SSH 客户端。它集成了强大的终端功能、AI 智能助手以及全功能文件管理器，旨在提升远程服务器管理效率。
+**[中文](README.zh-CN.md)** | English
 
-## ✨ 功能特性
+A modern SSH client built with Tauri + Vue 3 + TypeScript. It integrates powerful terminal functionality, AI intelligent assistant, and a full-featured file manager, designed to improve remote server management efficiency.
 
-- **连接管理**：
+![Example Image](exampleImg/image.png)
 
-  - 支持创建、编辑和删除 SSH 连接。
-  - 支持密码认证方式。
-  - 支持跳板机（Jump Host/Bastion）连接。
-  - 使用 SQLite 本地持久化存储连接信息。
+## ✨ Features
 
-- **会话管理**：
+- **Connection Management**:
+  - Create, edit, and delete SSH connections
+  - Support password authentication
+  - Support Jump Host/Bastion connections
+  - Local persistent storage using SQLite
 
-  - 多标签页支持，同时管理多个服务器会话。
-  - 会话间完全隔离，互不干扰。
-  - 每个会话集成终端、文件管理和 AI 助手。
+- **Session Management**:
+  - Multi-tab support for managing multiple server sessions
+  - Complete isolation between sessions
+  - Each session integrates terminal, file management, and AI assistant
 
-- **智能终端**：
+- **Smart Terminal**:
+  - Full-featured terminal based on xterm.js
+  - Traditional Tab auto-completion
+  - **AI Smart Completion**: Context-aware intelligent command suggestions
 
-  - 基于 xterm.js 的全功能终端。
-  - 支持传统 Tab 自动补全。
-  - **AI 智能补全**：基于上下文的智能命令建议。
+- **File Management**:
+  - Remote file browsing, upload, and download
+  - Drag-and-drop support for uploads and downloads
+  - File/directory creation, deletion, and renaming
+  - Local editing of remote files (auto download -> monitor changes -> auto upload)
+  - Resume transfer and file integrity verification
 
-- **文件管理**：
+- **AI Assistant**:
+  - Context-aware intelligent conversations
+  - Execute terminal commands directly in chat interface
+  - Configurable AI model parameters (API address, key, model name)
 
-  - 远程文件浏览、上传、下载。
-  - 支持拖拽上传和下载。
-  - 文件/目录的创建、删除、重命名。
-  - 本地编辑远程文件（自动下载 -> 监控修改 -> 自动上传）。
-  - 断点续传与文件完整性校验。
+- **Personalization**:
+  - Multi-language support (Chinese/English)
+  - UI theme switching
+  - Custom AI completion and chat configuration
 
-- **AI 助手**：
+## 🛠️ Tech Stack
 
-  - 上下文感知的智能对话。
-  - 直接在聊天界面执行终端命令。
-  - 可配置 AI 模型参数（API 地址、密钥、模型名称）。
+- **Core Framework**: [Tauri v2](https://tauri.app/) (Rust)
+- **Frontend Framework**: [Vue 3](https://vuejs.org/) + [TypeScript](https://www.typescriptlang.org/)
+- **Build Tool**: [Vite](https://vitejs.dev/)
+- **Styling Library**: [TailwindCSS](https://tailwindcss.com/)
+- **State Management**: [Pinia](https://pinia.vuejs.org/)
+- **Terminal Component**: [xterm.js](https://xtermjs.org/)
+- **Icon Library**: [Lucide Vue](https://lucide.dev/)
 
-- **个性化配置**：
-  - 多语言支持（中文/英文）。
-  - 界面主题切换。
-  - 自定义 AI 补全和对话配置。
+## 🚀 Quick Start
 
-## 🛠️ 技术栈
+### Prerequisites
 
-- **核心框架**：[Tauri v2](https://tauri.app/) (Rust)
-- **前端框架**：[Vue 3](https://vuejs.org/) + [TypeScript](https://www.typescriptlang.org/)
-- **构建工具**：[Vite](https://vitejs.dev/)
-- **样式库**：[TailwindCSS](https://tailwindcss.com/)
-- **状态管理**：[Pinia](https://pinia.vuejs.org/)
-- **终端组件**：[xterm.js](https://xtermjs.org/)
-- **图标库**：[Lucide Vue](https://lucide.dev/)
-
-## 🚀 快速开始
-
-### 环境要求
-
-确保您的开发环境已安装：
+Make sure your development environment has installed:
 
 - [Node.js](https://nodejs.org/) (v16+)
-- [Rust](https://www.rust-lang.org/tools/install) (用于 Tauri 后端编译)
+- [Rust](https://www.rust-lang.org/tools/install) (for Tauri backend compilation)
 
-### 安装依赖
+### Install Dependencies
 
-1.  克隆项目：
+1. Clone the project:
 
     ```bash
     git clone <repository-url>
     cd ssh-ssistant
     ```
 
-2.  安装 NPM 依赖：
+2. Install NPM dependencies:
     ```bash
     npm install
     ```
 
-### 开发模式
+### Development Mode
 
-启动开发服务器（支持热重载）：
+Start the development server (with hot reload):
 
 ```bash
 npm run tauri dev
 ```
 
-该命令将启动 Vite 前端服务并打开 Tauri 应用窗口。
+This command will start the Vite frontend service and open the Tauri application window.
 
-### 构建发布
+### Build Release
 
-构建生产环境应用：
+Build the production application:
 
 ```bash
 npm run tauri build
 ```
 
-构建产物将生成在 `src-tauri/target/release/` 目录下。
+The build artifacts will be generated in the `src-tauri/target/release/` directory.
 
-## 📂 项目结构
+## 📂 Project Structure
 
-- `src/`: 前端 Vue 源码
-  - `components/`: Vue 组件 (Terminal, FileManager, AIAssistant 等)
-  - `stores/`: Pinia 状态管理
-  - `i18n/`: 国际化资源文件
-- `src-tauri/`: 后端 Rust 源码
-  - `src/`: SSH 连接、文件操作及系统交互实现
-  - `tauri.conf.json`: Tauri 配置文件
+- `src/`: Frontend Vue source code
+  - `components/`: Vue components (Terminal, FileManager, AIAssistant, etc.)
+  - `stores/`: Pinia state management
+  - `i18n/`: Internationalization resource files
+- `src-tauri/`: Backend Rust source code
+  - `src/`: SSH connections, file operations, and system interaction implementation
+  - `tauri.conf.json`: Tauri configuration file
 
-## 📝 开源协议
+## 📝 License
 
 [MIT](LICENSE)
