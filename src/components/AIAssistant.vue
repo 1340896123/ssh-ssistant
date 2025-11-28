@@ -3,7 +3,7 @@ import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus } from 'lucide-vue-next';
+import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus, Trash2, Square } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
 // import draggable from 'vuedraggable'; // Removed
 
@@ -43,13 +43,23 @@ interface ContextPath {
 
 const contextPaths = ref<ContextPath[]>([]);
 
+const initialMessage: Message = { role: 'assistant', content: 'Hello! I am your SSH AI Assistant. I can help you execute commands and manage your server. How can I help you today?' };
+
 const messages = ref<Message[]>([
-  { role: 'assistant', content: 'Hello! I am your SSH AI Assistant. I can help you execute commands and manage your server. How can I help you today?' }
+  { ...initialMessage }
 ]);
 const input = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 const toolStates = ref<Record<string, boolean>>({});
+let abortController = ref<AbortController | null>(null);
+
+function clearSession() {
+  messages.value = [{ ...initialMessage }];
+  contextPaths.value = [];
+  toolStates.value = {};
+  scrollToBottom();
+}
 
 // --- Command Safety ---
 const DANGEROUS_COMMANDS = [
@@ -220,12 +230,23 @@ const tools = [
 async function sendMessage() {
   if (!input.value.trim() || isLoading.value) return;
 
+  abortController.value = new AbortController();
   const userMsg = input.value.trim();
   input.value = '';
   messages.value.push({ role: 'user', content: userMsg });
   scrollToBottom();
 
   await processChat();
+}
+
+function stopMessage() {
+  if (abortController.value) {
+    abortController.value.abort();
+    isLoading.value = false;
+    abortController.value = null;
+    messages.value.push({ role: 'assistant', content: `Request stopped by user.` });
+    scrollToBottom();
+  }
 }
 
 async function processChat() {
@@ -256,7 +277,8 @@ async function processChat() {
         messages: apiMessages,
         tools: tools,
         tool_choice: "auto"
-      })
+      }),
+      signal: abortController.value?.signal
     });
 
     if (!response.ok) {
@@ -278,6 +300,11 @@ async function processChat() {
 
       // Handle tool calls
       for (const toolCall of message.tool_calls) {
+        // Check if aborted before executing tool
+        if (abortController.value?.signal.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
+
         const name = toolCall.function.name;
         if (name === 'run_command') {
           const args = JSON.parse(toolCall.function.arguments);
@@ -388,6 +415,11 @@ async function processChat() {
         }
       }
 
+      // Check if aborted before recursive call
+      if (abortController.value?.signal.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
       // Recursive call to process tool outputs
       await processChat();
 
@@ -396,11 +428,18 @@ async function processChat() {
       scrollToBottom();
     }
 
-  } catch (e) {
-    console.error(e);
-    messages.value.push({ role: 'assistant', content: `Error: ${e}` });
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      console.log('Fetch aborted by user');
+      // Message already added by stopMessage, or we can add here if needed.
+      // But stopMessage handles the UI update immediately for better responsiveness.
+    } else {
+      console.error(e);
+      messages.value.push({ role: 'assistant', content: `Error: ${e}` });
+    }
   } finally {
     isLoading.value = false;
+    abortController.value = null;
     scrollToBottom();
   }
 }
@@ -492,6 +531,16 @@ onUnmounted(() => {
 <template>
   <div ref="containerRef" class="flex flex-col h-full bg-gray-900 text-white relative">
 
+    <!-- Header -->
+    <div class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+      <div class="font-semibold text-sm flex items-center space-x-2">
+        <Bot class="w-4 h-4 text-purple-400" />
+        <span>AI Assistant</span>
+      </div>
+      <button @click="clearSession" class="text-gray-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-700" title="Clear Session">
+        <Trash2 class="w-4 h-4" />
+      </button>
+    </div>
 
     <!-- Messages Area -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
@@ -572,9 +621,15 @@ onUnmounted(() => {
             <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
               class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
               placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
-            <button @click="sendMessage" :disabled="isLoading || !input.trim()"
-              class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors">
-              <Send class="w-5 h-5" />
+            <button
+              @click="isLoading ? stopMessage() : sendMessage()"
+              :disabled="!isLoading && !input.trim()"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors"
+              :class="{'hover:text-red-400 text-red-500': isLoading}"
+              :title="isLoading ? 'Stop' : 'Send'"
+            >
+              <Square v-if="isLoading" class="w-5 h-5 fill-current" />
+              <Send v-else class="w-5 h-5" />
             </button>
           </div>
         </div>

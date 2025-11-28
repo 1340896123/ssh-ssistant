@@ -26,9 +26,12 @@ const isDragOver = ref(false);
 onMounted(async () => {
   connectionStore.loadConnections();
 
-  unlistenDragEnter = await listen('tauri://drag-enter', () => {
-    console.log("Drag enter");
-    isDragOver.value = true;
+  unlistenDragEnter = await listen('tauri://drag-enter', (event) => {
+    const payload = event.payload as { paths: string[], position: { x: number, y: number } };
+    if (payload.paths && payload.paths.length > 0) {
+      console.log("Drag enter with files");
+      isDragOver.value = true;
+    }
   });
 
   unlistenDragLeave = await listen('tauri://drag-leave', () => {
@@ -97,22 +100,24 @@ function onDragStart(event: DragEvent, item: Connection | ConnectionGroup) {
 
 function onDragOver(event: DragEvent) {
   event.preventDefault();
+  event.stopPropagation();
   event.dataTransfer!.dropEffect = 'move';
 }
 
 async function onDrop(event: DragEvent, targetGroupId: number | null) {
   console.log('ConnectionList: Drop event, targetGroupId:', targetGroupId);
   event.preventDefault();
+  event.stopPropagation();
   const data = event.dataTransfer?.getData('application/json');
   console.log('ConnectionList: Got drop data:', data);
   if (data) {
     try {
       const { type, id } = JSON.parse(data);
       console.log('ConnectionList: Parsed data:', { type, id });
-      
+
       // Prevent dropping into itself or its children (for groups)
       if (type === 'group' && id === targetGroupId) return;
-      
+
       // Check if we're trying to drop a group into its own child
       if (type === 'group' && targetGroupId !== null) {
         const isDescendant = (groupId: number, targetId: number): boolean => {
@@ -121,7 +126,7 @@ async function onDrop(event: DragEvent, targetGroupId: number | null) {
           if (group.parentId === targetId) return true;
           return group.parentId ? isDescendant(group.parentId, targetId) : false;
         };
-        
+
         if (isDescendant(id, targetGroupId)) {
           console.log('Cannot drop group into its own descendant');
           return;

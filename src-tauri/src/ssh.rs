@@ -1,19 +1,19 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::time::Duration;
-use std::thread;
-use std::io::{Read, Write, ErrorKind, Seek, SeekFrom};
-use std::sync::mpsc::{channel, Sender, Receiver};
-use ssh2::Session;
-use tauri::{State, AppHandle, Emitter};
-use uuid::Uuid;
 use crate::models::{Connection as SshConnConfig, FileEntry};
-use notify::{Watcher, RecommendedWatcher, RecursiveMode, Event, EventKind};
-use std::path::Path;
-use sha2::{Sha256, Digest};
 use hex;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use sha2::{Digest, Sha256};
+use ssh2::Session;
+use std::collections::HashMap;
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, State};
+use uuid::Uuid;
 
 #[derive(Clone)]
 enum ShellMsg {
@@ -25,6 +25,7 @@ enum ShellMsg {
 #[derive(Clone)]
 pub struct SshClient {
     session: Arc<Mutex<Session>>,
+    background_session: Arc<Mutex<Session>>,
     shell_tx: Option<Sender<ShellMsg>>,
     owner_cache: Arc<Mutex<HashMap<u32, String>>>,
 }
@@ -46,6 +47,7 @@ impl AppState {
 }
 
 // Helper to retry ssh2 operations that might return EAGAIN/WouldBlock
+// Helper to retry ssh2 operations that might return EAGAIN/WouldBlock
 fn block_on<F, T>(mut f: F) -> Result<T, ssh2::Error>
 where
     F: FnMut() -> Result<T, ssh2::Error>,
@@ -64,20 +66,18 @@ where
     }
 }
 
-#[tauri::command]
-pub async fn connect(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    config: SshConnConfig,
-) -> Result<String, String> {
+fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
     // Determine the underlying TCP stream (either direct or via jump host)
     let tcp_stream = if let Some(jump_host) = &config.jump_host {
         if jump_host.trim().is_empty() {
-             // Fallback to direct if empty
-             let addr_str = format!("{}:{}", config.host, config.port);
-             let addr = addr_str.to_socket_addrs().map_err(|e| e.to_string())?
-                .next().ok_or("Invalid address")?;
-             TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+            // Fallback to direct if empty
+            let addr_str = format!("{}:{}", config.host, config.port);
+            let addr = addr_str
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?
+                .next()
+                .ok_or("Invalid address")?;
+            TcpStream::connect_timeout(&addr, Duration::from_secs(5))
                 .map_err(|e| format!("Connection failed: {}", e))?
         } else {
             // Jump Host Logic
@@ -88,18 +88,22 @@ pub async fn connect(
 
             let mut jump_sess = Session::new().map_err(|e| e.to_string())?;
             jump_sess.set_tcp_stream(jump_tcp);
-            jump_sess.handshake().map_err(|e| format!("Jump handshake failed: {}", e))?;
+            jump_sess
+                .handshake()
+                .map_err(|e| format!("Jump handshake failed: {}", e))?;
             jump_sess.set_keepalive(true, 60);
-            
-            jump_sess.userauth_password(
-                config.jump_username.as_deref().unwrap_or(""), 
-                config.jump_password.as_deref().unwrap_or("")
-            ).map_err(|e| format!("Jump auth failed: {}", e))?;
+
+            jump_sess
+                .userauth_password(
+                    config.jump_username.as_deref().unwrap_or(""),
+                    config.jump_password.as_deref().unwrap_or(""),
+                )
+                .map_err(|e| format!("Jump auth failed: {}", e))?;
 
             // Setup local listener for forwarding
             let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
             let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
-            
+
             let target_host = config.host.clone();
             let target_port = config.port;
 
@@ -107,7 +111,7 @@ pub async fn connect(
             thread::spawn(move || {
                 if let Ok((mut local_stream, _)) = listener.accept() {
                     let _ = local_stream.set_nonblocking(true);
-                    
+
                     // Keep blocking for channel creation to ensure it doesn't fail with WouldBlock
                     match jump_sess.channel_direct_tcpip(&target_host, target_port, None) {
                         Ok(mut channel) => {
@@ -115,7 +119,7 @@ pub async fn connect(
                             let mut buf = [0u8; 8192];
                             loop {
                                 let mut did_work = false;
-                                
+
                                 // Local -> Remote
                                 match local_stream.read(&mut buf) {
                                     Ok(0) => break, // EOF
@@ -127,14 +131,19 @@ pub async fn connect(
                                                 Ok(w) => total_written += w,
                                                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
                                                     thread::sleep(Duration::from_millis(1));
-                                                },
-                                                Err(_) => { failed = true; break; }
+                                                }
+                                                Err(_) => {
+                                                    failed = true;
+                                                    break;
+                                                }
                                             }
                                         }
-                                        if failed { break; }
+                                        if failed {
+                                            break;
+                                        }
                                         did_work = true;
-                                    },
-                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {},
+                                    }
+                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {}
                                     Err(_) => break,
                                 }
 
@@ -149,14 +158,19 @@ pub async fn connect(
                                                 Ok(w) => total_written += w,
                                                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
                                                     thread::sleep(Duration::from_millis(1));
-                                                },
-                                                Err(_) => { failed = true; break; }
+                                                }
+                                                Err(_) => {
+                                                    failed = true;
+                                                    break;
+                                                }
                                             }
                                         }
-                                        if failed { break; }
+                                        if failed {
+                                            break;
+                                        }
                                         did_work = true;
-                                    }, 
-                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {},
+                                    }
+                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {}
                                     Err(_) => break,
                                 }
 
@@ -164,7 +178,7 @@ pub async fn connect(
                                     thread::sleep(Duration::from_millis(1));
                                 }
                             }
-                        },
+                        }
                         Err(e) => eprintln!("Failed to open direct-tcpip channel: {}", e),
                     }
                 }
@@ -183,11 +197,11 @@ pub async fn connect(
         TcpStream::connect_timeout(&addr, Duration::from_secs(5))
             .map_err(|e| format!("Connection failed: {}", e))?
     };
-    
+
     let mut sess = Session::new().map_err(|e| e.to_string())?;
     sess.set_tcp_stream(tcp_stream);
     sess.handshake().map_err(|e| e.to_string())?;
-    
+
     sess.userauth_password(&config.username, config.password.as_deref().unwrap_or(""))
         .map_err(|e| e.to_string())?;
 
@@ -196,15 +210,31 @@ pub async fn connect(
 
     // Set non-blocking mode for concurrency
     sess.set_blocking(false);
-        
+
+    Ok(sess)
+}
+
+#[tauri::command]
+pub async fn connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    config: SshConnConfig,
+) -> Result<String, String> {
+    // Establish main session
+    let sess = establish_connection(&config)?;
+
+    // Establish background session for non-blocking commands
+    let bg_sess = establish_connection(&config)?;
+
     let id = Uuid::new_v4().to_string();
     let sess = Arc::new(Mutex::new(sess));
-    
-    // Spawn shell thread
+    let bg_sess = Arc::new(Mutex::new(bg_sess));
+
+    // Spawn shell thread on main session
     let (tx, rx): (Sender<ShellMsg>, Receiver<ShellMsg>) = channel();
     let shell_sess = sess.clone();
     let shell_id = id.clone();
-    
+
     thread::spawn(move || {
         // Wait for frontend to be ready
         thread::sleep(Duration::from_millis(500));
@@ -225,7 +255,7 @@ pub async fn connect(
                         }
                     }
                 }
-            }
+            };
         }
 
         let mut channel = retry!({
@@ -244,11 +274,11 @@ pub async fn connect(
                 Ok(n) if n > 0 => {
                     let data = buf[0..n].to_vec();
                     let _ = app.emit(&format!("term-data:{}", shell_id), data);
-                },
+                }
                 Ok(_) => {
                     // EOF
                     break;
-                },
+                }
                 Err(e) => {
                     if e.kind() != ErrorKind::WouldBlock {
                         break;
@@ -261,10 +291,10 @@ pub async fn connect(
                 match msg {
                     ShellMsg::Data(d) => {
                         let _ = channel.write_all(&d);
-                    },
+                    }
                     ShellMsg::Resize { rows, cols } => {
                         let _ = channel.request_pty_size(cols.into(), rows.into(), None, None);
-                    },
+                    }
                     ShellMsg::Exit => return,
                 }
             }
@@ -273,23 +303,25 @@ pub async fn connect(
         }
         let _ = app.emit(&format!("term-exit:{}", shell_id), ());
     });
-    
+
     let client = SshClient {
         session: sess,
+        background_session: bg_sess,
         shell_tx: Some(tx),
         owner_cache: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    state.clients.lock().map_err(|e| e.to_string())?.insert(id.clone(), client);
-    
+    state
+        .clients
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(id.clone(), client);
+
     Ok(id)
 }
 
 #[tauri::command]
-pub async fn disconnect(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), String> {
     if let Some(client) = state.clients.lock().map_err(|e| e.to_string())?.remove(&id) {
         if let Some(tx) = client.shell_tx {
             let _ = tx.send(ShellMsg::Exit);
@@ -307,7 +339,10 @@ pub async fn read_remote_file(
 ) -> Result<String, String> {
     let client_sess = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
-        let client = clients.get(&id).ok_or("Session not found").map_err(|e| e.to_string())?;
+        let client = clients
+            .get(&id)
+            .ok_or("Session not found")
+            .map_err(|e| e.to_string())?;
         client.session.clone()
     };
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
@@ -337,7 +372,10 @@ pub async fn write_remote_file(
 ) -> Result<(), String> {
     let client_sess = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
-        let client = clients.get(&id).ok_or("Session not found").map_err(|e| e.to_string())?;
+        let client = clients
+            .get(&id)
+            .ok_or("Session not found")
+            .map_err(|e| e.to_string())?;
         client.session.clone()
     };
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
@@ -347,15 +385,30 @@ pub async fn write_remote_file(
     let open_mode = mode.unwrap_or_else(|| "overwrite".to_string());
     let mut file = if open_mode == "append" {
         use ssh2::OpenFlags;
-        block_on(|| sftp.open_mode(remote_path, OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::APPEND, 0o644, ssh2::OpenType::File))
-            .map_err(|e| e.to_string())?
+        block_on(|| {
+            sftp.open_mode(
+                remote_path,
+                OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::APPEND,
+                0o644,
+                ssh2::OpenType::File,
+            )
+        })
+        .map_err(|e| e.to_string())?
     } else {
         use ssh2::OpenFlags;
-        block_on(|| sftp.open_mode(remote_path, OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE, 0o644, ssh2::OpenType::File))
-            .map_err(|e| e.to_string())?
+        block_on(|| {
+            sftp.open_mode(
+                remote_path,
+                OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+                0o644,
+                ssh2::OpenType::File,
+            )
+        })
+        .map_err(|e| e.to_string())?
     };
 
-    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -369,8 +422,11 @@ pub async fn search_remote_files(
 ) -> Result<String, String> {
     let client_sess = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
-        let client = clients.get(&id).ok_or("Session not found").map_err(|e| e.to_string())?;
-        client.session.clone()
+        let client = clients
+            .get(&id)
+            .ok_or("Session not found")
+            .map_err(|e| e.to_string())?;
+        client.background_session.clone()
     };
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
@@ -381,15 +437,15 @@ pub async fn search_remote_files(
     let safe_pattern = pattern.replace("'", "'\\''");
     let cmd = format!(
         "cd '{}' && grep -R -n --line-number --text -- '{}' | head -n {}",
-        safe_root,
-        safe_pattern,
-        limit
+        safe_root, safe_pattern, limit
     );
 
     block_on(|| channel.exec(&cmd)).map_err(|e| e.to_string())?;
     let mut output = String::new();
     use std::io::Read as StdRead;
-    channel.read_to_string(&mut output).map_err(|e| e.to_string())?;
+    channel
+        .read_to_string(&mut output)
+        .map_err(|e| e.to_string())?;
     Ok(output)
 }
 
@@ -411,7 +467,7 @@ pub async fn write_to_pty(
 pub async fn write_binary_to_pty(
     state: State<'_, AppState>,
     id: String,
-    data: Vec<u8>, 
+    data: Vec<u8>,
 ) -> Result<(), String> {
     let clients = state.clients.lock().map_err(|e| e.to_string())?;
     let client = clients.get(&id).ok_or("Session not found")?;
@@ -449,11 +505,11 @@ pub async fn list_files(
     };
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
-    
+
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
     let path_path = std::path::Path::new(&path);
     let files = block_on(|| sftp.readdir(path_path)).map_err(|e| e.to_string())?;
-    
+
     let mut entries = Vec::new();
     for (path_buf, stat) in files {
         if let Some(name) = path_buf.file_name() {
@@ -470,7 +526,11 @@ pub async fn list_files(
                         } else {
                             // Try to resolve via remote command: id -nu <uid>
                             let username = {
-                                let mut name = if uid == 0 { "root".to_string() } else { "-".to_string() };
+                                let mut name = if uid == 0 {
+                                    "root".to_string()
+                                } else {
+                                    "-".to_string()
+                                };
                                 if let Ok(mut channel) = sess.channel_session() {
                                     let cmd = format!("id -nu {}", uid);
                                     if channel.exec(&cmd).is_ok() {
@@ -492,7 +552,11 @@ pub async fn list_files(
                             username
                         }
                     } else {
-                        if uid == 0 { "root".to_string() } else { "-".to_string() }
+                        if uid == 0 {
+                            "root".to_string()
+                        } else {
+                            "-".to_string()
+                        }
                     }
                 };
                 entries.push(FileEntry {
@@ -507,7 +571,7 @@ pub async fn list_files(
             }
         }
     }
-    
+
     entries.sort_by(|a, b| {
         if a.is_dir == b.is_dir {
             a.name.cmp(&b.name)
@@ -556,14 +620,14 @@ pub async fn create_file(
 
 fn rm_recursive(sftp: &ssh2::Sftp, path: &std::path::Path) -> Result<(), String> {
     let files = block_on(|| sftp.readdir(path)).map_err(|e| e.to_string())?;
-    
+
     for (path_buf, stat) in files {
         if let Some(name) = path_buf.file_name() {
             if let Some(name_str) = name.to_str() {
                 if name_str == "." || name_str == ".." {
                     continue;
                 }
-                
+
                 let full_path = path.join(name);
 
                 if stat.is_dir() {
@@ -574,7 +638,7 @@ fn rm_recursive(sftp: &ssh2::Sftp, path: &std::path::Path) -> Result<(), String>
             }
         }
     }
-    
+
     block_on(|| sftp.rmdir(path)).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -594,7 +658,7 @@ pub async fn delete_item(
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    
+
     if is_dir {
         rm_recursive(&sftp, std::path::Path::new(&path))?;
     } else {
@@ -618,8 +682,14 @@ pub async fn rename_item(
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    block_on(|| sftp.rename(std::path::Path::new(&old_path), std::path::Path::new(&new_path), None))
-        .map_err(|e| e.to_string())?;
+    block_on(|| {
+        sftp.rename(
+            std::path::Path::new(&old_path),
+            std::path::Path::new(&new_path),
+            None,
+        )
+    })
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -649,20 +719,21 @@ pub async fn download_file(
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    let mut remote_file = block_on(|| sftp.open(std::path::Path::new(&remote_path))).map_err(|e| e.to_string())?;
+    let mut remote_file =
+        block_on(|| sftp.open(std::path::Path::new(&remote_path))).map_err(|e| e.to_string())?;
     let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
-    
+
     let mut buf = [0u8; 32768];
     loop {
         match remote_file.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
                 local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            },
+            }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
                 continue;
-            },
+            }
             Err(e) => return Err(e.to_string()),
         }
     }
@@ -682,7 +753,10 @@ fn upload_recursive(
         for entry in std::fs::read_dir(local_path).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             let path = entry.path();
-            let name = path.file_name().ok_or("Invalid file name")?.to_string_lossy();
+            let name = path
+                .file_name()
+                .ok_or("Invalid file name")?
+                .to_string_lossy();
             // Ensure forward slashes for remote path
             let new_remote = if remote_path.ends_with('/') {
                 format!("{}{}", remote_path, name)
@@ -693,8 +767,9 @@ fn upload_recursive(
         }
     } else {
         let mut local_file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
-        let mut remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path))).map_err(|e| e.to_string())?;
-        
+        let mut remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path)))
+            .map_err(|e| e.to_string())?;
+
         let mut buf = [0u8; 32768];
         loop {
             match local_file.read(&mut buf) {
@@ -706,11 +781,11 @@ fn upload_recursive(
                             Ok(written) => pos += written,
                             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                                 thread::sleep(Duration::from_millis(10));
-                            },
+                            }
                             Err(e) => return Err(e.to_string()),
                         }
                     }
-                },
+                }
                 Err(e) => return Err(e.to_string()),
             }
         }
@@ -733,9 +808,9 @@ pub async fn upload_file(
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    
+
     upload_recursive(&sftp, std::path::Path::new(&local_path), &remote_path)?;
-    
+
     Ok(())
 }
 
@@ -760,38 +835,45 @@ pub async fn download_temp_and_open(
     {
         let sess = client_sess.lock().map_err(|e| e.to_string())?;
         let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-        let mut remote_file = block_on(|| sftp.open(std::path::Path::new(&remote_path))).map_err(|e| e.to_string())?;
+        let mut remote_file = block_on(|| sftp.open(std::path::Path::new(&remote_path)))
+            .map_err(|e| e.to_string())?;
         let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
-        
+
         let mut buf = [0u8; 32768];
         loop {
             match remote_file.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                },
+                }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(10));
                     continue;
-                },
+                }
                 Err(e) => return Err(e.to_string()),
             }
         }
     }
 
     use tauri_plugin_opener::OpenerExt;
-    app.opener().open_path(local_path_str, None::<String>).map_err(|e| e.to_string())?;
+    app.opener()
+        .open_path(local_path_str, None::<String>)
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
-
 
 #[tauri::command]
 pub async fn cancel_transfer(
     state: State<'_, AppState>,
     transfer_id: String,
 ) -> Result<(), String> {
-    if let Some(flag) = state.transfers.lock().map_err(|e| e.to_string())?.get(&transfer_id) {
+    if let Some(flag) = state
+        .transfers
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&transfer_id)
+    {
         flag.store(true, Ordering::Relaxed);
     }
     Ok(())
@@ -809,7 +891,7 @@ fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>, St
     // Try sha256sum first
     let cmd = format!("sha256sum '{}'", path);
     channel.exec(&cmd).map_err(|e| e.to_string())?;
-    
+
     let mut s = String::new();
     channel.read_to_string(&mut s).map_err(|e| e.to_string())?;
     channel.wait_close().map_err(|e| e.to_string())?;
@@ -820,12 +902,12 @@ fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>, St
             return Ok(Some(hash.to_string()));
         }
     }
-    
+
     // Fallback to md5sum
     let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
     let cmd = format!("md5sum '{}'", path);
     channel.exec(&cmd).map_err(|e| e.to_string())?;
-    
+
     let mut s = String::new();
     channel.read_to_string(&mut s).map_err(|e| e.to_string())?;
     channel.wait_close().map_err(|e| e.to_string())?;
@@ -845,23 +927,27 @@ fn compute_local_file_hash(path: &std::path::Path, limit: u64) -> Result<String,
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 8192];
     let mut read = 0u64;
-    
+
     loop {
         let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 { break; }
-        
+        if n == 0 {
+            break;
+        }
+
         let to_hash = if read + (n as u64) > limit {
             (limit - read) as usize
         } else {
             n
         };
-        
+
         hasher.update(&buf[..to_hash]);
         read += to_hash as u64;
-        
-        if read >= limit { break; }
+
+        if read >= limit {
+            break;
+        }
     }
-    
+
     Ok(hex::encode(hasher.finalize()))
 }
 
@@ -899,40 +985,57 @@ fn upload_recursive_progress(
 
     if local_path.is_dir() {
         let _ = block_on(|| sftp.mkdir(std::path::Path::new(remote_path), 0o755));
-        
+
         for entry in std::fs::read_dir(local_path).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             let path = entry.path();
-            let name = path.file_name().ok_or("Invalid file name")?.to_string_lossy();
+            let name = path
+                .file_name()
+                .ok_or("Invalid file name")?
+                .to_string_lossy();
             // Always use forward slashes for remote SFTP paths
             let new_remote = format!("{}/{}", remote_path.trim_end_matches('/'), name);
 
-            upload_recursive_progress(client_sess, sftp, &path, &new_remote, cancel_flag, app, transfer_id, total_size, transferred, resume)?;
+            upload_recursive_progress(
+                client_sess,
+                sftp,
+                &path,
+                &new_remote,
+                cancel_flag,
+                app,
+                transfer_id,
+                total_size,
+                transferred,
+                resume,
+            )?;
         }
     } else {
         let mut local_file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
         let file_size = local_file.metadata().map_err(|e| e.to_string())?.len();
-        
+
         let mut offset = 0;
         let mut remote_file;
-        
+
         if resume {
             // Check remote file size
             let remote_path_path = std::path::Path::new(remote_path);
-             match block_on(|| sftp.stat(remote_path_path)) {
+            match block_on(|| sftp.stat(remote_path_path)) {
                 Ok(attrs) => {
                     if let Some(size) = attrs.size {
                         if size >= file_size {
                             // Already uploaded
                             *transferred += file_size;
-                             let _ = app.emit("transfer-progress", ProgressPayload {
-                                id: transfer_id.to_string(),
-                                transferred: *transferred,
-                                total: total_size,
-                            });
+                            let _ = app.emit(
+                                "transfer-progress",
+                                ProgressPayload {
+                                    id: transfer_id.to_string(),
+                                    transferred: *transferred,
+                                    total: total_size,
+                                },
+                            );
                             return Ok(());
                         }
-                        
+
                         // Verify Checksum before resuming
                         let local_hash = compute_local_file_hash(local_path, size)?;
 
@@ -949,16 +1052,25 @@ fn upload_recursive_progress(
                                 // Compute MD5 locally
                                 use md5::Md5;
                                 let mut hasher = Md5::new();
-                                let mut file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
+                                let mut file =
+                                    std::fs::File::open(local_path).map_err(|e| e.to_string())?;
                                 let mut buf = [0u8; 8192];
                                 let mut read = 0u64;
                                 loop {
                                     let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-                                    if n == 0 { break; }
-                                    let to_hash = if read + (n as u64) > size { (size - read) as usize } else { n };
+                                    if n == 0 {
+                                        break;
+                                    }
+                                    let to_hash = if read + (n as u64) > size {
+                                        (size - read) as usize
+                                    } else {
+                                        n
+                                    };
                                     hasher.update(&buf[..to_hash]);
                                     read += to_hash as u64;
-                                    if read >= size { break; }
+                                    if read >= size {
+                                        break;
+                                    }
                                 }
                                 let local_md5 = hex::encode(hasher.finalize());
                                 if local_md5 == remote_hash {
@@ -970,38 +1082,43 @@ fn upload_recursive_progress(
                                 offset = 0;
                             }
                         } else {
-                            offset = 0; 
+                            offset = 0;
                         }
                     }
-                },
+                }
                 Err(_) => {} // File doesn't exist, start from 0
             }
         }
 
         if offset > 0 {
-            // Resume: open for write and append? SFTP doesn't have O_APPEND exactly like POSIX, 
+            // Resume: open for write and append? SFTP doesn't have O_APPEND exactly like POSIX,
             // but we can write to offset.
             // ssh2 open_mode: (filename, flags, mode, open_type)
             // flags: Write | Read?
             // We use Write.
-            remote_file = block_on(|| sftp.open_mode(
-                std::path::Path::new(remote_path), 
-                ssh2::OpenFlags::WRITE, 
-                0o644, 
-                ssh2::OpenType::File
-            )).map_err(|e| e.to_string())?;
-            
+            remote_file = block_on(|| {
+                sftp.open_mode(
+                    std::path::Path::new(remote_path),
+                    ssh2::OpenFlags::WRITE,
+                    0o644,
+                    ssh2::OpenType::File,
+                )
+            })
+            .map_err(|e| e.to_string())?;
+
             // Seek local
-            local_file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
-            
-            // For remote, sftp file implies we seek before write? 
+            local_file
+                .seek(SeekFrom::Start(offset))
+                .map_err(|e| e.to_string())?;
+
+            // For remote, sftp file implies we seek before write?
             // ssh2::File doesn't have seek. It has write.
             // Wait, ssh2::File implements Write.
             // But SFTP write packet includes offset.
-            // ssh2 crate handles offset internally if we just write? 
+            // ssh2 crate handles offset internally if we just write?
             // No, if we open a file, the offset starts at 0 usually unless we seek.
             // Does ssh2::File have seek?
-            // It implements std::io::Seek? 
+            // It implements std::io::Seek?
             // Let's check imports. I imported Seek.
             // If ssh2::File implements Seek, we are good.
             // If not, we might be in trouble.
@@ -1011,12 +1128,14 @@ fn upload_recursive_progress(
             // Let's try to seek. If it fails to compile, I'll fix it.
             // ssh2::File implements Seek.
             use std::io::Seek;
-            remote_file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
-
+            remote_file
+                .seek(SeekFrom::Start(offset))
+                .map_err(|e| e.to_string())?;
         } else {
-            remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path))).map_err(|e| e.to_string())?;
+            remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path)))
+                .map_err(|e| e.to_string())?;
         }
-        
+
         // Update global transferred count with skipped bytes
         *transferred += offset;
 
@@ -1025,13 +1144,13 @@ fn upload_recursive_progress(
             if cancel_flag.load(Ordering::Relaxed) {
                 return Err("Cancelled".to_string());
             }
-            
+
             match local_file.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     let mut pos = 0;
                     while pos < n {
-                         match remote_file.write(&buf[pos..n]) {
+                        match remote_file.write(&buf[pos..n]) {
                             Ok(written) => {
                                 pos += written;
                                 *transferred += written as u64;
@@ -1039,19 +1158,22 @@ fn upload_recursive_progress(
                                 // 32KB is small. Maybe every 1MB or just every chunk.
                                 // Emitting every chunk might be too much for frontend IPC?
                                 // Let's try every chunk for smoothness, Tauri is fast.
-                                let _ = app.emit("transfer-progress", ProgressPayload {
-                                    id: transfer_id.to_string(),
-                                    transferred: *transferred,
-                                    total: total_size,
-                                });
-                            },
+                                let _ = app.emit(
+                                    "transfer-progress",
+                                    ProgressPayload {
+                                        id: transfer_id.to_string(),
+                                        transferred: *transferred,
+                                        total: total_size,
+                                    },
+                                );
+                            }
                             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                                 thread::sleep(Duration::from_millis(10));
-                            },
+                            }
                             Err(e) => return Err(e.to_string()),
                         }
                     }
-                },
+                }
                 Err(e) => return Err(e.to_string()),
             }
         }
@@ -1074,9 +1196,13 @@ pub async fn upload_file_with_progress(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.session.clone()
     };
-    
+
     let cancel_flag = Arc::new(AtomicBool::new(false));
-    state.transfers.lock().map_err(|e| e.to_string())?.insert(transfer_id.clone(), cancel_flag.clone());
+    state
+        .transfers
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(transfer_id.clone(), cancel_flag.clone());
 
     // Only lock the SSH session long enough to create the SFTP handle,
     // then release it so other commands (like list_files) can run while
@@ -1092,13 +1218,28 @@ pub async fn upload_file_with_progress(
     } else {
         local_p.metadata().map_err(|e| e.to_string())?.len()
     };
-    
+
     let mut transferred = 0;
-    
-    let res = upload_recursive_progress(&client_sess, &sftp, local_p, &remote_path, &cancel_flag, &app, &transfer_id, total_size, &mut transferred, resume);
-    
-    state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
-    
+
+    let res = upload_recursive_progress(
+        &client_sess,
+        &sftp,
+        local_p,
+        &remote_path,
+        &cancel_flag,
+        &app,
+        &transfer_id,
+        total_size,
+        &mut transferred,
+        resume,
+    );
+
+    state
+        .transfers
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&transfer_id);
+
     res
 }
 
@@ -1119,52 +1260,75 @@ pub async fn download_file_with_progress(
     };
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
-    state.transfers.lock().map_err(|e| e.to_string())?.insert(transfer_id.clone(), cancel_flag.clone());
+    state
+        .transfers
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(transfer_id.clone(), cancel_flag.clone());
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    
+
     // Get remote size
     let remote_path_path = std::path::Path::new(&remote_path);
-    let total_size = block_on(|| sftp.stat(remote_path_path)).map_err(|e| e.to_string())?
-        .size.ok_or("Unknown size")?;
+    let total_size = block_on(|| sftp.stat(remote_path_path))
+        .map_err(|e| e.to_string())?
+        .size
+        .ok_or("Unknown size")?;
 
     let mut offset = 0;
     let mut local_file;
-    
+
     if resume {
         if let Ok(meta) = std::fs::metadata(&local_path) {
             let local_size = meta.len();
             if local_size < total_size {
                 offset = local_size;
-                local_file = std::fs::OpenOptions::new().write(true).append(true).open(&local_path).map_err(|e| e.to_string())?;
+                local_file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(&local_path)
+                    .map_err(|e| e.to_string())?;
             } else {
                 // Already done
-                let _ = app.emit("transfer-progress", ProgressPayload {
-                    id: transfer_id.clone(),
-                    transferred: total_size,
-                    total: total_size,
-                });
-                state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+                let _ = app.emit(
+                    "transfer-progress",
+                    ProgressPayload {
+                        id: transfer_id.clone(),
+                        transferred: total_size,
+                        total: total_size,
+                    },
+                );
+                state
+                    .transfers
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .remove(&transfer_id);
                 return Ok(());
             }
         } else {
-             local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
+            local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
         }
     } else {
         local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
     }
-    
+
     let mut remote_file = block_on(|| sftp.open(remote_path_path)).map_err(|e| e.to_string())?;
     if offset > 0 {
-        remote_file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+        remote_file
+            .seek(SeekFrom::Start(offset))
+            .map_err(|e| e.to_string())?;
     }
 
     let mut transferred = offset;
     let mut buf = [0u8; 32768];
     loop {
         if cancel_flag.load(Ordering::Relaxed) {
-            state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+            state
+                .transfers
+                .lock()
+                .map_err(|e| e.to_string())?
+                .remove(&transfer_id);
             return Err("Cancelled".to_string());
         }
 
@@ -1173,24 +1337,35 @@ pub async fn download_file_with_progress(
             Ok(n) => {
                 local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
                 transferred += n as u64;
-                let _ = app.emit("transfer-progress", ProgressPayload {
-                    id: transfer_id.clone(),
-                    transferred,
-                    total: total_size,
-                });
-            },
+                let _ = app.emit(
+                    "transfer-progress",
+                    ProgressPayload {
+                        id: transfer_id.clone(),
+                        transferred,
+                        total: total_size,
+                    },
+                );
+            }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
                 continue;
-            },
+            }
             Err(e) => {
-                state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+                state
+                    .transfers
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .remove(&transfer_id);
                 return Err(e.to_string());
             }
         }
     }
-    
-    state.transfers.lock().map_err(|e| e.to_string())?.remove(&transfer_id);
+
+    state
+        .transfers
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&transfer_id);
     Ok(())
 }
 
@@ -1216,20 +1391,21 @@ pub async fn edit_remote_file(
     {
         let sess = client_sess.lock().map_err(|e| e.to_string())?;
         let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-        let mut remote_file = block_on(|| sftp.open(Path::new(&remote_path))).map_err(|e| e.to_string())?;
+        let mut remote_file =
+            block_on(|| sftp.open(Path::new(&remote_path))).map_err(|e| e.to_string())?;
         let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
-        
+
         let mut buf = [0u8; 32768];
         loop {
             match remote_file.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                },
+                }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(10));
                     continue;
-                },
+                }
                 Err(e) => return Err(e.to_string()),
             }
         }
@@ -1240,7 +1416,7 @@ pub async fn edit_remote_file(
     let local_p = local_path.clone();
     let remote_p = remote_path.clone();
     let app_handle = app.clone();
-    
+
     // Remove existing watcher if any
     if let Ok(mut watchers) = state.watchers.lock() {
         watchers.remove(&local_path_str);
@@ -1251,81 +1427,110 @@ pub async fn edit_remote_file(
             Ok(event) => {
                 // Check for both data modification and attribute changes if needed, but Modify(Data) is key
                 if let EventKind::Modify(_) = event.kind {
-                     let sess_clone2 = sess_clone.clone();
+                    let sess_clone2 = sess_clone.clone();
                     let local_p2 = local_p.clone();
                     let remote_p2 = remote_p.clone();
                     let app_h = app_handle.clone();
-                    
+
                     thread::spawn(move || {
                         // Debounce slightly
                         thread::sleep(Duration::from_millis(500));
-                        
+
                         if let Ok(sess) = sess_clone2.lock() {
                             if let Ok(sftp) = block_on(|| sess.sftp()) {
                                 // Read local
                                 if let Ok(mut local_file) = std::fs::File::open(&local_p2) {
-                                     // Overwrite remote
-                                     // Use create() to truncate and overwrite
-                                     if let Ok(mut remote_file) = block_on(|| sftp.create(Path::new(&remote_p2))) {
-                                         let mut buf = [0u8; 32768];
-                                         loop {
-                                             match local_file.read(&mut buf) {
-                                                 Ok(0) => break,
-                                                 Ok(n) => {
-                                                     let mut pos = 0;
-                                                     while pos < n {
-                                                         match remote_file.write(&buf[pos..n]) {
-                                                             Ok(w) => pos += w,
-                                                             Err(e) if e.kind() == ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(10)),
-                                                             Err(_) => break,
-                                                         }
-                                                     }
-                                                 },
-                                                 Err(_) => break,
-                                             }
-                                         }
-                                         // Notify frontend
-                                         let _ = app_h.emit("file-synced", remote_p2);
-                                     }
+                                    // Overwrite remote
+                                    // Use create() to truncate and overwrite
+                                    if let Ok(mut remote_file) =
+                                        block_on(|| sftp.create(Path::new(&remote_p2)))
+                                    {
+                                        let mut buf = [0u8; 32768];
+                                        loop {
+                                            match local_file.read(&mut buf) {
+                                                Ok(0) => break,
+                                                Ok(n) => {
+                                                    let mut pos = 0;
+                                                    while pos < n {
+                                                        match remote_file.write(&buf[pos..n]) {
+                                                            Ok(w) => pos += w,
+                                                            Err(e)
+                                                                if e.kind()
+                                                                    == ErrorKind::WouldBlock =>
+                                                            {
+                                                                thread::sleep(
+                                                                    Duration::from_millis(10),
+                                                                )
+                                                            }
+                                                            Err(_) => break,
+                                                        }
+                                                    }
+                                                }
+                                                Err(_) => break,
+                                            }
+                                        }
+                                        // Notify frontend
+                                        let _ = app_h.emit("file-synced", remote_p2);
+                                    }
                                 }
                             }
                         }
                     });
                 }
-            },
+            }
             Err(e) => eprintln!("watch error: {:?}", e),
         }
-    }).map_err(|e| e.to_string())?;
+    })
+    .map_err(|e| e.to_string())?;
 
-    watcher.watch(&local_path, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
-    state.watchers.lock().map_err(|e| e.to_string())?.insert(local_path_str.clone(), watcher);
+    watcher
+        .watch(&local_path, RecursiveMode::NonRecursive)
+        .map_err(|e| e.to_string())?;
+    state
+        .watchers
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(local_path_str.clone(), watcher);
 
     // Launch VS Code
     // Try "code" first
-    let code_status = std::process::Command::new("code.cmd").arg(&local_path).spawn();
-    
+    let code_status = std::process::Command::new("code.cmd")
+        .arg(&local_path)
+        .spawn();
+
     if code_status.is_err() {
-         // Try plain "code" (linux/mac or valid path)
-         let code_status2 = std::process::Command::new("code").arg(&local_path).spawn();
-         
-         if code_status2.is_err() {
-             let _ = app.emit("installing-vscode", ());
-             // Try to install via winget
-             // Non-blocking? Or blocking? User needs to wait.
-             // Spawning it.
-             let local_p_install = local_path.clone();
-             thread::spawn(move || {
-                 let install_status = std::process::Command::new("winget")
-                    .args(&["install", "-e", "--id", "Microsoft.VisualStudioCode", "--source", "winget", "--accept-source-agreements", "--accept-package-agreements"])
+        // Try plain "code" (linux/mac or valid path)
+        let code_status2 = std::process::Command::new("code").arg(&local_path).spawn();
+
+        if code_status2.is_err() {
+            let _ = app.emit("installing-vscode", ());
+            // Try to install via winget
+            // Non-blocking? Or blocking? User needs to wait.
+            // Spawning it.
+            let local_p_install = local_path.clone();
+            thread::spawn(move || {
+                let install_status = std::process::Command::new("winget")
+                    .args(&[
+                        "install",
+                        "-e",
+                        "--id",
+                        "Microsoft.VisualStudioCode",
+                        "--source",
+                        "winget",
+                        "--accept-source-agreements",
+                        "--accept-package-agreements",
+                    ])
                     .output();
-                    
-                 if let Ok(output) = install_status {
-                     if output.status.success() {
-                         let _ = std::process::Command::new("code.cmd").arg(&local_p_install).spawn();
-                     }
-                 }
-             });
-         }
+
+                if let Ok(output) = install_status {
+                    if output.status.success() {
+                        let _ = std::process::Command::new("code.cmd")
+                            .arg(&local_p_install)
+                            .spawn();
+                    }
+                }
+            });
+        }
     }
 
     Ok(())
@@ -1340,23 +1545,24 @@ pub async fn exec_command(
     let client_sess = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         let client = clients.get(&id).ok_or("Session not found")?;
-        client.session.clone()
+        // Use background session for commands to avoid blocking SFTP
+        client.background_session.clone()
     };
 
     let sess = client_sess.lock().map_err(|e| e.to_string())?;
     let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
     block_on(|| channel.exec(&command)).map_err(|e| e.to_string())?;
-    
+
     let mut s = String::new();
     let mut buf = [0u8; 1024];
     loop {
         match channel.read(&mut buf) {
-             Ok(0) => break,
-             Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
-             Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                 thread::sleep(Duration::from_millis(10));
-             },
-             Err(e) => return Err(e.to_string()),
+            Ok(0) => break,
+            Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(e.to_string()),
         }
     }
     block_on(|| channel.wait_close()).ok();

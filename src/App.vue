@@ -61,7 +61,20 @@ const activeSession = computed(() => sessionStore.activeSession);
 
 // Session status bar state
 const now = ref(Date.now());
-const sessionStatus = ref<Record<string, string>>({});
+interface DiskInfo {
+  size: string;
+  used: string;
+  avail: string;
+  percent: string;
+}
+
+interface SessionStats {
+  uptime: string;
+  disk: DiskInfo | null;
+  ip: string;
+}
+
+const sessionStatus = ref<Record<string, SessionStats>>({});
 let statusTimer: number | null = null;
 let clockTimer: number | null = null;
 
@@ -88,18 +101,55 @@ async function refreshActiveSessionStatus() {
   if (!activeSession.value) return;
   const id = activeSession.value.id;
   try {
-    const command = "echo 'Uptime:'; (uptime -p 2>/dev/null || uptime 2>/dev/null); echo 'Disk /:'; df -h / 2>/dev/null | sed -n '1,2p'; echo 'IP:'; (hostname -I 2>/dev/null || echo 'n/a')";
+    // Command to get Uptime, Disk (Size|Used|Avail|Use%), and IP
+    // We use awk to format disk output: Size|Used|Avail|Use%
+    const command = `
+      echo "UPTIME_START"; 
+      (uptime -p 2>/dev/null || uptime 2>/dev/null); 
+      echo "UPTIME_END";
+      echo "DISK_START"; 
+      df -h / 2>/dev/null | tail -1 | awk '{print $2 "|" $3 "|" $4 "|" $5}'; 
+      echo "DISK_END";
+      echo "IP_START"; 
+      (hostname -I 2>/dev/null || echo 'n/a');
+      echo "IP_END";
+    `.replace(/\n/g, ' ');
+
     const result = await invoke<string>('exec_command', { id, command });
+    
+    // Parse result
+    const uptimeMatch = result.match(/UPTIME_START\s*([\s\S]*?)\s*UPTIME_END/);
+    const diskMatch = result.match(/DISK_START\s*([\s\S]*?)\s*DISK_END/);
+    const ipMatch = result.match(/IP_START\s*([\s\S]*?)\s*IP_END/);
+
+    const uptime = uptimeMatch ? uptimeMatch[1].trim() : 'N/A';
+    const diskRaw = diskMatch ? diskMatch[1].trim() : '';
+    const ip = ipMatch ? ipMatch[1].trim().split(' ')[0] : 'N/A'; // Take first IP
+
+    let disk: DiskInfo | null = null;
+    if (diskRaw) {
+      const parts = diskRaw.split('|');
+      if (parts.length >= 4) {
+        disk = {
+          size: parts[0],
+          used: parts[1],
+          avail: parts[2],
+          percent: parts[3]
+        };
+      }
+    }
+
     sessionStatus.value = {
       ...sessionStatus.value,
-      [id]: result.replace(/\s+/g, ' ').trim(),
+      [id]: {
+        uptime,
+        disk,
+        ip
+      },
     };
   } catch (e) {
     console.error(e);
-    sessionStatus.value = {
-      ...sessionStatus.value,
-      [id]: 'Status unavailable',
-    };
+    // Keep previous status or set to null/error state if needed
   }
 }
 
@@ -277,8 +327,44 @@ function openEditConnectionModal(conn: Connection) {
             <div class="text-gray-300">
               {{ t('app.sessionDuration') }}: {{ activeSessionDuration || '0s' }}
             </div>
-            <div class="flex-1 text-right text-gray-400 truncate ml-4">
-              {{ sessionStatus[session.id] || t('app.loadingStatus') }}
+            <div class="flex-1 flex justify-end items-center space-x-4 ml-4">
+              <template v-if="sessionStatus[session.id]">
+                <!-- Uptime -->
+                <div class="text-gray-400 truncate" :title="sessionStatus[session.id].uptime">
+                  {{ sessionStatus[session.id].uptime }}
+                </div>
+                
+                <!-- Disk Usage -->
+                <div v-if="sessionStatus[session.id].disk" class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200">
+                  <div class="flex items-center space-x-1">
+                    <span>Disk:</span>
+                    <span :class="{'text-red-400': parseInt(sessionStatus[session.id].disk!.percent) > 90}">
+                      {{ sessionStatus[session.id].disk!.percent }}
+                    </span>
+                  </div>
+                  <!-- Custom Tooltip -->
+                  <div class="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
+                    <div class="bg-gray-900 border border-gray-700 rounded shadow-lg p-2 text-xs whitespace-nowrap">
+                      <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                        <span class="text-gray-500">Size:</span>
+                        <span class="text-gray-200 text-right">{{ sessionStatus[session.id].disk!.size }}</span>
+                        <span class="text-gray-500">Used:</span>
+                        <span class="text-gray-200 text-right">{{ sessionStatus[session.id].disk!.used }}</span>
+                        <span class="text-gray-500">Avail:</span>
+                        <span class="text-gray-200 text-right">{{ sessionStatus[session.id].disk!.avail }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- IP -->
+                <div class="text-gray-400 truncate" :title="sessionStatus[session.id].ip">
+                  IP: {{ sessionStatus[session.id].ip }}
+                </div>
+              </template>
+              <div v-else class="text-gray-500 italic">
+                {{ t('app.loadingStatus') }}
+              </div>
             </div>
           </div>
         </div>

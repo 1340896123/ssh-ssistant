@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus } from 'lucide-vue-next';
 import { open, save, ask, message } from '@tauri-apps/plugin-dialog';
-import { readDir, mkdir } from '@tauri-apps/plugin-fs';
+import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
 import type { FileEntry, FileManagerViewMode } from '../types';
 import { useTransferStore } from '../stores/transfers';
 import { useSettingsStore } from '../stores/settings';
@@ -75,7 +76,9 @@ const columnWidths = ref<Record<ColumnKey, number>>({
 const resizingColumn = ref<ColumnKey | null>(null);
 const resizeStartX = ref(0);
 const resizeStartWidth = ref(0);
+
 const isOpeningFile = ref(false);
+const unlistenDrop = ref<UnlistenFn | null>(null);
 
 const visibleTreeNodes = computed<TreeNode[]>(() => {
     const result: TreeNode[] = [];
@@ -270,7 +273,7 @@ function stopResize() {
 function handleNativeDragOver(event: DragEvent) {
     event.preventDefault();
     event.stopPropagation();
-    
+
     // Only accept file drops, not connection drags
     if (event.dataTransfer && event.dataTransfer.types.includes('Files')) {
         event.dataTransfer.dropEffect = 'copy';
@@ -280,36 +283,47 @@ function handleNativeDragOver(event: DragEvent) {
 function handleNativeDrop(event: DragEvent) {
     event.preventDefault();
     event.stopPropagation();
-    
-    if (!event.dataTransfer || !event.dataTransfer.files || event.dataTransfer.files.length === 0) {
-        return;
-    }
-    
-    const files = event.dataTransfer.files;
-    
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        // Use webkitRelativePath for directories, fallback to name
-        const relativePath = (file as any).webkitRelativePath || file.name;
-        const name = relativePath.split(/[\\/]/).pop() || 'uploaded';
+    // Handled by tauri://drag-drop listener
+}
+
+async function handleTauriFileDrop(paths: string[]) {
+    for (const fullPath of paths) {
+        const name = fullPath.split(/[\\/]/).pop() || 'uploaded';
         const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
 
-        const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+        try {
+            // Check if it's a directory
+            const fileStat = await stat(fullPath);
 
-        transferStore.addTransfer({
-            id: transferId,
-            type: 'upload',
-            name,
-            localPath: file.name, // Note: This won't work for actual file access, need different approach
-            remotePath,
-            size: file.size,
-            transferred: 0,
-            progress: 0,
-            status: 'pending',
-            sessionId: props.sessionId
-        });
+            if (fileStat.isDirectory) {
+                try {
+                    await invoke('create_directory', { id: props.sessionId, path: remotePath });
+                } catch (e) {
+                    // Ignore if directory already exists
+                }
+                await processDirectory(fullPath, remotePath);
+            } else {
+                const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+
+                transferStore.addTransfer({
+                    id: transferId,
+                    type: 'upload',
+                    name,
+                    localPath: fullPath,
+                    remotePath,
+                    size: fileStat.size,
+                    transferred: 0,
+                    progress: 0,
+                    status: 'pending',
+                    sessionId: props.sessionId
+                });
+            }
+        } catch (e) {
+            console.error('Error processing dropped item:', name, e);
+            alert(`Failed to process ${name}: ${e}`);
+        }
     }
-    
+
     loadFiles(currentPath.value);
 }
 
@@ -319,12 +333,29 @@ onMounted(async () => {
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', stopResize);
     window.addEventListener('keydown', handleKeyDown);
+
+    unlistenDrop.value = await listen('tauri://drag-drop', (event) => {
+        const payload = event.payload as { paths: string[], position: { x: number, y: number } };
+        if (containerRef.value) {
+            const rect = containerRef.value.getBoundingClientRect();
+            // Check if drop is within the file manager container
+            if (payload.position.x >= rect.left &&
+                payload.position.x <= rect.right &&
+                payload.position.y >= rect.top &&
+                payload.position.y <= rect.bottom) {
+                handleTauriFileDrop(payload.paths);
+            }
+        }
+    });
 });
 
 onUnmounted(() => {
     window.removeEventListener('mousemove', handleMouseMove);
     window.removeEventListener('mouseup', stopResize);
     window.removeEventListener('keydown', handleKeyDown);
+    if (unlistenDrop.value) {
+        unlistenDrop.value();
+    }
 });
 
 watch(viewMode, (mode) => {
@@ -534,23 +565,23 @@ async function downloadDirectory(remoteDirPath: string, localDirPath: string, se
             // Directory might already exist, continue
             console.log('Directory might already exist:', e);
         }
-        
+
         // 创建目录传输项
         const directoryTransferId = transferStore.addDirectoryTransfer(remoteDirPath, localDirPath, sessionId);
-        
+
         // 扫描目录并计算统计信息
         const { totalFiles, totalSize } = await calculateDirectoryStats(remoteDirPath, sessionId);
         transferStore.updateDirectoryStats(directoryTransferId, totalFiles, totalSize);
-        
+
         // 开始传输
         const directoryItem = transferStore.items.find(item => item.id === directoryTransferId);
         if (directoryItem) {
             directoryItem.status = 'running';
         }
-        
+
         // 递归下载所有文件
         await downloadDirectoryRecursive(remoteDirPath, localDirPath, sessionId, directoryTransferId);
-        
+
         // 标记目录传输为完成
         if (directoryItem) {
             directoryItem.status = 'completed';
@@ -571,13 +602,13 @@ async function downloadDirectory(remoteDirPath: string, localDirPath: string, se
 async function calculateDirectoryStats(remotePath: string, sessionId: string): Promise<{ totalFiles: number, totalSize: number }> {
     let totalFiles = 0;
     let totalSize = 0;
-    
+
     async function scanDirectory(path: string) {
         const entries = await invoke<FileEntry[]>('list_files', { id: sessionId, path });
-        
+
         for (const entry of entries) {
             const fullPath = `${path}/${entry.name}`;
-            
+
             if (entry.isDir) {
                 await scanDirectory(fullPath);
             } else {
@@ -586,7 +617,7 @@ async function calculateDirectoryStats(remotePath: string, sessionId: string): P
             }
         }
     }
-    
+
     await scanDirectory(remotePath);
     return { totalFiles, totalSize };
 }
@@ -599,24 +630,24 @@ async function downloadDirectoryRecursive(remoteDirPath: string, localDirPath: s
             // 等待恢复
             await waitForDirectoryResume(directoryTransferId);
         }
-        
+
         if (directoryItem && (directoryItem.status === 'cancelled' || directoryItem.status === 'error')) {
             return; // 停止下载
         }
-        
+
         // List remote directory contents
         const entries = await invoke<FileEntry[]>('list_files', { id: sessionId, path: remoteDirPath });
-        
+
         for (const entry of entries) {
             // 再次检查状态
             const currentDirectoryItem = transferStore.items.find(item => item.id === directoryTransferId);
             if (!currentDirectoryItem || currentDirectoryItem.status === 'cancelled' || currentDirectoryItem.status === 'error') {
                 return; // 停止下载
             }
-            
+
             const remotePath = `${remoteDirPath}/${entry.name}`;
             const localPath = `${localDirPath}/${entry.name}`;
-            
+
             if (entry.isDir) {
                 // Create local subdirectory
                 try {
@@ -624,13 +655,13 @@ async function downloadDirectoryRecursive(remoteDirPath: string, localDirPath: s
                 } catch (e) {
                     console.log('Subdirectory might already exist:', e);
                 }
-                
+
                 // Recursively download subdirectory
                 await downloadDirectoryRecursive(remotePath, localPath, sessionId, directoryTransferId);
             } else {
                 // Download file
                 const fileTransferId = crypto.randomUUID();
-                
+
                 transferStore.addTransfer({
                     id: fileTransferId,
                     type: 'download',
@@ -643,10 +674,10 @@ async function downloadDirectoryRecursive(remoteDirPath: string, localDirPath: s
                     status: 'pending',
                     sessionId
                 });
-                
+
                 // 等待文件下载完成
                 await waitForFileCompletion(fileTransferId);
-                
+
                 // 更新目录完成计数
                 transferStore.incrementDirectoryCompleted(directoryTransferId);
             }
@@ -670,7 +701,7 @@ async function waitForDirectoryResume(directoryTransferId: string): Promise<void
                 setTimeout(checkResume, 500);
             }
         };
-        
+
         checkResume();
     });
 }
@@ -683,7 +714,7 @@ async function waitForFileCompletion(fileTransferId: string): Promise<void> {
                 reject(new Error('Transfer item not found'));
                 return;
             }
-            
+
             if (item.status === 'completed') {
                 resolve();
             } else if (item.status === 'error' || item.status === 'cancelled') {
@@ -693,7 +724,7 @@ async function waitForFileCompletion(fileTransferId: string): Promise<void> {
                 setTimeout(checkCompletion, 500);
             }
         };
-        
+
         checkCompletion();
     });
 }
@@ -703,25 +734,25 @@ async function handleDownload(file?: FileEntry) {
         // Determine if this is batch download or single download
         const isTreeMode = contextMenu.value.isTree;
         const isMultiSelect = !isTreeMode && selectedFiles.value.size > 1;
-        
+
         if (isMultiSelect) {
             // Batch download for multiple selected files
             const selectedDirectory = await open({
                 directory: true,
                 title: 'Select download directory for batch download'
             });
-            
+
             if (selectedDirectory && typeof selectedDirectory === 'string') {
                 const targets = Array.from(selectedFiles.value);
                 for (const fileName of targets) {
                     const entry = files.value.find(f => f.name === fileName);
                     if (!entry) continue;
-                    
+
                     const remotePath = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
-                    const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\') 
+                    const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
                         ? `${selectedDirectory}${entry.name}`
                         : `${selectedDirectory}/${entry.name}`;
-                    
+
                     if (entry.isDir) {
                         // Download directory recursively
                         await downloadDirectory(remotePath, localPath, props.sessionId);
@@ -746,23 +777,23 @@ async function handleDownload(file?: FileEntry) {
             // Single file or directory download
             const targetFile = file || contextMenu.value.file;
             if (!targetFile) return;
-            
+
             if (targetFile.isDir) {
                 // Directory download - ask for local directory
                 const selectedDirectory = await open({
                     directory: true,
                     title: 'Select directory to save folder'
                 });
-                
+
                 if (selectedDirectory && typeof selectedDirectory === 'string') {
                     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                         ? contextMenu.value.treePath
                         : (currentPath.value === '.' ? targetFile.name : `${currentPath.value}/${targetFile.name}`);
-                    
-                    const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\') 
+
+                    const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
                         ? `${selectedDirectory}${targetFile.name}`
                         : `${selectedDirectory}/${targetFile.name}`;
-                    
+
                     await downloadDirectory(remotePath, localPath, props.sessionId);
                 }
             } else {
@@ -771,7 +802,7 @@ async function handleDownload(file?: FileEntry) {
                     defaultPath: targetFile.name,
                     title: 'Save file as'
                 });
-                
+
                 if (savePath) {
                     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                         ? contextMenu.value.treePath
@@ -1008,8 +1039,7 @@ function formatSize(size: number): string {
 
         <!-- File List -->
         <div class="flex-1 overflow-y-auto border border-gray-800 rounded bg-gray-900/50"
-             @dragover="handleNativeDragOver" 
-             @drop="handleNativeDrop">
+            @dragover="handleNativeDragOver" @drop="handleNativeDrop">
             <!-- Header -->
             <div
                 class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold select-none">
@@ -1115,12 +1145,14 @@ function formatSize(size: number): string {
             class="fixed bg-gray-800 border border-gray-700 shadow-xl rounded z-50 py-1 min-w-[150px]">
             <button @click.stop="handleDownload()"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
-                <span class="flex-1">{{ 
-                    (!contextMenu.isTree && selectedFiles.size > 1) 
-                        ? t('fileManager.contextMenu.batchDownload') 
-                        : t('fileManager.contextMenu.download') 
+                <span class="flex-1">{{
+                    (!contextMenu.isTree && selectedFiles.size > 1)
+                        ? t('fileManager.contextMenu.batchDownload')
+                        : t('fileManager.contextMenu.download')
                 }}</span>
-                <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-gray-400">({{ selectedFiles.size }})</span>
+                <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-gray-400">({{
+                    selectedFiles.size
+                }})</span>
             </button>
             <button @click.stop="handleRename(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.rename')
