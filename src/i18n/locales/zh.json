@@ -23,7 +23,9 @@
     "jumpUsername": "跳转用户名",
     "jumpPassword": "跳转密码",
     "cancel": "取消",
-    "save": "保存"
+    "save": "保存",
+    "deleteConfirm": "确定要删除连接 '{name}' 吗？",
+    "deleteGroupConfirm": "确定要删除组 '{name}' 及其所有内容吗？"
   },
   "settings": {
     "title": "设置",

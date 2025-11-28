@@ -89,16 +89,13 @@ function onDragEnd() {
 }
 
 function onDragOver(event: DragEvent) {
-    // Allow drop on both groups and root level
+    // Allow drop on both groups and connections
     event.preventDefault();
     event.dataTransfer!.dropEffect = 'move';
     
-    // Allow drop on groups or root level items (connections without groupId or groups without parentId)
-    const isRootLevel = isGroup.value ? !(props.item as ConnectionGroup).parentId : !(props.item as Connection).groupId;
-    if (isGroup.value || isRootLevel) {
-        isDragOver.value = true;
-        console.log('Drag over:', props.item.name, 'isGroup:', isGroup.value, 'isRootLevel:', isRootLevel);
-    }
+    // Always allow drop to provide visual feedback
+    isDragOver.value = true;
+    console.log('Drag over:', props.item.name, 'isGroup:', isGroup.value);
 }
 
 function onDragLeave(event: DragEvent) {

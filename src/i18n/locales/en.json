@@ -23,7 +23,9 @@
     "jumpUsername": "Jump Username",
     "jumpPassword": "Jump Password",
     "cancel": "Cancel",
-    "save": "Save"
+    "save": "Save",
+    "deleteConfirm": "Are you sure you want to delete connection '{name}'?",
+    "deleteGroupConfirm": "Are you sure you want to delete group '{name}' and all its contents?"
   },
   "settings": {
     "title": "Settings",

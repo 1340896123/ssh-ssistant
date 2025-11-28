@@ -10,6 +10,7 @@ import type { Connection, ConnectionGroup } from '../types';
 import { listen } from '@tauri-apps/api/event';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import { onUnmounted } from 'vue';
+import { ask } from '@tauri-apps/plugin-dialog';
 
 const connectionStore = useConnectionStore();
 const sessionStore = useSessionStore();
@@ -153,7 +154,9 @@ function handleEdit(conn: Connection) {
 }
 
 async function handleDelete(conn: Connection) {
-  if (confirm(t('connections.deleteConfirm', { name: conn.name }) || `Delete ${conn.name}?`)) {
+  const confirmText = t('connections.deleteConfirm', { name: conn.name }) || `Delete ${conn.name}?`;
+  const confirmed = await ask(confirmText, { title: '确认删除', kind: 'warning' });
+  if (confirmed) {
     await connectionStore.deleteConnection(conn.id!);
   }
 }
@@ -173,7 +176,9 @@ async function handleEditGroup(group: ConnectionGroup) {
 }
 
 async function handleDeleteGroup(group: ConnectionGroup) {
-  if (confirm(`Delete group "${group.name}" and all its contents?`)) {
+  const confirmText = t('connections.deleteGroupConfirm', { name: group.name }) || `Delete group "${group.name}" and all its contents?`;
+  const confirmed = await ask(confirmText, { title: '确认删除', kind: 'warning' });
+  if (confirmed) {
     await connectionStore.deleteGroup(group.id!);
   }
 }
@@ -221,6 +226,10 @@ function getItemKey(item: Connection | ConnectionGroup) {
 
     <!-- Root Children -->
     <div v-if="isRootExpanded" class="flex-1 overflow-y-auto" @dragover="onDragOver" @drop="onDrop($event, null)">
+      <!-- Root Drop Zone Indicator -->
+      <div v-if="isDragOver" class="mx-2 mb-2 p-3 border-2 border-dashed border-blue-500 rounded bg-blue-500/10 text-blue-400 text-sm text-center">
+        拖放到此处以移动到根目录
+      </div>
       <div class="space-y-0.5 min-h-[50px]">
         <ConnectionTreeItem v-for="item in treeData" :key="getItemKey(item)" :item="item" :level="1" @connect="connect"
           @edit="handleEdit" @delete="handleDelete" @create-group="handleCreateGroup" @edit-group="handleEditGroup"
