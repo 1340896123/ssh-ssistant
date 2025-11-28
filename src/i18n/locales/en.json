@@ -50,7 +50,10 @@
     "enableAutoCleanup": "Enable Auto Cleanup",
     "enableAutoCleanupDesc": "Automatically clean up disconnected SSH sessions",
     "cleanupIntervalMinutes": "Cleanup Interval (Minutes)",
-    "cleanupIntervalMinutesDesc": "How often to check and clean up disconnected sessions"
+    "cleanupIntervalMinutesDesc": "How often to check and clean up disconnected sessions",
+    "cacheManagement": "Cache Management",
+    "clearCache": "Clear Cache",
+    "clearCacheDesc": "Clear interface layout cache such as sidebar width"
   },
   "terminal": {
     "cursor": {

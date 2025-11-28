@@ -54,8 +54,15 @@ const fileWidth = ref(30); // percentage
 const aiWidth = ref(30);   // percentage
 // Terminal width is derived: 100 - fileWidth - aiWidth
 
+// Sidebar width state - initialize from cache immediately
+const getInitialSidebarWidth = () => {
+  const cachedWidth = typeof localStorage !== 'undefined' ? localStorage.getItem('sidebarWidth') : null;
+  return cachedWidth ? parseInt(cachedWidth, 10) : 256;
+};
+const sidebarWidth = ref(getInitialSidebarWidth());
+
 const containerRef = ref<HTMLElement | null>(null);
-const isResizing = ref<'file' | 'ai' | null>(null);
+const isResizing = ref<'file' | 'ai' | 'sidebar' | null>(null);
 
 const activeSession = computed(() => sessionStore.activeSession);
 
@@ -182,15 +189,33 @@ onUnmounted(() => {
   }
 });
 
-function startResize(target: 'file' | 'ai') {
+function startResize(target: 'file' | 'ai' | 'sidebar') {
   isResizing.value = target;
   document.body.style.cursor = 'col-resize';
   document.body.style.userSelect = 'none';
 }
 
 function handleMouseMove(e: MouseEvent) {
-  if (!isResizing.value || !containerRef.value) return;
+  if (!isResizing.value) return;
 
+  if (isResizing.value === 'sidebar') {
+    // Calculate new sidebar width in pixels relative to the viewport
+    const windowRect = document.body.getBoundingClientRect();
+    const newSidebarWidth = e.clientX - windowRect.left;
+    // Constraints: min 10% of screen width, max 50% of screen width
+    const screenWidth = window.innerWidth;
+    const minWidth = screenWidth * 0.1; // 10% of screen width
+    const maxWidth = screenWidth * 0.5; // 50% of screen width
+    if (newSidebarWidth >= minWidth && newSidebarWidth <= maxWidth) {
+      sidebarWidth.value = newSidebarWidth;
+      // Save to localStorage
+      localStorage.setItem('sidebarWidth', newSidebarWidth.toString());
+    }
+    return;
+  }
+
+  // For file and ai resizers, we need containerRef
+  if (!containerRef.value) return;
   const containerRect = containerRef.value.getBoundingClientRect();
   const totalWidth = containerRect.width;
 
@@ -250,7 +275,7 @@ function openEditConnectionModal(conn: Connection) {
 <template>
   <div class="h-screen w-screen bg-gray-900 text-white flex overflow-hidden font-sans">
     <!-- Sidebar -->
-    <aside class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0">
+    <aside class="bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0" :style="{ width: sidebarWidth + 'px' }">
       <div class="p-4 border-b border-gray-700 flex justify-between items-center">
         <h1 class="text-lg font-bold">{{ t('app.title') }}</h1>
         <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" :title="t('app.settings')">
@@ -267,6 +292,12 @@ function openEditConnectionModal(conn: Connection) {
         </button>
       </div>
     </aside>
+
+    <!-- Sidebar Resizer -->
+    <div
+      class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+      @mousedown.prevent="startResize('sidebar')"
+    ></div>
 
     <!-- Main Content -->
     <main class="flex-1 flex flex-col bg-gray-900 min-w-0">

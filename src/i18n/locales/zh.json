@@ -50,7 +50,10 @@
     "enableAutoCleanup": "启用自动清理",
     "enableAutoCleanupDesc": "自动清理断开的SSH会话",
     "cleanupIntervalMinutes": "清理间隔（分钟）",
-    "cleanupIntervalMinutesDesc": "检查和清理断开会话的频率"
+    "cleanupIntervalMinutesDesc": "检查和清理断开会话的频率",
+    "cacheManagement": "缓存管理",
+    "clearCache": "清除缓存",
+    "clearCacheDesc": "清除侧边栏宽度等界面布局缓存"
   },
   "terminal": {
     "cursor": {

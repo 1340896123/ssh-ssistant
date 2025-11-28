@@ -39,6 +39,15 @@ function save() {
   emit('close');
 }
 
+function clearCache() {
+  localStorage.removeItem('sidebarWidth');
+  // 重置侧边栏宽度到默认值
+  const defaultWidth = 256;
+  localStorage.setItem('sidebarWidth', defaultWidth.toString());
+  // 触发页面刷新或重新加载以应用更改
+  window.location.reload();
+}
+
 const tabs = [
   { id: 'general', label: 'settings.general' },
   { id: 'ai', label: 'settings.aiAssistant' },
@@ -97,6 +106,18 @@ const tabs = [
                     <option value="en">{{ t('languages.en') }}</option>
                     <option value="zh">{{ t('languages.zh') }}</option>
                   </select>
+                </div>
+              </div>
+            </section>
+            
+            <section>
+              <h3 class="text-lg font-semibold text-white mb-4">{{ t('settings.cacheManagement') }}</h3>
+              <div class="space-y-4">
+                <div>
+                  <p class="text-sm text-gray-400 mb-2">{{ t('settings.clearCacheDesc') }}</p>
+                  <button @click="clearCache" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded transition-colors">
+                    {{ t('settings.clearCache') }}
+                  </button>
                 </div>
               </div>
             </section>
