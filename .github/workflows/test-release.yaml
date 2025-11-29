@@ -14,14 +14,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-13' # Intel runner for Intel builds
-            args: ''
+          # - platform: 'macos-13' # Intel runner for Intel builds
+          #   args: ''
           # - platform: 'macos-14' # ARM runner for ARM builds
           #   args: ''
           - platform: 'ubuntu-24.04'
             args: ''
-          - platform: 'windows-latest'
-            args: ''
+          # - platform: 'windows-latest'
+          #   args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -33,14 +33,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev pkg-config
 
-      - name: Unset OpenSSL environment variables (Ubuntu only)
+      - name: Set OpenSSL environment variables (Ubuntu only)
         if: matrix.platform == 'ubuntu-24.04'
         run: |
-          echo "OPENSSL_DIR=" >> $GITHUB_ENV
-          echo "OPENSSL_ROOT_DIR=" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_ROOT_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include/openssl" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
 
       - name: setup node
         uses: actions/setup-node@v4
