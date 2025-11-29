@@ -1128,7 +1128,7 @@ function formatSize(size: number): string {
                         :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
                         draggable="true" @dragstart="onDragStart($event, file)"
                         @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
-                        @contextmenu="showContextMenu($event, file)">
+                        @contextmenu.stop="showContextMenu($event, file)">
                         <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
                             <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
                             <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
