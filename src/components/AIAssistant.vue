@@ -3,9 +3,9 @@ import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { emit as tauriEmit, listen } from '@tauri-apps/api/event';
 import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus, Trash2, Square } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
-// import draggable from 'vuedraggable'; // Removed
 
 const md = new MarkdownIt({
   html: false,
@@ -26,7 +26,6 @@ function renderMarkdown(content: string) {
   if (!content) return '';
   return md.render(content);
 }
-
 
 interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -54,6 +53,12 @@ const messagesContainer = ref<HTMLElement | null>(null);
 const toolStates = ref<Record<string, boolean>>({});
 let abortController = ref<AbortController | null>(null);
 
+// Execution Mode
+const executionMode = ref<'terminal' | 'background'>('terminal');
+function toggleExecutionMode() {
+  executionMode.value = executionMode.value === 'terminal' ? 'background' : 'terminal';
+}
+
 function clearSession() {
   messages.value = [{ ...initialMessage }];
   contextPaths.value = [];
@@ -75,7 +80,6 @@ const DANGEROUS_COMMANDS = [
 function isDangerous(command: string): boolean {
   return DANGEROUS_COMMANDS.some(regex => regex.test(command));
 }
-
 
 function toggleTool(id: string) {
   toolStates.value[id] = !toolStates.value[id];
@@ -129,8 +133,6 @@ async function scrollToBottom() {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
   }
 }
-
-
 
 const tools = [
   {
@@ -325,10 +327,36 @@ async function processChat() {
           }
 
           try {
-            const result = await invoke<string>('exec_command', {
-              id: props.sessionId,
-              command: cmd
-            });
+            let result = '';
+            if (executionMode.value === 'terminal') {
+              const requestId = crypto.randomUUID();
+
+              result = await new Promise<string>(async (resolve) => {
+                let completed = false;
+
+                const unlisten = await listen<{ requestId: string, output: string }>('ai-terminal-command-result', (event) => {
+                  if (event.payload.requestId === requestId) {
+                    completed = true;
+                    unlisten();
+                    resolve(event.payload.output);
+                  }
+                });
+
+                await tauriEmit('ai-terminal-command', { command: cmd, requestId });
+
+                setTimeout(() => {
+                  if (!completed) {
+                    unlisten();
+                    resolve("Error: Command timed out waiting for terminal output (30s).");
+                  }
+                }, 30000);
+              });
+            } else {
+              result = await invoke<string>('exec_command', {
+                id: props.sessionId,
+                command: cmd
+              });
+            }
 
             messages.value.push({
               role: 'tool',
@@ -431,8 +459,6 @@ async function processChat() {
   } catch (e: any) {
     if (e.name === 'AbortError') {
       console.log('Fetch aborted by user');
-      // Message already added by stopMessage, or we can add here if needed.
-      // But stopMessage handles the UI update immediately for better responsiveness.
     } else {
       console.error(e);
       messages.value.push({ role: 'assistant', content: `Error: ${e}` });
@@ -443,11 +469,6 @@ async function processChat() {
     scrollToBottom();
   }
 }
-
-
-import { listen } from '@tauri-apps/api/event';
-
-// ... existing code ...
 
 const containerRef = ref<HTMLElement | null>(null);
 let unlistenDrop: (() => void) | null = null;
@@ -468,13 +489,7 @@ onMounted(async () => {
           for (const path of payload.paths) {
             const exists = contextPaths.value.some(c => c.path === path);
             if (!exists) {
-              // We don't know if it's a dir or file from just the path easily without checking fs, 
-              // but for now we can assume or check. 
-              // Actually, we can use invoke to check or just add it.
-              // Let's just add it. The user can remove it if wrong.
-              // Or better, we can assume it's a file unless we check.
-              // For the context purpose, just the path is most important.
-              contextPaths.value.push({ path, isDir: false }); // Default to false or check extension
+              contextPaths.value.push({ path, isDir: false });
             }
           }
         }
@@ -482,7 +497,6 @@ onMounted(async () => {
     }
   });
 });
-
 
 // const inputQueue = ref([]); // Removed
 const isDragOverInput = ref(false);
@@ -524,27 +538,36 @@ onUnmounted(() => {
     unlistenDrop();
   }
 });
-
-
 </script>
 
 <template>
-  <div ref="containerRef" class="flex flex-col h-full bg-gray-900 text-white relative">
-
+  <div class="flex flex-col h-full bg-gray-900 text-white" ref="containerRef">
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-      <div class="font-semibold text-sm flex items-center space-x-2">
-        <Bot class="w-4 h-4 text-purple-400" />
-        <span>AI Assistant</span>
+    <div class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+      <div class="flex items-center space-x-2">
+        <Bot class="w-5 h-5 text-purple-400" />
+        <span class="font-medium">AI Assistant</span>
       </div>
-      <button @click="clearSession" class="text-gray-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-700" title="Clear Session">
-        <Trash2 class="w-4 h-4" />
-      </button>
+      <div class="flex items-center space-x-1">
+        <button @click="toggleExecutionMode"
+          class="text-xs px-2 py-1 rounded border transition-colors flex items-center space-x-1"
+          :class="executionMode === 'terminal' ? 'bg-green-900/50 border-green-700 text-green-400 hover:bg-green-900' : 'bg-blue-900/50 border-blue-700 text-blue-400 hover:bg-blue-900'"
+          :title="executionMode === 'terminal' ? 'Mode: Terminal Execution' : 'Mode: Background Execution'">
+          <TerminalSquare v-if="executionMode === 'terminal'" class="w-3 h-3" />
+          <Square v-else class="w-3 h-3" />
+          <span>{{ executionMode === 'terminal' ? 'Terminal' : 'Background' }}</span>
+        </button>
+        <button @click="clearSession"
+          class="text-gray-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-700"
+          title="Clear Session">
+          <Trash2 class="w-4 h-4" />
+        </button>
+      </div>
     </div>
 
     <!-- Messages Area -->
-    <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
-      <div v-for="(msg, index) in displayMessages" :key="index" class="flex flex-col space-y-1">
+    <div class="flex-1 overflow-y-auto p-4 space-y-4" ref="messagesContainer">
+      <div v-for="(msg, index) in displayMessages" :key="index" class="space-y-1">
 
         <!-- System messages (Optional visibility) -->
         <div v-if="msg.role === 'system'" class="flex items-start space-x-2 text-gray-400 text-xs pl-8">
@@ -621,13 +644,9 @@ onUnmounted(() => {
             <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
               class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
               placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
-            <button
-              @click="isLoading ? stopMessage() : sendMessage()"
-              :disabled="!isLoading && !input.trim()"
+            <button @click="isLoading ? stopMessage() : sendMessage()" :disabled="!isLoading && !input.trim()"
               class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors"
-              :class="{'hover:text-red-400 text-red-500': isLoading}"
-              :title="isLoading ? 'Stop' : 'Send'"
-            >
+              :class="{ 'hover:text-red-400 text-red-500': isLoading }" :title="isLoading ? 'Stop' : 'Send'">
               <Square v-if="isLoading" class="w-5 h-5 fill-current" />
               <Send v-else class="w-5 h-5" />
             </button>

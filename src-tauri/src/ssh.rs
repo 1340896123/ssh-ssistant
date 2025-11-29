@@ -1041,7 +1041,24 @@ fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>, St
     channel.exec(&cmd).map_err(|e| e.to_string())?;
 
     let mut s = String::new();
-    channel.read_to_string(&mut s).map_err(|e| e.to_string())?;
+    let mut buf = [0u8; 1024];
+    let start_time = std::time::Instant::now();
+    let timeout = Duration::from_secs(10);
+
+    loop {
+        if start_time.elapsed() > timeout {
+            return Err("Command timeout".to_string());
+        }
+        
+        match channel.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
     channel.wait_close().map_err(|e| e.to_string())?;
 
     if channel.exit_status().unwrap_or(-1) == 0 {
@@ -1057,7 +1074,23 @@ fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>, St
     channel.exec(&cmd).map_err(|e| e.to_string())?;
 
     let mut s = String::new();
-    channel.read_to_string(&mut s).map_err(|e| e.to_string())?;
+    let mut buf = [0u8; 1024];
+    let start_time = std::time::Instant::now();
+
+    loop {
+        if start_time.elapsed() > timeout {
+            return Err("Command timeout".to_string());
+        }
+        
+        match channel.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
     channel.wait_close().map_err(|e| e.to_string())?;
 
     if channel.exit_status().unwrap_or(-1) == 0 {
