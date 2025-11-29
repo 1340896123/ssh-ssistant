@@ -83,16 +83,16 @@ function renderFileItem(item: FileEntry, index: number) {
             h('span', { class: 'text-sm truncate' }, item.name)
         ]),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono text-right',
-            style: { width: props.columnWidths.size + 'px' }
+            class: 'text-xs text-gray-500 font-mono',
+            style: { width: props.columnWidths.size + 'px', paddingLeft: '8px' }
         }, props.formatSize(item.size)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono text-right',
-            style: { width: props.columnWidths.date + 'px' }
+            class: 'text-xs text-gray-500 font-mono',
+            style: { width: props.columnWidths.date + 'px', paddingLeft: '8px' }
         }, props.formatDate(item.mtime)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono text-right',
-            style: { width: props.columnWidths.owner + 'px' }
+            class: 'text-xs text-gray-500 font-mono',
+            style: { width: props.columnWidths.owner + 'px', paddingLeft: '8px' }
         }, item.owner || '-')
     ]);
 }
@@ -141,16 +141,16 @@ function renderTreeNode(node: TreeNode) {
             h('span', { class: 'text-sm truncate' }, node.entry.name)
         ]),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono text-right',
-            style: { width: props.columnWidths.size + 'px' }
+            class: 'text-xs text-gray-500 font-mono',
+            style: { width: props.columnWidths.size + 'px', paddingLeft: '8px' }
         }, node.entry.isDir ? '' : props.formatSize(node.entry.size)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono text-right',
-            style: { width: props.columnWidths.date + 'px' }
+            class: 'text-xs text-gray-500 font-mono',
+            style: { width: props.columnWidths.date + 'px', paddingLeft: '8px' }
         }, props.formatDate(node.entry.mtime)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono text-right',
-            style: { width: props.columnWidths.owner + 'px' }
+            class: 'text-xs text-gray-500 font-mono',
+            style: { width: props.columnWidths.owner + 'px', paddingLeft: '8px' }
         }, node.entry.owner || '-')
     ]);
 }

@@ -1147,25 +1147,23 @@ function formatSize(size: number): string {
             <!-- Header -->
             <div
                 class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold select-none">
-                <div class="flex items-center" :style="{ width: columnWidths.name + 'px' }">
-                    <span class="mr-1">{{ t('fileManager.headers.name') }}</span>
-                    <span class="w-1 h-6 ml-auto cursor-col-resize"
+                <div class="flex items-center px-2" :style="{ width: columnWidths.name + 'px' }">
+                    <span>{{ t('fileManager.headers.name') }}</span>
+                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-gray-600 hover:bg-blue-500 transition-colors"
                         @mousedown.stop="startResize('name', $event)"></span>
                 </div>
-                <div class="text-right" :style="{ width: columnWidths.size + 'px' }">
+                <div class="flex items-center px-2" :style="{ width: columnWidths.size + 'px' }">
                     <span>{{ t('fileManager.headers.size') }}</span>
-                    <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle"
+                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-gray-600 hover:bg-blue-500 transition-colors"
                         @mousedown.stop="startResize('size', $event)"></span>
                 </div>
-                <div :style="{ width: columnWidths.date + 'px' }">
+                <div class="flex items-center px-2" :style="{ width: columnWidths.date + 'px' }">
                     <span>{{ t('fileManager.headers.dateModified') }}</span>
-                    <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle"
+                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-gray-600 hover:bg-blue-500 transition-colors"
                         @mousedown.stop="startResize('date', $event)"></span>
                 </div>
-                <div :style="{ width: columnWidths.owner + 'px' }">
+                <div class="flex items-center px-2" :style="{ width: columnWidths.owner + 'px' }">
                     <span>{{ t('fileManager.headers.owner') }}</span>
-                    <span class="inline-block w-1 h-6 ml-1 cursor-col-resize align-middle"
-                        @mousedown.stop="startResize('owner', $event)"></span>
                 </div>
             </div>
 
