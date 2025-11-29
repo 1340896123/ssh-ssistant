@@ -56,6 +56,13 @@ jobs:
         run: |
           echo "prefix=$(brew --prefix openssl)" >> $GITHUB_OUTPUT
 
+      - name: Set up cross-compilation environment (macOS x86_64 only)
+        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'x86_64-apple-darwin')
+        run: |
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
