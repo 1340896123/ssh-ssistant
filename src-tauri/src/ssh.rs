@@ -23,6 +23,7 @@ enum ShellMsg {
 }
 
 /// 会话级SSH连接池：1个主会话（终端专用）+ N个后台会话（文件操作、命令执行）
+#[derive(Clone)]
 pub struct SessionSshPool {
     config: SshConnConfig,
     main_session: Arc<Mutex<Session>>, // 主会话，专用于终端
@@ -95,14 +96,36 @@ impl SessionSshPool {
         }
     }
 
-    /// 关闭所有连接
+    /// 关闭所有SSH连接
     pub fn close_all(&self) {
-        // 关闭后台会话
+        // 关闭主会话
+        if let Ok(main_sess) = self.main_session.lock() {
+            let _ = main_sess.disconnect(None, "", None);
+        }
+        
+        // 关闭所有后台会话
         if let Ok(mut sessions) = self.background_sessions.lock() {
             sessions.clear();
         }
+    }
+
+    /// 重建所有连接
+    pub fn rebuild_all(&self) -> Result<(), String> {
+        // 重建主会话
+        {
+            let mut main_sess = self.main_session.lock().map_err(|e| e.to_string())?;
+            *main_sess = establish_connection(&self.config)?;
+        }
         
-        // 主会话会随着SshClient的drop而自动关闭
+        // 重建后台会话
+        {
+            let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
+            sessions.clear();
+            let initial_bg_session = establish_connection(&self.config)?;
+            sessions.push(Arc::new(Mutex::new(initial_bg_session)));
+        }
+        
+        Ok(())
     }
 }
 
@@ -130,7 +153,6 @@ impl AppState {
 }
 
 // Helper to retry ssh2 operations that might return EAGAIN/WouldBlock
-// Helper to retry ssh2 operations that might return EAGAIN/WouldBlock
 fn block_on<F, T>(mut f: F) -> Result<T, ssh2::Error>
 where
     F: FnMut() -> Result<T, ssh2::Error>,
@@ -147,6 +169,18 @@ where
             }
         }
     }
+}
+
+// 异步执行SSH操作，避免阻塞主线程
+async fn execute_ssh_operation<F, T>(operation: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || operation()).await.map_err(|e| {
+        // 转换 JoinError 为适当的错误类型
+        format!("Task join error: {}", e)
+    })?
 }
 
 fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
@@ -337,6 +371,16 @@ pub async fn connect(
     let ssh_pool = SessionSshPool::new(config.clone(), max_bg_sessions)?;
     let main_session = ssh_pool.get_main_session();
     
+    // 启动定时清理任务
+    let cleanup_pool = ssh_pool.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5分钟
+        loop {
+            interval.tick().await;
+            cleanup_pool.cleanup_disconnected();
+        }
+    });
+    
     let id = Uuid::new_v4().to_string();
 
     // 在主会话上启动shell线程
@@ -437,6 +481,22 @@ pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), St
         // 关闭SSH池中的所有连接
         client.ssh_pool.close_all();
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cleanup_and_reconnect(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let client = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        clients.get(&id).ok_or("Session not found")?.clone()
+    };
+    
+    // 关闭所有现有连接
+    client.ssh_pool.close_all();
+    
+    // 重建所有连接
+    client.ssh_pool.rebuild_all()?;
+    
     Ok(())
 }
 
@@ -547,28 +607,45 @@ pub async fn search_remote_files(
         client.clone()
     };
     
-    // 使用后台会话进行搜索操作
-    let bg_session = client.ssh_pool.get_background_session()
-        .map_err(|e| format!("Failed to get background session: {}", e))?;
-    let sess = bg_session.lock().map_err(|e| e.to_string())?;
-    let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
+    // 在后台线程中执行搜索操作
+    execute_ssh_operation(move || {
+        // 使用后台会话进行搜索操作
+        let bg_session = client.ssh_pool.get_background_session()
+            .map_err(|e| format!("Failed to get background session: {}", e))?;
+        let sess = bg_session.lock().map_err(|e| e.to_string())?;
+        let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
 
-    let limit = max_results.unwrap_or(200);
-    // Use grep -R with head to limit number of lines
-    let safe_root = root.replace("'", "'\\''");
-    let safe_pattern = pattern.replace("'", "'\\''");
-    let cmd = format!(
-        "cd '{}' && grep -R -n --line-number --text -- '{}' | head -n {}",
-        safe_root, safe_pattern, limit
-    );
+        let limit = max_results.unwrap_or(200);
+        // Use grep -R with head to limit number of lines
+        let safe_root = root.replace("'", "'\\''");
+        let safe_pattern = pattern.replace("'", "'\\''");
+        let cmd = format!(
+            "cd '{}' && grep -R -n --line-number --text -- '{}' | head -n {}",
+            safe_root, safe_pattern, limit
+        );
 
-    block_on(|| channel.exec(&cmd)).map_err(|e| e.to_string())?;
-    let mut output = String::new();
-    use std::io::Read as StdRead;
-    channel
-        .read_to_string(&mut output)
-        .map_err(|e| e.to_string())?;
-    Ok(output)
+        block_on(|| channel.exec(&cmd)).map_err(|e| e.to_string())?;
+        let mut output = String::new();
+        let mut buf = [0u8; 1024];
+        let start_time = std::time::Instant::now();
+        let timeout = Duration::from_secs(15);
+
+        loop {
+            if start_time.elapsed() > timeout {
+                return Err("Search command timeout".to_string());
+            }
+            
+            match channel.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => output.push_str(&String::from_utf8_lossy(&buf[..n])),
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(output)
+    }).await
 }
 
 #[tauri::command]
@@ -661,16 +738,31 @@ pub async fn list_files(
                                 if let Ok(mut channel) = sess.channel_session() {
                                     let cmd = format!("id -nu {}", uid);
                                     if channel.exec(&cmd).is_ok() {
-                                        let mut buf = Vec::new();
-                                        if channel.read_to_end(&mut buf).is_ok() {
-                                            if let Ok(s) = String::from_utf8(buf) {
-                                                let trimmed = s.trim();
-                                                if !trimmed.is_empty() {
-                                                    name = trimmed.to_string();
+                                        let mut buf = [0u8; 256];
+                                        let mut username_data = String::new();
+                                        let start_time = std::time::Instant::now();
+                                        let timeout = Duration::from_secs(5);
+
+                                        loop {
+                                            if start_time.elapsed() > timeout {
+                                                break;
+                                            }
+                                            
+                                            match channel.read(&mut buf) {
+                                                Ok(0) => break,
+                                                Ok(n) => username_data.push_str(&String::from_utf8_lossy(&buf[..n])),
+                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                                    thread::sleep(Duration::from_millis(10));
                                                 }
+                                                Err(_) => break,
                                             }
                                         }
                                         let _ = channel.wait_close();
+                                        
+                                        let trimmed = username_data.trim();
+                                        if !trimmed.is_empty() {
+                                            name = trimmed.to_string();
+                                        }
                                     }
                                 }
                                 name

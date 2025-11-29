@@ -25,6 +25,7 @@ pub fn run() {
             greet,
             ssh::connect,
             ssh::disconnect,
+            ssh::cleanup_and_reconnect,
             ssh::list_files,
             ssh::read_remote_file,
             ssh::write_remote_file,
