@@ -45,6 +45,11 @@ jobs:
           # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      - name: Install OpenSSL (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install openssl
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -57,6 +62,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENSSL_DIR: /usr/local/opt/openssl
+          OPENSSL_ROOT_DIR: /usr/local/opt/openssl
         with:
           tagName: app-v__VERSION__ # the action automatically replaces __VERSION__ with the app version.
           releaseName: 'App v__VERSION__'
