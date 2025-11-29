@@ -30,7 +30,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -49,6 +49,12 @@ jobs:
         run: |
           brew install openssl
 
+      - name: Set OpenSSL environment variables (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          echo "OPENSSL_DIR=/usr/local/opt/openssl" >> $GITHUB_ENV
+          echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl" >> $GITHUB_ENV
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -61,8 +67,6 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENSSL_DIR: /usr/local/opt/openssl
-          OPENSSL_ROOT_DIR: /usr/local/opt/openssl
         with:
           tagName: app-v__VERSION__ # the action automatically replaces __VERSION__ with the app version.
           releaseName: 'App v__VERSION__'
