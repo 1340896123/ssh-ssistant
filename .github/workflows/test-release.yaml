@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest' # for Intel based macs.
-            args: '--target x86_64-apple-darwin'
+          - platform: 'macos-13' # Intel runner for Intel builds
+            args: ''
+          - platform: 'macos-14' # ARM runner for ARM builds
+            args: ''
           - platform: 'ubuntu-22.04'
             args: ''
           - platform: 'windows-latest'
@@ -42,26 +42,18 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
         with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          # No cross-compilation needed - use native targets
 
       - name: Install OpenSSL (macOS only)
-        if: matrix.platform == 'macos-latest'
+        if: startsWith(matrix.platform, 'macos')
         run: |
           brew install openssl
 
       - name: Get OpenSSL prefix (macOS only)
         id: openssl-dir
-        if: matrix.platform == 'macos-latest'
+        if: startsWith(matrix.platform, 'macos')
         run: |
           echo "prefix=$(brew --prefix openssl)" >> $GITHUB_OUTPUT
-
-      - name: Set up cross-compilation environment (macOS x86_64 only)
-        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'x86_64-apple-darwin')
-        run: |
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-          echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -75,9 +67,9 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENSSL_DIR: ${{ matrix.platform == 'macos-latest' && steps.openssl-dir.outputs.prefix || '' }}
-          OPENSSL_ROOT_DIR: ${{ matrix.platform == 'macos-latest' && steps.openssl-dir.outputs.prefix || '' }}
-          PKG_CONFIG_PATH: ${{ matrix.platform == 'macos-latest' && format('{0}/lib/pkgconfig', steps.openssl-dir.outputs.prefix) || '' }}
+          OPENSSL_DIR: ${{ startsWith(matrix.platform, 'macos') && steps.openssl-dir.outputs.prefix || '' }}
+          OPENSSL_ROOT_DIR: ${{ startsWith(matrix.platform, 'macos') && steps.openssl-dir.outputs.prefix || '' }}
+          PKG_CONFIG_PATH: ${{ startsWith(matrix.platform, 'macos') && format('{0}/lib/pkgconfig', steps.openssl-dir.outputs.prefix) || '' }}
         with:
           tagName: app-v__VERSION__ # the action automatically replaces __VERSION__ with the app version.
           releaseName: 'App v__VERSION__'
