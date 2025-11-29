@@ -105,7 +105,7 @@ const activeSessionDuration = computed(() => {
 });
 
 async function refreshActiveSessionStatus() {
-  if (!activeSession.value) return;
+  if (!activeSession.value || activeSession.value.status !== 'connected') return;
   const id = activeSession.value.id;
   try {
     // Command to get Uptime, Disk (Size|Used|Avail|Use%), and IP
@@ -123,7 +123,7 @@ async function refreshActiveSessionStatus() {
     `.replace(/\n/g, ' ');
 
     const result = await invoke<string>('exec_command', { id, command });
-    
+
     // Parse result
     const uptimeMatch = result.match(/UPTIME_START\s*([\s\S]*?)\s*UPTIME_END/);
     const diskMatch = result.match(/DISK_START\s*([\s\S]*?)\s*DISK_END/);
@@ -275,7 +275,8 @@ function openEditConnectionModal(conn: Connection) {
 <template>
   <div class="h-screen w-screen bg-gray-900 text-white flex overflow-hidden font-sans">
     <!-- Sidebar -->
-    <aside class="bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0" :style="{ width: sidebarWidth + 'px' }">
+    <aside class="bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0"
+      :style="{ width: sidebarWidth + 'px' }">
       <div class="p-4 border-b border-gray-700 flex justify-between items-center">
         <h1 class="text-lg font-bold">{{ t('app.title') }}</h1>
         <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" :title="t('app.settings')">
@@ -294,10 +295,8 @@ function openEditConnectionModal(conn: Connection) {
     </aside>
 
     <!-- Sidebar Resizer -->
-    <div
-      class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-      @mousedown.prevent="startResize('sidebar')"
-    ></div>
+    <div class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+      @mousedown.prevent="startResize('sidebar')"></div>
 
     <!-- Main Content -->
     <main class="flex-1 flex flex-col bg-gray-900 min-w-0">
@@ -308,12 +307,8 @@ function openEditConnectionModal(conn: Connection) {
 
       <!-- Viewport -->
       <div class="flex-1 relative overflow-hidden" v-if="sessionStore.sessions.length > 0" ref="containerRef">
-        <div
-          v-for="(session, index) in sessionStore.sessions"
-          :key="session.id"
-          v-show="activeSession && session.id === activeSession.id"
-          class="flex-1 absolute inset-0 flex flex-col"
-        >
+        <div v-for="(session, index) in sessionStore.sessions" :key="session.id"
+          v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex flex-col">
           <div class="flex-1 flex overflow-hidden">
             <!-- Files -->
             <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
@@ -321,35 +316,23 @@ function openEditConnectionModal(conn: Connection) {
             </div>
 
             <!-- Resizer 1 -->
-            <div
-              class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-              @mousedown.prevent="startResize('file')"
-            ></div>
+            <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+              @mousedown.prevent="startResize('file')"></div>
 
             <!-- Terminal -->
-            <div
-              class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
-              :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }"
-            >
-              <TerminalView
-                :ref="(el: any) => { if (el) terminalViewRefs[index] = el }"
-                :sessionId="session.id"
-              />
+            <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
+              :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
+              <TerminalView :ref="(el: any) => { if (el) terminalViewRefs[index] = el }" :sessionId="session.id" />
             </div>
 
             <!-- Resizer 2 -->
-            <div
-              class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-              @mousedown.prevent="startResize('ai')"
-            ></div>
+            <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+              @mousedown.prevent="startResize('ai')"></div>
 
             <!-- AI -->
             <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
-              <AIAssistant
-                :sessionId="session.id"
-                :terminal-context="terminalContext"
-                @refresh-context="updateTerminalContext"
-              />
+              <AIAssistant :sessionId="session.id" :terminal-context="terminalContext"
+                @refresh-context="updateTerminalContext" />
             </div>
           </div>
 
@@ -364,12 +347,13 @@ function openEditConnectionModal(conn: Connection) {
                 <div class="text-gray-400 truncate" :title="sessionStatus[session.id].uptime">
                   {{ sessionStatus[session.id].uptime }}
                 </div>
-                
+
                 <!-- Disk Usage -->
-                <div v-if="sessionStatus[session.id].disk" class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200">
+                <div v-if="sessionStatus[session.id].disk"
+                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200">
                   <div class="flex items-center space-x-1">
                     <span>Disk:</span>
-                    <span :class="{'text-red-400': parseInt(sessionStatus[session.id].disk!.percent) > 90}">
+                    <span :class="{ 'text-red-400': parseInt(sessionStatus[session.id].disk!.percent) > 90 }">
                       {{ sessionStatus[session.id].disk!.percent }}
                     </span>
                   </div>

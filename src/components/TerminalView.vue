@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { Terminal } from 'xterm';
@@ -9,8 +9,9 @@ import * as Zmodem from 'zmodem.js';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { writeFile, readFile } from '@tauri-apps/plugin-fs';
 import 'xterm/css/xterm.css';
-import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown } from 'lucide-vue-next';
+import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown, RotateCw, Unplug, Eraser } from 'lucide-vue-next';
 import { useSettingsStore } from '../stores/settings';
+import { useSessionStore } from '../stores/sessions';
 
 const props = defineProps<{ sessionId: string }>();
 
@@ -41,6 +42,27 @@ defineExpose({
 
 const terminalContainer = ref<HTMLElement | null>(null);
 const settingsStore = useSettingsStore();
+const sessionStore = useSessionStore();
+
+const currentSession = computed(() => sessionStore.sessions.find(s => s.id === props.sessionId));
+
+function handleReconnect() {
+  if (props.sessionId) {
+    term?.clear();
+    sessionStore.reconnectSession(props.sessionId);
+  }
+}
+
+function handleDisconnect() {
+  if (props.sessionId) {
+    term?.write('\r\n\x1b[1;31m❌ Connection disconnected\x1b[0m\r\n');
+    sessionStore.disconnectSession(props.sessionId);
+  }
+}
+
+function handleClearLog() {
+  term?.clear();
+}
 
 let term: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
@@ -147,6 +169,7 @@ onMounted(async () => {
 
   // Listen to user input (direct terminal interaction)
   term.onData((data) => {
+    if (currentSession.value?.status !== 'connected') return;
     invoke('write_to_pty', { id: props.sessionId, data });
   });
 
@@ -187,8 +210,28 @@ onMounted(async () => {
   });
 
   const unlistenExit = await listen(`term-exit:${props.sessionId}`, () => {
-    term?.write('\r\n[Process exited]\r\n');
+    console.log('term-exit event received', props.sessionId);
+    // Check if we are still connected before printing message to avoid duplicates
+    // if handleDisconnect was called.
+    if (currentSession.value?.status === 'connected') {
+      console.log('term-exit: marking as disconnected');
+      term?.write('\r\n\x1b[1;31m❌ Connection disconnected\x1b[0m\r\n');
+      sessionStore.updateSessionStatus(props.sessionId, 'disconnected');
+    } else {
+      console.log('term-exit: already disconnected (or session not found)', currentSession.value?.status);
+    }
   });
+
+  // Watch for status changes to print message
+  watch(
+    () => currentSession.value?.status,
+    (newStatus, oldStatus) => {
+      if (newStatus === 'connected' && oldStatus === 'disconnected') {
+        // Optional: Clear or print connected message
+        term?.write('\r\n\x1b[1;32m✔ Connection established\x1b[0m\r\n');
+      }
+    }
+  );
 
   // Ensure focus and initial resize
   term?.focus();
@@ -849,6 +892,32 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 
 <template>
   <div class="h-full w-full flex flex-col bg-black overflow-hidden">
+    <!-- Toolbar -->
+    <div class="h-8 bg-gray-800 border-b border-gray-700 flex items-center px-2 space-x-2 flex-shrink-0">
+      <button v-if="currentSession && currentSession.status === 'disconnected'" @click="handleReconnect"
+        class="flex items-center px-2 py-1 text-xs text-green-400 hover:bg-gray-700 rounded transition-colors"
+        title="Reconnect">
+        <RotateCw class="w-3 h-3 mr-1" />
+        Reconnect
+      </button>
+
+      <button v-if="currentSession && currentSession.status === 'connected'" @click="handleDisconnect"
+        class="flex items-center px-2 py-1 text-xs text-red-400 hover:bg-gray-700 rounded transition-colors"
+        title="Disconnect">
+        <Unplug class="w-3 h-3 mr-1" />
+        Disconnect
+      </button>
+
+      <div class="flex-1"></div>
+
+      <button @click="handleClearLog"
+        class="flex items-center px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+        title="Clear Log">
+        <Eraser class="w-3 h-3 mr-1" />
+        Clear Log
+      </button>
+    </div>
+
     <!-- Terminal Area -->
     <div class="flex-1 relative overflow-hidden p-1">
       <div ref="terminalContainer" class="h-full w-full"></div>

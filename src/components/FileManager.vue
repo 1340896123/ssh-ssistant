@@ -114,6 +114,11 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
 
 
 
+function joinPath(parent: string, child: string): string {
+    if (parent === '.') return child;
+    return parent.endsWith('/') ? `${parent}${child}` : `${parent}/${child}`;
+}
+
 function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
     let entry: FileEntry;
     let path: string;
@@ -123,7 +128,7 @@ function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
         path = (element as TreeNode).path;
     } else { // FileEntry
         entry = element as FileEntry;
-        path = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
+        path = joinPath(currentPath.value, entry.name);
     }
 
     const data = {
@@ -152,7 +157,7 @@ async function loadFiles(path: string) {
             selectedTreePaths.value = new Set();
             const parentPath = path === '.' ? null : path;
             for (const entry of files.value) {
-                const fullPath = path === '.' ? entry.name : `${path}/${entry.name}`;
+                const fullPath = joinPath(path, entry.name);
                 treeNodes.value.set(fullPath, {
                     entry,
                     path: fullPath,
@@ -196,7 +201,7 @@ async function toggleDirectory(node: TreeNode) {
     try {
         const children = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path: node.path });
         for (const child of children) {
-            const childPath = `${node.path}/${child.name}`;
+            const childPath = joinPath(node.path, child.name);
             if (!treeNodes.value.has(childPath)) {
                 treeNodes.value.set(childPath, {
                     entry: child,
@@ -289,7 +294,7 @@ function handleNativeDrop(event: DragEvent) {
 async function handleTauriFileDrop(paths: string[]) {
     for (const fullPath of paths) {
         const name = fullPath.split(/[\\/]/).pop() || 'uploaded';
-        const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+        const remotePath = joinPath(currentPath.value, name);
 
         try {
             // Check if it's a directory
@@ -366,7 +371,7 @@ watch(viewMode, (mode) => {
 
 async function navigate(entry: FileEntry) {
     if (entry.isDir) {
-        const newPath = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
+        const newPath = joinPath(currentPath.value, entry.name);
         loadFiles(newPath);
     } else {
         // Edit remote file
@@ -374,7 +379,7 @@ async function navigate(entry: FileEntry) {
         try {
             await invoke('edit_remote_file', {
                 id: props.sessionId,
-                remotePath: `${currentPath.value}/${entry.name}`,
+                remotePath: joinPath(currentPath.value, entry.name),
                 remoteName: entry.name
             });
         } catch (e) {
@@ -472,7 +477,7 @@ async function handleUpload() {
         });
         if (selected && typeof selected === 'string') {
             const name = selected.split(/[\\/]/).pop() || 'uploaded_file';
-            const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+            const remotePath = joinPath(currentPath.value, name);
 
             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
@@ -539,7 +544,7 @@ async function handleUploadDirectory() {
 
         if (selected && typeof selected === 'string') {
             const name = selected.split(/[\\/]/).pop() || 'uploaded_dir';
-            const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+            const remotePath = joinPath(currentPath.value, name);
 
             try {
                 await invoke('create_directory', { id: props.sessionId, path: remotePath });
@@ -748,7 +753,7 @@ async function handleDownload(file?: FileEntry) {
                     const entry = files.value.find(f => f.name === fileName);
                     if (!entry) continue;
 
-                    const remotePath = currentPath.value === '.' ? entry.name : `${currentPath.value}/${entry.name}`;
+                    const remotePath = joinPath(currentPath.value, entry.name);
                     const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
                         ? `${selectedDirectory}${entry.name}`
                         : `${selectedDirectory}/${entry.name}`;
@@ -1121,7 +1126,7 @@ function formatSize(size: number): string {
                             formatDate(node.entry.mtime) }}</span>
                         <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{
                             node.entry.owner
-                            }}</span>
+                        }}</span>
                     </div>
                 </div>
             </template>
@@ -1152,7 +1157,7 @@ function formatSize(size: number): string {
                 }}</span>
                 <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-gray-400">({{
                     selectedFiles.size
-                }})</span>
+                    }})</span>
             </button>
             <button @click.stop="handleRename(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.rename')

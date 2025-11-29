@@ -28,22 +28,24 @@ pub struct SessionSshPool {
     config: SshConnConfig,
     main_session: Arc<Mutex<Session>>, // 主会话，专用于终端
     background_sessions: Arc<Mutex<Vec<Arc<Mutex<Session>>>>>, // 后台会话池
-    max_background_sessions: usize, // 最大后台会话数量
-    next_bg_index: Arc<Mutex<usize>>, // 轮询索引
+    max_background_sessions: usize,    // 最大后台会话数量
+    next_bg_index: Arc<Mutex<usize>>,  // 轮询索引
 }
 
 impl SessionSshPool {
     pub fn new(config: SshConnConfig, max_background_sessions: usize) -> Result<Self, String> {
         // 创建主会话
         let main_session = establish_connection(&config)?;
-        
+
         // 创建初始后台会话
         let initial_bg_session = establish_connection(&config)?;
-        
+
         Ok(Self {
             config,
             main_session: Arc::new(Mutex::new(main_session)),
-            background_sessions: Arc::new(Mutex::new(vec![Arc::new(Mutex::new(initial_bg_session))])),
+            background_sessions: Arc::new(Mutex::new(vec![Arc::new(Mutex::new(
+                initial_bg_session,
+            ))])),
             max_background_sessions,
             next_bg_index: Arc::new(Mutex::new(0)),
         })
@@ -57,7 +59,7 @@ impl SessionSshPool {
     /// 获取后台会话（轮询分配）
     pub fn get_background_session(&self) -> Result<Arc<Mutex<Session>>, String> {
         let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
-        
+
         // 如果没有后台会话或需要扩容，创建新会话
         if sessions.is_empty() || sessions.len() < self.max_background_sessions {
             let new_session = establish_connection(&self.config)?;
@@ -102,7 +104,7 @@ impl SessionSshPool {
         if let Ok(main_sess) = self.main_session.lock() {
             let _ = main_sess.disconnect(None, "", None);
         }
-        
+
         // 关闭所有后台会话
         if let Ok(mut sessions) = self.background_sessions.lock() {
             sessions.clear();
@@ -116,7 +118,7 @@ impl SessionSshPool {
             let mut main_sess = self.main_session.lock().map_err(|e| e.to_string())?;
             *main_sess = establish_connection(&self.config)?;
         }
-        
+
         // 重建后台会话
         {
             let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
@@ -124,15 +126,15 @@ impl SessionSshPool {
             let initial_bg_session = establish_connection(&self.config)?;
             sessions.push(Arc::new(Mutex::new(initial_bg_session)));
         }
-        
+
         Ok(())
     }
 }
 
 #[derive(Clone)]
 pub struct SshClient {
-    ssh_pool: Arc<SessionSshPool>, // SSH连接池
-    shell_tx: Option<Sender<ShellMsg>>, // 终端消息通道
+    ssh_pool: Arc<SessionSshPool>,                 // SSH连接池
+    shell_tx: Option<Sender<ShellMsg>>,            // 终端消息通道
     owner_cache: Arc<Mutex<HashMap<u32, String>>>, // UID缓存
 }
 
@@ -177,10 +179,12 @@ where
     F: FnOnce() -> Result<T, String> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(move || operation()).await.map_err(|e| {
-        // 转换 JoinError 为适当的错误类型
-        format!("Task join error: {}", e)
-    })?
+    tokio::task::spawn_blocking(move || operation())
+        .await
+        .map_err(|e| {
+            // 转换 JoinError 为适当的错误类型
+            format!("Task join error: {}", e)
+        })?
 }
 
 fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
@@ -336,11 +340,12 @@ pub async fn connect(
     app: AppHandle,
     state: State<'_, AppState>,
     config: SshConnConfig,
+    id: Option<String>,
 ) -> Result<String, String> {
     // 获取SSH池设置
     let max_bg_sessions = {
-        let settings = crate::db::get_settings(app.clone()).unwrap_or_else(|_| {
-            crate::models::AppSettings {
+        let settings =
+            crate::db::get_settings(app.clone()).unwrap_or_else(|_| crate::models::AppSettings {
                 theme: "dark".to_string(),
                 language: "zh".to_string(),
                 ai: crate::models::AIConfig {
@@ -362,15 +367,14 @@ pub async fn connect(
                     enable_auto_cleanup: true,
                     cleanup_interval_minutes: 5,
                 },
-            }
-        });
+            });
         settings.ssh_pool.max_background_sessions as usize
     };
-    
+
     // 创建SSH连接池
     let ssh_pool = SessionSshPool::new(config.clone(), max_bg_sessions)?;
     let main_session = ssh_pool.get_main_session();
-    
+
     // 启动定时清理任务
     let cleanup_pool = ssh_pool.clone();
     tokio::spawn(async move {
@@ -380,8 +384,19 @@ pub async fn connect(
             cleanup_pool.cleanup_disconnected();
         }
     });
-    
-    let id = Uuid::new_v4().to_string();
+
+    let id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    // If reconnecting (ID provided), cleanup old session first
+    {
+        let mut clients = state.clients.lock().map_err(|e| e.to_string())?;
+        if let Some(client) = clients.remove(&id) {
+            if let Some(tx) = client.shell_tx {
+                let _ = tx.send(ShellMsg::Exit);
+            }
+            client.ssh_pool.close_all();
+        }
+    }
 
     // 在主会话上启动shell线程
     let (tx, rx): (Sender<ShellMsg>, Receiver<ShellMsg>) = channel();
@@ -490,13 +505,13 @@ pub async fn cleanup_and_reconnect(state: State<'_, AppState>, id: String) -> Re
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
     };
-    
+
     // 关闭所有现有连接
     client.ssh_pool.close_all();
-    
+
     // 重建所有连接
     client.ssh_pool.rebuild_all()?;
-    
+
     Ok(())
 }
 
@@ -515,9 +530,11 @@ pub async fn read_remote_file(
             .map_err(|e| e.to_string())?;
         client.clone()
     };
-    
+
     // 使用后台会话进行文件操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -552,9 +569,11 @@ pub async fn write_remote_file(
             .map_err(|e| e.to_string())?;
         client.clone()
     };
-    
+
     // 使用后台会话进行文件操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -606,11 +625,13 @@ pub async fn search_remote_files(
             .map_err(|e| e.to_string())?;
         client.clone()
     };
-    
+
     // 在后台线程中执行搜索操作
     execute_ssh_operation(move || {
         // 使用后台会话进行搜索操作
-        let bg_session = client.ssh_pool.get_background_session()
+        let bg_session = client
+            .ssh_pool
+            .get_background_session()
             .map_err(|e| format!("Failed to get background session: {}", e))?;
         let sess = bg_session.lock().map_err(|e| e.to_string())?;
         let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
@@ -634,7 +655,7 @@ pub async fn search_remote_files(
             if start_time.elapsed() > timeout {
                 return Err("Search command timeout".to_string());
             }
-            
+
             match channel.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => output.push_str(&String::from_utf8_lossy(&buf[..n])),
@@ -645,7 +666,8 @@ pub async fn search_remote_files(
             }
         }
         Ok(output)
-    }).await
+    })
+    .await
 }
 
 #[tauri::command]
@@ -702,9 +724,11 @@ pub async fn list_files(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行文件列表操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let owner_cache = client.owner_cache.clone();
 
@@ -747,10 +771,11 @@ pub async fn list_files(
                                             if start_time.elapsed() > timeout {
                                                 break;
                                             }
-                                            
+
                                             match channel.read(&mut buf) {
                                                 Ok(0) => break,
-                                                Ok(n) => username_data.push_str(&String::from_utf8_lossy(&buf[..n])),
+                                                Ok(n) => username_data
+                                                    .push_str(&String::from_utf8_lossy(&buf[..n])),
                                                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
                                                     thread::sleep(Duration::from_millis(10));
                                                 }
@@ -758,7 +783,7 @@ pub async fn list_files(
                                             }
                                         }
                                         let _ = channel.wait_close();
-                                        
+
                                         let trimmed = username_data.trim();
                                         if !trimmed.is_empty() {
                                             name = trimmed.to_string();
@@ -812,9 +837,11 @@ pub async fn create_directory(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行目录创建
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -833,9 +860,11 @@ pub async fn create_file(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行文件创建
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -880,9 +909,11 @@ pub async fn delete_item(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行删除操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -907,9 +938,11 @@ pub async fn rename_item(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行重命名操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -947,9 +980,11 @@ pub async fn download_file(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行下载操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -1039,9 +1074,11 @@ pub async fn upload_file(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行上传操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -1071,7 +1108,9 @@ pub async fn download_temp_and_open(
 
     {
         // 使用后台会话进行下载操作
-        let bg_session = client.ssh_pool.get_background_session()
+        let bg_session = client
+            .ssh_pool
+            .get_background_session()
             .map_err(|e| format!("Failed to get background session: {}", e))?;
         let sess = bg_session.lock().map_err(|e| e.to_string())?;
         let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
@@ -1141,7 +1180,7 @@ fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>, St
         if start_time.elapsed() > timeout {
             return Err("Command timeout".to_string());
         }
-        
+
         match channel.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
@@ -1173,7 +1212,7 @@ fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>, St
         if start_time.elapsed() > timeout {
             return Err("Command timeout".to_string());
         }
-        
+
         match channel.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
@@ -1466,9 +1505,11 @@ pub async fn upload_file_with_progress(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行上传操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -1529,9 +1570,11 @@ pub async fn download_file_with_progress(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行下载操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -1657,9 +1700,11 @@ pub async fn edit_remote_file(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话进行文件编辑操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
 
     let temp_dir = std::env::temp_dir();
@@ -1826,9 +1871,11 @@ pub async fn exec_command(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
-    
+
     // 使用后台会话执行命令，避免阻塞SFTP操作
-    let bg_session = client.ssh_pool.get_background_session()
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
