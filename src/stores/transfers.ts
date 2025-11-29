@@ -26,6 +26,7 @@ export interface TransferItem {
 export const useTransferStore = defineStore('transfers', () => {
     const items = ref<TransferItem[]>([]);
     const active = ref(false);
+    const maxConcurrent = 3; // 最大并发数，建议与后端 SessionPool 大小一致
 
     // Listen for progress events
     // We need to set this up globally once
@@ -74,10 +75,23 @@ export const useTransferStore = defineStore('transfers', () => {
         }
     }
 
+    // 新增：处理队列的函数
+    function processQueue() {
+        const runningCount = items.value.filter(i => i.status === 'running').length;
+        if (runningCount >= maxConcurrent) return;
+
+        // 找到下一个待处理的任务
+        const nextItem = items.value.find(i => i.status === 'pending');
+        if (nextItem) {
+            void startTransfer(nextItem.id);
+        }
+    }
+
     function addTransfer(item: TransferItem) {
         items.value.unshift(item);
         if (!item.isDirectory) {
-            void startTransfer(item.id);
+            // 尝试处理队列
+            processQueue();
         }
     }
     
@@ -188,6 +202,9 @@ export const useTransferStore = defineStore('transfers', () => {
                 item.error = e.toString();
             }
         } finally {
+            // 关键：无论成功失败，触发队列处理下一个
+            processQueue();
+            
             // Update active state
             active.value = items.value.some(i => i.status === 'running');
         }
@@ -349,6 +366,7 @@ export const useTransferStore = defineStore('transfers', () => {
         batchCancel,
         batchDelete,
         removeTransfer,
-        initListeners
+        initListeners,
+        processQueue // 导出以便手动触发（可选）
     };
 });

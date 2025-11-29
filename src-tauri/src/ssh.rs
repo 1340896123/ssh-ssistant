@@ -1241,7 +1241,7 @@ fn get_dir_size(path: &std::path::Path) -> u64 {
 }
 
 fn upload_recursive_progress(
-    client_sess: &Arc<Mutex<Session>>,
+    sess: &Session,
     sftp: &ssh2::Sftp,
     local_path: &std::path::Path,
     remote_path: &str,
@@ -1270,7 +1270,7 @@ fn upload_recursive_progress(
             let new_remote = format!("{}/{}", remote_path.trim_end_matches('/'), name);
 
             upload_recursive_progress(
-                client_sess,
+                sess,
                 sftp,
                 &path,
                 &new_remote,
@@ -1312,11 +1312,8 @@ fn upload_recursive_progress(
                         // Verify Checksum before resuming
                         let local_hash = compute_local_file_hash(local_path, size)?;
 
-                        // Lock session only while computing remote hash
-                        let remote_hash_result = {
-                            let sess = client_sess.lock().map_err(|e| e.to_string())?;
-                            get_remote_file_hash(&sess, remote_path)
-                        };
+                        // Use the already locked session for remote hash
+                        let remote_hash_result = get_remote_file_hash(sess, remote_path);
 
                         if let Ok(Some(remote_hash)) = remote_hash_result {
                             if remote_hash.len() == 64 && local_hash == remote_hash {
@@ -1481,13 +1478,10 @@ pub async fn upload_file_with_progress(
         .map_err(|e| e.to_string())?
         .insert(transfer_id.clone(), cancel_flag.clone());
 
-    // Only lock the SSH session long enough to create the SFTP handle,
-    // then release it so other commands (like list_files) can run while
-    // a long transfer is in progress.
-    let sftp = {
-        let sess = bg_session.lock().map_err(|e| e.to_string())?;
-        block_on(|| sess.sftp()).map_err(|e| e.to_string())?
-    };
+    // Hold the SSH session lock throughout the entire upload operation
+    // to prevent concurrent access that causes channel read errors
+    let sess = bg_session.lock().map_err(|e| e.to_string())?;
+    let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
 
     let local_p = std::path::Path::new(&local_path);
     let total_size = if local_p.is_dir() {
@@ -1499,7 +1493,7 @@ pub async fn upload_file_with_progress(
     let mut transferred = 0;
 
     let res = upload_recursive_progress(
-        &bg_session,
+        &sess,
         &sftp,
         local_p,
         &remote_path,
