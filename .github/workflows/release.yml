@@ -1,94 +1,106 @@
-name: Release
+name: "release"
 
 on:
+  workflow_dispatch:
   push:
     tags:
-      - 'v*'
-
-permissions:
-  contents: write
-
-env:
-  CARGO_TERM_COLOR: always
+      - "v*"
 
 jobs:
-  build:
-    name: Build and Release
+  publish-tauri:
+    permissions:
+      contents: write
     strategy:
+      fail-fast: false
       matrix:
-        platform: [windows-latest]
-        
+        include:
+          - platform: 'macos-13' # Intel runner for Intel builds
+            args: ''
+          # - platform: 'macos-14' # ARM runner for ARM builds
+          #   args: ''
+          - platform: "ubuntu-24.04"
+            args: ""
+          - platform: 'windows-latest'
+            args: ''
+
     runs-on: ${{ matrix.platform }}
-    
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-            
-    - name: Rust setup
-      uses: dtolnay/rust-toolchain@stable
-      
-    - name: Rust cache
-      uses: swatinem/rust-cache@v2
-      with:
-        workspaces: './src-tauri/target'
-        
-    - name: Sync node version and setup cache
-      uses: actions/setup-node@v4
-      with:
-        node-version: 'lts/*'
-        cache: 'npm'
-        
-    - name: Install frontend dependencies
-      run: npm ci
-      
-    - name: Check versions
-      run: |
-        echo "Node version: $(node --version)"
-        echo "NPM version: $(npm --version)"
-        echo "Rust version: $(rustc --version)"
-        echo "Cargo version: $(cargo --version)"
-        
-    - name: Build frontend only
-      run: npm run build
-      
-    - name: Build the app
-      run: npm run tauri build
-      
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.platform }}-artifacts
-        path: |
-          src-tauri/target/release/bundle/
-          src-tauri/target/*/release/bundle/
-        retention-days: 30
-        
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Download artifacts
-      uses: actions/download-artifact@v4
-      with:
-        pattern: '*-artifacts'
-        merge-multiple: true
-        path: ./artifacts
-        
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          artifacts/**/*.msi
-          artifacts/**/*.exe
-        generate_release_notes: true
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev pkg-config
+
+      - name: Set OpenSSL environment variables (Ubuntu only)
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          echo "OPENSSL_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_ROOT_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include/openssl" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: "npm" # Set this to npm, yarn or pnpm.
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@nightly # Set this to dtolnay/rust-toolchain@nightly
+
+      - name: Install OpenSSL (macOS only)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          brew install openssl
+
+      - name: Get OpenSSL prefix (macOS only)
+        id: openssl-dir
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          echo "prefix=$(brew --prefix openssl)" >> $GITHUB_OUTPUT
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: install frontend dependencies
+        # If you don't have `beforeBuildCommand` configured you may want to build your frontend here too.
+        run: npm install # change this to npm or pnpm depending on which one you use.
+
+      - name: Set OpenSSL environment variables (macOS only)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__ # the action automatically replaces __VERSION__ with the app version.
+          releaseName: "App v__VERSION__"
+          releaseBody: "See the assets to download this version and install."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+          includeDebug: false
+          includeRelease: true
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: |
+            target/release/bundle/deb/SshStar_*_amd64.deb
+            target/release/bundle/rpm/SshStar-*_x86_64.rpm
+            target/release/bundle/appimage/SshStar_*_amd64.AppImage
+            target/release/bundle/appimage/SshStar_*_amd64.AppImage.tar.gz
+            target/release/bundle/dmg/SshStar_*_x64.dmg
+            target/release/bundle/macos/SshStar.app.tar.gz
+            target/release/bundle/msi/SshStar_*_x64_en-US.msi
+            target/release/bundle/nsis/SshStar_*_x64-setup.exe
+          token: ${{ secrets.GITHUB_TOKEN }}
