@@ -240,81 +240,10 @@ onMounted(async () => {
     term?.focus();
   }, 200);
 
-  // Listen to AI terminal commands
-  const unlistenAiCmd = await listen<{ command: string; requestId?: string; sessionId?: string }>('ai-terminal-command', async (event) => {
-    if (event.payload && event.payload.command && (!event.payload.sessionId || event.payload.sessionId === props.sessionId)) {
-      const cmd = event.payload.command;
-      const requestId = event.payload.requestId;
-
-      if (requestId) {
-        // Capture output mode
-        let outputBuffer = '';
-        let finished = false;
-
-        // Heuristic: Prompt usually ends with $, #, >, or % followed by a space.
-        const promptRegex = /[\$#%>]\s*$/;
-
-        // We need to listen to the SAME event that feeds the terminal
-        const unlistenCapture = await listen<number[]>(`term-data:${props.sessionId}`, (e) => {
-          if (finished) return;
-
-          const data = new Uint8Array(e.payload);
-          const text = new TextDecoder().decode(data);
-          outputBuffer += text;
-
-          // Check for prompt at the end
-          if (outputBuffer.length > cmd.length && promptRegex.test(outputBuffer.trimEnd())) {
-            finished = true;
-
-            // Remove the last line (prompt)
-            const lines = outputBuffer.split('\n');
-            if (lines.length > 0) {
-              lines.pop();
-            }
-            const cleanOutput = lines.join('\n');
-
-            emit('ai-terminal-command-result', {
-              requestId,
-              output: cleanOutput
-            });
-
-            unlistenCapture();
-          }
-        });
-
-        // Write to PTY
-        invoke('write_to_pty', {
-          id: props.sessionId,
-          data: cmd + '\n'
-        });
-
-        // Timeout (10s)
-        setTimeout(() => {
-          if (!finished) {
-            finished = true;
-            emit('ai-terminal-command-result', {
-              requestId,
-              output: outputBuffer + "\n[Timeout: Prompt not detected]"
-            });
-            unlistenCapture();
-          }
-        }, 10000);
-
-      } else {
-        // Legacy/Fire-and-forget mode
-        invoke('write_to_pty', {
-          id: props.sessionId,
-          data: cmd + '\n'
-        });
-      }
-    }
-  });
-
   const oldUnlisten = unlisten;
   unlisten = () => {
     if (oldUnlisten) oldUnlisten();
     unlistenExit();
-    unlistenAiCmd();
   };
   // Initialize Context (Non-blocking)
   (async () => {

@@ -66,6 +66,14 @@ export interface Settings {
   sshPool: SshPoolSettings;
 }
 
+export interface Workspace {
+  path: string;
+  name: string;
+  context: string;
+  fileTree: string;
+  isIndexed: boolean;
+}
+
 export interface Session {
   id: string; // UUID from backend
   connectionId: number;
@@ -75,4 +83,5 @@ export interface Session {
   currentPath: string;
   files: FileEntry[];
   connectedAt: number;
+  activeWorkspace?: Workspace;
 }

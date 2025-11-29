@@ -8,9 +8,11 @@ import TerminalView from "./components/TerminalView.vue";
 import FileManager from "./components/FileManager.vue";
 import AIAssistant from "./components/AIAssistant.vue";
 import SettingsModal from "./components/SettingsModal.vue";
+import NotificationModal from "./components/NotificationModal.vue";
 import { useSessionStore } from "./stores/sessions";
 import { useConnectionStore } from "./stores/connections";
 import { useSettingsStore } from "./stores/settings";
+import { useNotificationStore } from "./stores/notifications";
 import { useI18n } from "./composables/useI18n";
 import type { Connection } from "./types";
 import { Settings } from "lucide-vue-next";
@@ -18,6 +20,7 @@ import { Settings } from "lucide-vue-next";
 const sessionStore = useSessionStore();
 const connectionStore = useConnectionStore();
 const settingsStore = useSettingsStore();
+const notificationStore = useNotificationStore();
 const { t } = useI18n();
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
@@ -256,7 +259,7 @@ function handleSaveConnection(conn: Connection) {
       showConnectionModal.value = false;
       editingConnection.value = null;
     } else {
-      alert('Failed to save connection. Please check the logs.');
+      notificationStore.error('Failed to save connection. Please check the logs.');
     }
   });
 }
@@ -392,5 +395,15 @@ function openEditConnectionModal(conn: Connection) {
     <ConnectionModal :show="showConnectionModal" :connectionToEdit="editingConnection"
       @close="showConnectionModal = false" @save="handleSaveConnection" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
+    
+    <NotificationModal 
+      v-if="notificationStore.show"
+      :show="notificationStore.show"
+      :type="notificationStore.type"
+      :title="notificationStore.title"
+      :message="notificationStore.message"
+      :duration="notificationStore.duration"
+      @close="notificationStore.close()"
+    />
   </div>
 </template>

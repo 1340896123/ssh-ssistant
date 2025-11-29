@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import { useSettingsStore } from '../stores/settings';
+import { useSessionStore } from '../stores/sessions';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { emit as tauriEmit, listen } from '@tauri-apps/api/event';
-import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus, Trash2, Square } from 'lucide-vue-next';
+import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus, Trash2, Square, Briefcase } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
 
 const md = new MarkdownIt({
@@ -21,6 +22,12 @@ const props = defineProps({
 const emit = defineEmits(['refresh-context']);
 
 const settingsStore = useSettingsStore();
+const sessionStore = useSessionStore();
+
+const activeWorkspace = computed(() => {
+    const session = sessionStore.sessions.find(s => s.id === props.sessionId);
+    return session?.activeWorkspace;
+});
 
 function renderMarkdown(content: string) {
   if (!content) return '';
@@ -52,12 +59,6 @@ const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 const toolStates = ref<Record<string, boolean>>({});
 let abortController = ref<AbortController | null>(null);
-
-// Execution Mode
-const executionMode = ref<'terminal' | 'background'>('terminal');
-function toggleExecutionMode() {
-  executionMode.value = executionMode.value === 'terminal' ? 'background' : 'terminal';
-}
 
 function clearSession() {
   messages.value = [{ ...initialMessage }];
@@ -256,6 +257,29 @@ async function processChat() {
 
   // Clone messages for API to avoid mutating UI state, and inject context
   const apiMessages = JSON.parse(JSON.stringify(messages.value));
+
+  // Inject System Prompt with Workspace Context
+  let systemContent = "You are an intelligent SSH DevOps assistant. Use tools to manage the server.";
+  if (activeWorkspace.value) {
+      systemContent += `\n\n== CURRENT WORKSPACE ==
+PATH: ${activeWorkspace.value.path}
+
+INSTRUCTIONS:
+1. All commands are executed in a fresh shell. 
+2. I will automatically prepend 'cd ${activeWorkspace.value.path}' to your 'run_command' calls if they are relative.
+3. Prioritize files shown in the PROJECT STRUCTURE below.
+
+PROJECT STRUCTURE:
+${activeWorkspace.value.fileTree}
+
+KEY CONTEXT:
+${activeWorkspace.value.context}
+`;
+  }
+
+  // Prepend system message
+  apiMessages.unshift({ role: 'system', content: systemContent });
+
   if (props.terminalContext && apiMessages.length > 0 && apiMessages[apiMessages.length - 1].role === 'user') {
     const lastMsg = apiMessages[apiMessages.length - 1];
     let contextText = lastMsg.content;
@@ -310,7 +334,15 @@ async function processChat() {
         const name = toolCall.function.name;
         if (name === 'run_command') {
           const args = JSON.parse(toolCall.function.arguments);
-          const cmd = args.command;
+          let cmd = args.command;
+
+          // Auto-CD into workspace if active
+          if (activeWorkspace.value && !cmd.trim().startsWith('cd ')) {
+              // Use a safe way to cd, escape path quotes if needed (simplified here)
+              // We assume path is safe-ish or we wrap in quotes
+              const wsPath = activeWorkspace.value.path.replace(/'/g, "'\\''");
+              cmd = `cd '${wsPath}' && ${cmd}`;
+          }
 
           // --- DANGER ZONE ---
           if (isDangerous(cmd)) {
@@ -328,35 +360,10 @@ async function processChat() {
 
           try {
             let result = '';
-            if (executionMode.value === 'terminal') {
-              const requestId = crypto.randomUUID();
-
-              result = await new Promise<string>(async (resolve) => {
-                let completed = false;
-
-                const unlisten = await listen<{ requestId: string, output: string }>('ai-terminal-command-result', (event) => {
-                  if (event.payload.requestId === requestId) {
-                    completed = true;
-                    unlisten();
-                    resolve(event.payload.output);
-                  }
-                });
-
-                await tauriEmit('ai-terminal-command', { command: cmd, requestId, sessionId: props.sessionId });
-
-                setTimeout(() => {
-                  if (!completed) {
-                    unlisten();
-                    resolve("Error: Command timed out waiting for terminal output (30s).");
-                  }
-                }, 30000);
-              });
-            } else {
-              result = await invoke<string>('exec_command', {
-                id: props.sessionId,
-                command: cmd
-              });
-            }
+            result = await invoke<string>('exec_command', {
+              id: props.sessionId,
+              command: cmd
+            });
 
             messages.value.push({
               role: 'tool',
@@ -543,25 +550,28 @@ onUnmounted(() => {
 <template>
   <div class="flex flex-col h-full bg-gray-900 text-white" ref="containerRef">
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-      <div class="flex items-center space-x-2">
-        <Bot class="w-5 h-5 text-purple-400" />
-        <span class="font-medium">AI Assistant</span>
+    <div class="flex flex-col bg-gray-800 border-b border-gray-700">
+      <div class="flex items-center justify-between px-4 py-2">
+        <div class="flex items-center space-x-2">
+          <Bot class="w-5 h-5 text-purple-400" />
+          <span class="font-medium">AI Assistant</span>
+        </div>
+        <div class="flex items-center space-x-1">
+          <button @click="clearSession"
+            class="text-gray-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-700"
+            title="Clear Session">
+            <Trash2 class="w-4 h-4" />
+          </button>
+        </div>
       </div>
-      <div class="flex items-center space-x-1">
-        <button @click="toggleExecutionMode"
-          class="text-xs px-2 py-1 rounded border transition-colors flex items-center space-x-1"
-          :class="executionMode === 'terminal' ? 'bg-green-900/50 border-green-700 text-green-400 hover:bg-green-900' : 'bg-blue-900/50 border-blue-700 text-blue-400 hover:bg-blue-900'"
-          :title="executionMode === 'terminal' ? 'Mode: Terminal Execution' : 'Mode: Background Execution'">
-          <TerminalSquare v-if="executionMode === 'terminal'" class="w-3 h-3" />
-          <Square v-else class="w-3 h-3" />
-          <span>{{ executionMode === 'terminal' ? 'Terminal' : 'Background' }}</span>
-        </button>
-        <button @click="clearSession"
-          class="text-gray-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-700"
-          title="Clear Session">
-          <Trash2 class="w-4 h-4" />
-        </button>
+      <!-- Workspace Status Bar -->
+      <div v-if="activeWorkspace" class="px-4 py-1 bg-gray-900/50 border-t border-gray-700 flex items-center text-xs text-gray-400">
+          <Briefcase class="w-3 h-3 mr-1.5 text-blue-400" />
+          <span class="font-mono text-blue-300 mr-2">{{ activeWorkspace.name }}</span>
+          <span class="truncate opacity-60">{{ activeWorkspace.path }}</span>
+          <div class="flex-1"></div>
+          <span v-if="activeWorkspace.isIndexed" class="text-green-500">Indexed</span>
+          <span v-else class="text-yellow-500 flex items-center"><Loader2 class="w-3 h-3 animate-spin mr-1"/> Indexing</span>
       </div>
     </div>
 

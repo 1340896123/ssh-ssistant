@@ -2,10 +2,12 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus } from 'lucide-vue-next';
+import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase } from 'lucide-vue-next';
 import { open, save, ask, message } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
 import type { FileEntry, FileManagerViewMode } from '../types';
+import { useSessionStore } from '../stores/sessions'; // Import session store
+import { useNotificationStore } from '../stores/notifications';
 import { useTransferStore } from '../stores/transfers';
 import { useSettingsStore } from '../stores/settings';
 import TransferList from './TransferList.vue';
@@ -53,6 +55,8 @@ function showTreeContextMenu(e: MouseEvent, node: TreeNode) {
 const props = defineProps<{ sessionId: string }>();
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
+const sessionStore = useSessionStore(); // Init session store
+const notificationStore = useNotificationStore();
 const viewMode = computed<FileManagerViewMode>(() => settingsStore.fileManager.viewMode);
 const currentPath = ref('.');
 const files = ref<FileEntry[]>([]);
@@ -239,7 +243,7 @@ async function openTreeFile(node: TreeNode) {
             remoteName: node.entry.name,
         });
     } catch (e) {
-        alert("Failed to open file: " + e);
+        notificationStore.error("Failed to open file: " + e);
     } finally {
         isOpeningFile.value = false;
     }
@@ -325,7 +329,7 @@ async function handleTauriFileDrop(paths: string[]) {
             }
         } catch (e) {
             console.error('Error processing dropped item:', name, e);
-            alert(`Failed to process ${name}: ${e}`);
+            notificationStore.error(`Failed to process ${name}: ${e}`);
         }
     }
 
@@ -498,7 +502,7 @@ async function handleUpload() {
         }
     } catch (e) {
         console.error(e);
-        alert("Upload failed: " + e);
+        notificationStore.error("Upload failed: " + e);
     }
 }
 
@@ -557,8 +561,26 @@ async function handleUploadDirectory() {
         }
     } catch (e) {
         console.error(e);
-        alert("Upload directory failed: " + e);
+        notificationStore.error("Upload directory failed: " + e);
     }
+}
+
+async function handleSetWorkspace() {
+    if (!contextMenu.value.file?.isDir) return;
+
+    const path = contextMenu.value.isTree && contextMenu.value.treePath
+        ? contextMenu.value.treePath
+        : (currentPath.value === '.' ? contextMenu.value.file.name : `${currentPath.value}/${contextMenu.value.file.name}`);
+
+    try {
+        await sessionStore.setSessionWorkspace(props.sessionId, path);
+        await message(`Workspace set to: ${path}`, { title: 'Success', kind: 'info' });
+        // Switch to AI tab?
+        sessionStore.setActiveTab('ai');
+    } catch (e) {
+        await message(`Failed to set workspace: ${e}`, { title: 'Error', kind: 'error' });
+    }
+    closeContextMenu();
 }
 
 async function downloadDirectory(remoteDirPath: string, localDirPath: string, sessionId: string) {
@@ -830,7 +852,7 @@ async function handleDownload(file?: FileEntry) {
         }
     } catch (e) {
         console.error(e);
-        alert("Download failed: " + e);
+        notificationStore.error("Download failed: " + e);
     }
     closeContextMenu();
 }
@@ -850,7 +872,7 @@ async function handleChangePermissions(file: FileEntry) {
             });
             await loadFiles(currentPath.value);
         } catch (e) {
-            alert("Failed to change permissions: " + e);
+            notificationStore.error("Failed to change permissions: " + e);
         }
     }
     closeContextMenu();
@@ -930,7 +952,7 @@ async function handleRename(file: FileEntry) {
         await invoke('rename_item', { id: props.sessionId, oldPath, newPath });
         await loadFiles(currentPath.value);
     } catch (e) {
-        alert("Rename failed: " + e);
+        notificationStore.error("Rename failed: " + e);
     }
     closeContextMenu();
 }
@@ -943,7 +965,7 @@ async function createFolder() {
         await invoke('create_directory', { id: props.sessionId, path: remotePath });
         await loadFiles(currentPath.value);
     } catch (e) {
-        alert("Create folder failed: " + e);
+        notificationStore.error("Create folder failed: " + e);
     }
 }
 
@@ -955,7 +977,7 @@ async function createFile() {
         await invoke('create_file', { id: props.sessionId, path: remotePath });
         await loadFiles(currentPath.value);
     } catch (e) {
-        alert("Create file failed: " + e);
+        notificationStore.error("Create file failed: " + e);
     }
 }
 
@@ -1167,6 +1189,11 @@ function formatSize(size: number): string {
                 {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : '' }}
             </button>
             <div class="border-t border-gray-700 my-1"></div>
+            <button v-if="contextMenu.file?.isDir" @click.stop="handleSetWorkspace()"
+                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center text-purple-400">
+                <Briefcase class="w-4 h-4 mr-2" />
+                Set as AI Workspace
+            </button>
             <button @click.stop="copyPath(contextMenu.file!)"
                 class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
                     t('fileManager.contextMenu.copyPath') }}</button>

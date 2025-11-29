@@ -12,8 +12,11 @@ import { readTextFile } from '@tauri-apps/plugin-fs';
 import { onUnmounted } from 'vue';
 import { ask } from '@tauri-apps/plugin-dialog';
 
+import { useNotificationStore } from '../stores/notifications';
+
 const connectionStore = useConnectionStore();
 const sessionStore = useSessionStore();
+const notificationStore = useNotificationStore();
 const { t } = useI18n();
 const emit = defineEmits(['edit']);
 
@@ -66,7 +69,7 @@ onMounted(async () => {
             }
           }
           if (importedCount > 0) {
-            alert(`Imported ${importedCount} connections.`);
+            notificationStore.success(`Imported ${importedCount} connections.`);
           }
         } catch (e) {
           console.error('Failed to import connections:', e);
