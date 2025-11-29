@@ -47,6 +47,16 @@ jobs:
     - name: Install frontend dependencies
       run: npm ci
       
+    - name: Check versions
+      run: |
+        echo "Node version: $(node --version)"
+        echo "NPM version: $(npm --version)"
+        echo "Rust version: $(rustc --version)"
+        echo "Cargo version: $(cargo --version)"
+        
+    - name: Build frontend only
+      run: npm run build
+      
     - name: Build the app
       run: npm run tauri build
       
