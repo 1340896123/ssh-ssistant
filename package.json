@@ -1,13 +1,14 @@
 {
   "name": "ssh-star",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version": "npm version --no-git-tag-version"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
