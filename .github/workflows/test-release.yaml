@@ -68,9 +68,9 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENSSL_DIR: ${{ steps.openssl-dir.outputs.prefix }}
-          OPENSSL_ROOT_DIR: ${{ steps.openssl-dir.outputs.prefix }}
-          PKG_CONFIG_PATH: ${{ steps.openssl-dir.outputs.prefix }}/lib/pkgconfig
+          OPENSSL_DIR: ${{ matrix.platform == 'macos-latest' && steps.openssl-dir.outputs.prefix || '' }}
+          OPENSSL_ROOT_DIR: ${{ matrix.platform == 'macos-latest' && steps.openssl-dir.outputs.prefix || '' }}
+          PKG_CONFIG_PATH: ${{ matrix.platform == 'macos-latest' && format('{0}/lib/pkgconfig', steps.openssl-dir.outputs.prefix) || '' }}
         with:
           tagName: app-v__VERSION__ # the action automatically replaces __VERSION__ with the app version.
           releaseName: 'App v__VERSION__'
