@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, shallowRef, triggerRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase } from 'lucide-vue-next';
+import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
 import type { FileEntry, FileManagerViewMode } from '../types';
@@ -11,6 +11,7 @@ import { useNotificationStore } from '../stores/notifications';
 import { useTransferStore } from '../stores/transfers';
 import { useSettingsStore } from '../stores/settings';
 import TransferList from './TransferList.vue';
+import VirtualFileList from './VirtualFileList.vue';
 import { useI18n } from '../composables/useI18n';
 // import draggable from 'vuedraggable'; // Removed
 
@@ -69,6 +70,19 @@ async function updateContextMenuPosition() {
     contextMenu.value.y = y;
 }
 
+function handleContainerContextMenu(e: MouseEvent) {
+    // 检查点击的是否是背景区域（不是文件项）
+    const target = e.target as HTMLElement;
+    const fileItem = target.closest('[data-file-item]');
+    
+    if (!fileItem) {
+        // 点击的是背景区域
+        e.preventDefault();
+        showBackgroundContextMenu(e);
+    }
+    // 如果点击的是文件项，让文件项自己处理右键菜单
+}
+
 function showBackgroundContextMenu(e: MouseEvent) {
     e.preventDefault();
     // If clicking on background, clear file selection unless Ctrl/Shift is held (handled by other listeners? usually background click clears selection)
@@ -91,7 +105,7 @@ const sessionStore = useSessionStore(); // Init session store
 const notificationStore = useNotificationStore();
 const viewMode = computed<FileManagerViewMode>(() => settingsStore.fileManager.viewMode);
 const currentPath = ref('.');
-const files = ref<FileEntry[]>([]);
+const files = shallowRef<FileEntry[]>([]);
 const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null, treePath: string | null, isTree: boolean, isBackground: boolean }>({ show: false, x: 0, y: 0, file: null, treePath: null, isTree: false, isBackground: false });
 const contextMenuRef = ref<HTMLElement | null>(null);
 const isEditingPath = ref(false);
@@ -101,7 +115,8 @@ const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
 const transferStore = useTransferStore();
 const treeRootPath = ref<string>('.');
-const treeNodes = ref<Map<string, TreeNode>>(new Map());
+const treeNodes = shallowRef<Map<string, TreeNode>>(new Map());
+const childrenMap = shallowRef<Map<string | null, string[]>>(new Map());
 const expandedPaths = ref<Set<string>>(new Set());
 const selectedTreePaths = ref<Set<string>>(new Set());
 const columnWidths = ref<Record<ColumnKey, number>>({
@@ -120,23 +135,27 @@ const unlistenDrop = ref<UnlistenFn | null>(null);
 const visibleTreeNodes = computed<TreeNode[]>(() => {
     const result: TreeNode[] = [];
     const nodes = treeNodes.value;
+    const children = childrenMap.value;
 
     const collectChildren = (parentPath: string | null, depth: number) => {
-        const children: TreeNode[] = [];
-        nodes.forEach((node) => {
-            if (node.parentPath === parentPath) {
-                children.push({ ...node, depth });
+        const childPaths = children.get(parentPath) || [];
+        const childNodes: TreeNode[] = [];
+        
+        for (const childPath of childPaths) {
+            const node = nodes.get(childPath);
+            if (node) {
+                childNodes.push({ ...node, depth });
             }
-        });
+        }
 
-        children.sort((a, b) => {
+        childNodes.sort((a, b) => {
             if (a.entry.isDir === b.entry.isDir) {
                 return a.entry.name.localeCompare(b.entry.name);
             }
             return a.entry.isDir ? -1 : 1;
         });
 
-        for (const child of children) {
+        for (const child of childNodes) {
             result.push(child);
             if (child.entry.isDir && expandedPaths.value.has(child.path)) {
                 collectChildren(child.path, depth + 1);
@@ -144,7 +163,6 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
         }
     };
 
-    collectChildren(treeRootPath.value === '.' ? null : treeRootPath.value, 0);
     collectChildren(treeRootPath.value === '.' ? null : treeRootPath.value, 0);
     return result;
 });
@@ -182,6 +200,7 @@ function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
 async function loadFiles(path: string) {
     try {
         files.value = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
+        triggerRef(files);
         currentPath.value = path;
         pathInput.value = path;
         selectedFiles.value.clear();
@@ -190,9 +209,13 @@ async function loadFiles(path: string) {
         if (viewMode.value === 'tree') {
             treeRootPath.value = path;
             treeNodes.value = new Map();
+            childrenMap.value = new Map();
             expandedPaths.value = new Set();
             selectedTreePaths.value = new Set();
             const parentPath = path === '.' ? null : path;
+            const newChildrenMap = new Map<string | null, string[]>();
+            const childPaths: string[] = [];
+            
             for (const entry of files.value) {
                 const fullPath = joinPath(path, entry.name);
                 treeNodes.value.set(fullPath, {
@@ -203,11 +226,18 @@ async function loadFiles(path: string) {
                     childrenLoaded: false,
                     loading: false,
                 });
+                childPaths.push(fullPath);
             }
+            
+            newChildrenMap.set(parentPath, childPaths);
+            childrenMap.value = newChildrenMap;
+            triggerRef(treeNodes);
+            triggerRef(childrenMap);
         }
     } catch (e) {
         console.error(e);
         files.value = [];
+        triggerRef(files);
     }
 }
 
@@ -234,9 +264,13 @@ async function toggleDirectory(node: TreeNode) {
     if (!existing) return;
     existing.loading = true;
     treeNodes.value.set(node.path, existing);
+    triggerRef(treeNodes);
 
     try {
         const children = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path: node.path });
+        const currentChildrenMap = new Map(childrenMap.value);
+        const childPaths: string[] = [];
+        
         for (const child of children) {
             const childPath = joinPath(node.path, child.name);
             if (!treeNodes.value.has(childPath)) {
@@ -249,9 +283,15 @@ async function toggleDirectory(node: TreeNode) {
                     loading: false,
                 });
             }
+            childPaths.push(childPath);
         }
+        
+        currentChildrenMap.set(node.path, childPaths);
+        childrenMap.value = currentChildrenMap;
         existing.childrenLoaded = true;
         treeNodes.value.set(node.path, existing);
+        triggerRef(treeNodes);
+        triggerRef(childrenMap);
     } catch (e) {
         console.error(e);
     } finally {
@@ -259,6 +299,7 @@ async function toggleDirectory(node: TreeNode) {
         if (updated) {
             updated.loading = false;
             treeNodes.value.set(node.path, updated);
+            triggerRef(treeNodes);
         }
     }
 }
@@ -300,11 +341,19 @@ function startResize(column: ColumnKey, event: MouseEvent) {
     resizeStartWidth.value = columnWidths.value[column];
 }
 
+let resizeAnimationFrame: number | null = null;
+
 function handleMouseMove(event: MouseEvent) {
     if (!resizingColumn.value) return;
-    const delta = event.clientX - resizeStartX.value;
-    const newWidth = Math.max(80, resizeStartWidth.value + delta);
-    columnWidths.value[resizingColumn.value] = newWidth;
+    
+    if (!resizeAnimationFrame) {
+        resizeAnimationFrame = requestAnimationFrame(() => {
+            const delta = event.clientX - resizeStartX.value;
+            const newWidth = Math.max(80, resizeStartWidth.value + delta);
+            columnWidths.value[resizingColumn.value!] = newWidth;
+            resizeAnimationFrame = null;
+        });
+    }
 }
 
 function stopResize() {
@@ -1094,7 +1143,7 @@ function formatSize(size: number): string {
 
         <!-- File List -->
         <div class="flex-1 overflow-y-auto border border-gray-800 rounded bg-gray-900/50"
-            @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu.prevent="showBackgroundContextMenu">
+            @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu="handleContainerContextMenu">
             <!-- Header -->
             <div
                 class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold select-none">
@@ -1122,63 +1171,42 @@ function formatSize(size: number): string {
 
             <!-- Flat View -->
             <template v-if="viewMode === 'flat'">
-                <div class="flex flex-col">
-                    <div v-for="(file, index) in files" :key="file.name"
-                        class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
-                        :class="{ 'bg-blue-900/50': selectedFiles.has(file.name), 'hover:bg-gray-800': !selectedFiles.has(file.name) }"
-                        draggable="true" @dragstart="onDragStart($event, file)"
-                        @click="handleSelection($event, file, index)" @dblclick="navigate(file)"
-                        @contextmenu.stop="showContextMenu($event, file)">
-                        <div class="flex items-center min-w-0" :style="{ width: columnWidths.name + 'px' }">
-                            <Folder v-if="file.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
-                            <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
-                            <span class="text-sm truncate">{{ file.name }}</span>
-                        </div>
-                        <span class="text-xs text-gray-500 font-mono text-right"
-                            :style="{ width: columnWidths.size + 'px' }">{{
-                                formatSize(file.size) }}</span>
-                        <span class="text-xs text-gray-500 font-mono ml-4"
-                            :style="{ width: columnWidths.date + 'px' }">{{
-                                formatDate(file.mtime) }}</span>
-                        <span class="text-xs text-gray-500 font-mono ml-4"
-                            :style="{ width: columnWidths.owner + 'px' }">{{
-                                file.owner || '-' }}</span>
-                    </div>
-                </div>
+                <VirtualFileList
+                    :items="files"
+                    :view-mode="viewMode"
+                    :selected-files="selectedFiles"
+                    :selected-tree-paths="selectedTreePaths"
+                    :column-widths="columnWidths"
+                    :on-selection="handleSelection"
+                    :on-navigate="navigate"
+                    :on-context-menu="showContextMenu"
+                    :on-drag-start="onDragStart"
+                    :expanded-paths="expandedPaths"
+                    :format-size="formatSize"
+                    :format-date="formatDate"
+                />
             </template>
 
             <!-- Tree View -->
             <template v-else>
-                <div class="flex flex-col">
-                    <div v-for="node in visibleTreeNodes" :key="node.path"
-                        class="flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none"
-                        :class="{ 'bg-blue-900/50': selectedTreePaths.has(node.path), 'hover:bg-gray-800': !selectedTreePaths.has(node.path) }"
-                        draggable="true" @dragstart="onDragStart($event, node)" @click.stop="handleTreeSelection(node)"
-                        @dblclick.stop="openTreeFile(node)"
-                        @contextmenu.stop.prevent="showTreeContextMenu($event, node)">
-                        <div class="flex items-center min-w-0"
-                            :style="{ width: columnWidths.name + 'px', paddingLeft: (node.depth * 16) + 'px' }">
-                            <button v-if="node.entry.isDir"
-                                class="mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400"
-                                @click.stop="toggleDirectory(node)">
-                                <span v-if="expandedPaths.has(node.path)">-</span>
-                                <span v-else>+</span>
-                            </button>
-                            <span v-else class="mr-4"></span>
-                            <Folder v-if="node.entry.isDir" class="w-4 h-4 mr-2 text-yellow-400 flex-shrink-0" />
-                            <File v-else class="w-4 h-4 mr-2 text-blue-400 flex-shrink-0" />
-                            <span class="text-sm truncate">{{ node.entry.name }}</span>
-                        </div>
-                        <span class="text-xs text-gray-500 font-mono text-right"
-                            :style="{ width: columnWidths.size + 'px' }">{{
-                                node.entry.isDir ? '' : formatSize(node.entry.size) }}</span>
-                        <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.date + 'px' }">{{
-                            formatDate(node.entry.mtime) }}</span>
-                        <span class="text-xs text-gray-500 truncate" :style="{ width: columnWidths.owner + 'px' }">{{
-                            node.entry.owner
-                        }}</span>
-                    </div>
-                </div>
+                <VirtualFileList
+                    :items="visibleTreeNodes"
+                    :view-mode="viewMode"
+                    :selected-files="selectedFiles"
+                    :selected-tree-paths="selectedTreePaths"
+                    :column-widths="columnWidths"
+                    :on-selection="handleSelection"
+                    :on-navigate="navigate"
+                    :on-context-menu="showContextMenu"
+                    :on-tree-selection="handleTreeSelection"
+                    :on-open-tree-file="openTreeFile"
+                    :on-tree-context-menu="showTreeContextMenu"
+                    :on-toggle-directory="toggleDirectory"
+                    :on-drag-start="onDragStart"
+                    :expanded-paths="expandedPaths"
+                    :format-size="formatSize"
+                    :format-date="formatDate"
+                />
             </template>
 
             <div v-if="files.length === 0" class="p-4 text-center text-gray-600 text-sm">

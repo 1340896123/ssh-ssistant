@@ -30,6 +30,8 @@ export interface FileEntry {
   owner: string;
 }
 
+export type ColumnKey = 'name' | 'size' | 'date' | 'owner';
+
 export interface AIConfig {
   apiUrl: string;
   apiKey: string;

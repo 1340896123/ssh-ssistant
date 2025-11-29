@@ -15,6 +15,7 @@
     "release:major": "npm version major && npm run release"
   },
   "dependencies": {
+    "@tanstack/vue-virtual": "^3.13.12",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-fs": "^2.4.4",
