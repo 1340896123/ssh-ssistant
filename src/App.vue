@@ -76,11 +76,23 @@ interface DiskInfo {
   used: string;
   avail: string;
   percent: string;
+  mount: string;
+  filesystem: string;
+}
+
+interface MountDetails {
+  filesystem: string;
+  size: string;
+  used: string;
+  avail: string;
+  percent: string;
+  mount: string;
 }
 
 interface SessionStats {
   uptime: string;
   disk: DiskInfo | null;
+  mounts: MountDetails[];
   ip: string;
 }
 
@@ -111,15 +123,14 @@ async function refreshActiveSessionStatus() {
   if (!activeSession.value || activeSession.value.status !== 'connected') return;
   const id = activeSession.value.id;
   try {
-    // Command to get Uptime, Disk (Size|Used|Avail|Use%), and IP
-    // We use awk to format disk output: Size|Used|Avail|Use%
+    // Command to get Uptime, All Mount Points with detailed info, and IP
     const command = `
       echo "UPTIME_START"; 
       (uptime -p 2>/dev/null || uptime 2>/dev/null); 
       echo "UPTIME_END";
-      echo "DISK_START"; 
-      df -h / 2>/dev/null | tail -1 | awk '{print $2 "|" $3 "|" $4 "|" $5}'; 
-      echo "DISK_END";
+      echo "MOUNTS_START"; 
+      df -h 2>/dev/null | awk 'NR>1 {print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6}'; 
+      echo "MOUNTS_END";
       echo "IP_START"; 
       (hostname -I 2>/dev/null || echo 'n/a');
       echo "IP_END";
@@ -129,23 +140,44 @@ async function refreshActiveSessionStatus() {
 
     // Parse result
     const uptimeMatch = result.match(/UPTIME_START\s*([\s\S]*?)\s*UPTIME_END/);
-    const diskMatch = result.match(/DISK_START\s*([\s\S]*?)\s*DISK_END/);
+    const mountsMatch = result.match(/MOUNTS_START\s*([\s\S]*?)\s*MOUNTS_END/);
     const ipMatch = result.match(/IP_START\s*([\s\S]*?)\s*IP_END/);
 
     const uptime = uptimeMatch ? uptimeMatch[1].trim() : 'N/A';
-    const diskRaw = diskMatch ? diskMatch[1].trim() : '';
-    const ip = ipMatch ? ipMatch[1].trim().split(' ')[0] : 'N/A'; // Take first IP
+    const mountsRaw = mountsMatch ? mountsMatch[1].trim() : '';
+    const ip = ipMatch ? ipMatch[1].trim().split(' ')[0] : 'N/A';
 
-    let disk: DiskInfo | null = null;
-    if (diskRaw) {
-      const parts = diskRaw.split('|');
-      if (parts.length >= 4) {
-        disk = {
-          size: parts[0],
-          used: parts[1],
-          avail: parts[2],
-          percent: parts[3]
-        };
+    // Parse mounts data
+    const mounts: MountDetails[] = [];
+    let rootDisk: DiskInfo | null = null;
+
+    if (mountsRaw) {
+      const lines = mountsRaw.split('\n').filter(line => line.trim());
+      for (const line of lines) {
+        const parts = line.split('|');
+        if (parts.length >= 6) {
+          const mountInfo: MountDetails = {
+            filesystem: parts[0],
+            size: parts[1],
+            used: parts[2],
+            avail: parts[3],
+            percent: parts[4],
+            mount: parts[5]
+          };
+          mounts.push(mountInfo);
+
+          // Set root disk as primary disk info (usually mount point "/")
+          if (parts[5] === '/' || (!rootDisk && parts[5].startsWith('/'))) {
+            rootDisk = {
+              filesystem: parts[0],
+              size: parts[1],
+              used: parts[2],
+              avail: parts[3],
+              percent: parts[4],
+              mount: parts[5]
+            };
+          }
+        }
       }
     }
 
@@ -153,7 +185,8 @@ async function refreshActiveSessionStatus() {
       ...sessionStatus.value,
       [id]: {
         uptime,
-        disk,
+        disk: rootDisk,
+        mounts,
         ip
       },
     };
@@ -364,27 +397,56 @@ function openEditConnectionModal(conn: Connection) {
                 </div>
 
                 <!-- Disk Usage -->
-                <div v-if="sessionStatus[session.id].disk"
-                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200">
+                <div v-if="sessionStatus[session.id].mounts && sessionStatus[session.id].mounts.length > 0"
+                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200 py-1 -my-1 px-2 -mx-2">
                   <div class="flex items-center space-x-1">
                     <span>Disk:</span>
-                    <span :class="{ 'text-red-400': parseInt(sessionStatus[session.id].disk!.percent) > 90 }">
-                      {{ sessionStatus[session.id].disk!.percent }}
+                    <span :class="{ 'text-red-400': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) > 90 }">
+                      {{ sessionStatus[session.id].disk?.percent || 'N/A' }}
                     </span>
                   </div>
-                  <!-- Custom Tooltip -->
-                  <div class="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
-                    <div class="bg-gray-900 border border-gray-700 rounded shadow-lg p-2 text-xs whitespace-nowrap">
-                      <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                        <span class="text-gray-500">Size:</span>
-                        <span class="text-gray-200 text-right">{{ sessionStatus[session.id].disk!.size }}</span>
-                        <span class="text-gray-500">Used:</span>
-                        <span class="text-gray-200 text-right">{{ sessionStatus[session.id].disk!.used }}</span>
-                        <span class="text-gray-500">Avail:</span>
-                        <span class="text-gray-200 text-right">{{ sessionStatus[session.id].disk!.avail }}</span>
+                  <!-- Enhanced Tooltip with all mount points -->
+                  <div class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[100]">
+                    <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto">
+                      <div class="text-gray-300 font-medium mb-2 pb-1 border-b border-gray-600">
+                        Disk Mounts ({{ sessionStatus[session.id].mounts.length }})
+                      </div>
+                      <div class="space-y-2">
+                        <div v-for="mount in sessionStatus[session.id].mounts" :key="mount.mount" 
+                          class="border-b border-gray-700/50 pb-2 last:border-b-0">
+                          <div class="flex items-center justify-between mb-1">
+                            <span class="text-blue-400 font-mono text-xs truncate flex-1 mr-2" :title="mount.mount">
+                              {{ mount.mount }}
+                            </span>
+                            <span :class="{ 
+                              'text-red-400': parseInt(mount.percent) > 90,
+                              'text-yellow-400': parseInt(mount.percent) > 80,
+                              'text-green-400': parseInt(mount.percent) <= 80 
+                            }" class="font-mono text-xs">
+                              {{ mount.percent }}
+                            </span>
+                          </div>
+                          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                            <div class="text-gray-500">FS:</div>
+                            <div class="text-gray-300 font-mono truncate" :title="mount.filesystem">{{ mount.filesystem }}</div>
+                            <div class="text-gray-500">Size:</div>
+                            <div class="text-gray-300 font-mono text-right">{{ mount.size }}</div>
+                            <div class="text-gray-500">Used:</div>
+                            <div class="text-gray-300 font-mono text-right">{{ mount.used }}</div>
+                            <div class="text-gray-500">Avail:</div>
+                            <div class="text-gray-300 font-mono text-right">{{ mount.avail }}</div>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- Tooltip arrow -->
+                      <div class="absolute top-full right-4 -mt-1">
+                        <div class="w-2 h-2 bg-gray-800 border-r border-b border-gray-600 transform rotate-45"></div>
                       </div>
                     </div>
                   </div>
+                </div>
+                <div v-else class="text-gray-500">
+                  Disk: N/A
                 </div>
 
                 <!-- IP -->
