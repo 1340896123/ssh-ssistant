@@ -40,9 +40,7 @@ jobs:
           cache: 'npm' # Set this to npm, yarn or pnpm.
 
       - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
-        with:
-          # No cross-compilation needed - use native targets
+        uses: dtolnay/rust-toolchain@nightly # Set this to dtolnay/rust-toolchain@nightly
 
       - name: Install OpenSSL (macOS only)
         if: startsWith(matrix.platform, 'macos')
