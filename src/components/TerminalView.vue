@@ -198,8 +198,8 @@ onMounted(async () => {
   }, 200);
 
   // Listen to AI terminal commands
-  const unlistenAiCmd = await listen<{ command: string; requestId?: string }>('ai-terminal-command', async (event) => {
-    if (event.payload && event.payload.command) {
+  const unlistenAiCmd = await listen<{ command: string; requestId?: string; sessionId?: string }>('ai-terminal-command', async (event) => {
+    if (event.payload && event.payload.command && (!event.payload.sessionId || event.payload.sessionId === props.sessionId)) {
       const cmd = event.payload.command;
       const requestId = event.payload.requestId;
 

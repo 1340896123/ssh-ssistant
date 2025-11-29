@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import { useSettingsStore } from '../stores/settings';
+import { useSessionStore } from '../stores/sessions';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { emit as tauriEmit, listen } from '@tauri-apps/api/event';
@@ -13,8 +14,10 @@ const md = new MarkdownIt({
   breaks: true
 });
 
+const sessionStore = useSessionStore();
+const sessionId = computed(() => sessionStore.activeSessionId);
+
 const props = defineProps({
-  sessionId: String,
   terminalContext: String
 });
 
@@ -342,7 +345,7 @@ async function processChat() {
                   }
                 });
 
-                await tauriEmit('ai-terminal-command', { command: cmd, requestId });
+                await tauriEmit('ai-terminal-command', { command: cmd, requestId, sessionId: sessionId.value });
 
                 setTimeout(() => {
                   if (!completed) {
@@ -353,7 +356,7 @@ async function processChat() {
               });
             } else {
               result = await invoke<string>('exec_command', {
-                id: props.sessionId,
+                id: sessionId.value,
                 command: cmd
               });
             }
@@ -376,7 +379,7 @@ async function processChat() {
           const args = JSON.parse(toolCall.function.arguments) as { path: string; maxBytes?: number };
           try {
             const result = await invoke<string>('read_remote_file', {
-              id: props.sessionId,
+              id: sessionId.value,
               path: args.path,
               maxBytes: args.maxBytes ?? 16384,
             });
@@ -398,7 +401,7 @@ async function processChat() {
           const args = JSON.parse(toolCall.function.arguments) as { path: string; content: string; mode?: 'overwrite' | 'append' };
           try {
             await invoke('write_remote_file', {
-              id: props.sessionId,
+              id: sessionId.value,
               path: args.path,
               content: args.content,
               mode: args.mode ?? 'overwrite',
@@ -421,7 +424,7 @@ async function processChat() {
           const args = JSON.parse(toolCall.function.arguments) as { root: string; pattern: string; maxResults?: number };
           try {
             const result = await invoke<string>('search_remote_files', {
-              id: props.sessionId,
+              id: sessionId.value,
               root: args.root,
               pattern: args.pattern,
               maxResults: args.maxResults ?? 200,
