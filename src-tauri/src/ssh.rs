@@ -107,7 +107,11 @@ impl SessionSshPool {
 
         // 关闭所有后台会话
         if let Ok(mut sessions) = self.background_sessions.lock() {
-            sessions.clear();
+            for session in sessions.drain(..) {
+                if let Ok(sess) = session.lock() {
+                    let _ = sess.disconnect(None, "", None);
+                }
+            }
         }
     }
 
@@ -136,6 +140,7 @@ pub struct SshClient {
     ssh_pool: Arc<SessionSshPool>,                 // SSH连接池
     shell_tx: Option<Sender<ShellMsg>>,            // 终端消息通道
     owner_cache: Arc<Mutex<HashMap<u32, String>>>, // UID缓存
+    shutdown_signal: Arc<AtomicBool>,               // 用于通知后台监控任务停止
 }
 
 pub struct AppState {
@@ -228,85 +233,137 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
             let target_host = config.host.clone();
             let target_port = config.port;
 
-            // Spawn proxy thread
+            // Create a channel for communication between threads
+            let (tx, rx) = std::sync::mpsc::channel::<bool>();
+
+            // Spawn proxy thread with timeout
             thread::spawn(move || {
-                if let Ok((mut local_stream, _)) = listener.accept() {
-                    let _ = local_stream.set_nonblocking(true);
-
-                    // Keep blocking for channel creation to ensure it doesn't fail with WouldBlock
-                    match jump_sess.channel_direct_tcpip(&target_host, target_port, None) {
-                        Ok(mut channel) => {
-                            let _ = jump_sess.set_blocking(false);
-                            let mut buf = [0u8; 8192];
-                            loop {
-                                let mut did_work = false;
-
-                                // Local -> Remote
-                                match local_stream.read(&mut buf) {
-                                    Ok(0) => break, // EOF
-                                    Ok(n) => {
-                                        let mut total_written = 0;
-                                        let mut failed = false;
-                                        while total_written < n {
-                                            match channel.write(&buf[total_written..n]) {
-                                                Ok(w) => total_written += w,
-                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                                                    thread::sleep(Duration::from_millis(1));
-                                                }
-                                                Err(_) => {
-                                                    failed = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if failed {
-                                            break;
-                                        }
-                                        did_work = true;
-                                    }
-                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {}
-                                    Err(_) => break,
-                                }
-
-                                // Remote -> Local
-                                match channel.read(&mut buf) {
-                                    Ok(0) => break, // EOF from remote
-                                    Ok(n) => {
-                                        let mut total_written = 0;
-                                        let mut failed = false;
-                                        while total_written < n {
-                                            match local_stream.write(&buf[total_written..n]) {
-                                                Ok(w) => total_written += w,
-                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                                                    thread::sleep(Duration::from_millis(1));
-                                                }
-                                                Err(_) => {
-                                                    failed = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if failed {
-                                            break;
-                                        }
-                                        did_work = true;
-                                    }
-                                    Err(e) if e.kind() == ErrorKind::WouldBlock => {}
-                                    Err(_) => break,
-                                }
-
-                                if !did_work {
-                                    thread::sleep(Duration::from_millis(1));
-                                }
-                            }
+                // Set listener timeout to avoid infinite blocking
+                if let Ok(_) = listener.set_nonblocking(true) {
+                    let start_time = std::time::Instant::now();
+                    let timeout = Duration::from_secs(10); // 10 second timeout
+                    
+                    loop {
+                        // Check timeout
+                        if start_time.elapsed() > timeout {
+                            break;
                         }
-                        Err(e) => eprintln!("Failed to open direct-tcpip channel: {}", e),
+                        
+                        // Check if main thread signaled us to stop
+                        if rx.try_recv().is_ok() {
+                            break;
+                        }
+                        
+                        match listener.accept() {
+                            Ok((mut local_stream, _)) => {
+                                let _ = local_stream.set_nonblocking(true);
+
+                                // Keep blocking for channel creation to ensure it doesn't fail with WouldBlock
+                                match jump_sess.channel_direct_tcpip(&target_host, target_port, None) {
+                                    Ok(mut channel) => {
+                                        let _ = jump_sess.set_blocking(false);
+                                        let mut buf = [0u8; 8192];
+                                        loop {
+                                            let mut did_work = false;
+
+                                            // Local -> Remote
+                                            match local_stream.read(&mut buf) {
+                                                Ok(0) => break, // EOF
+                                                Ok(n) => {
+                                                    let mut total_written = 0;
+                                                    let mut failed = false;
+                                                    while total_written < n {
+                                                        match channel.write(&buf[total_written..n]) {
+                                                            Ok(w) => total_written += w,
+                                                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                                                thread::sleep(Duration::from_millis(1));
+                                                            }
+                                                            Err(_) => {
+                                                                failed = true;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    if failed {
+                                                        break;
+                                                    }
+                                                    did_work = true;
+                                                }
+                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                                                Err(_) => break,
+                                            }
+
+                                            // Remote -> Local
+                                            match channel.read(&mut buf) {
+                                                Ok(0) => break, // EOF from remote
+                                                Ok(n) => {
+                                                    let mut total_written = 0;
+                                                    let mut failed = false;
+                                                    while total_written < n {
+                                                        match local_stream.write(&buf[total_written..n]) {
+                                                            Ok(w) => total_written += w,
+                                                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                                                thread::sleep(Duration::from_millis(1));
+                                                            }
+                                                            Err(_) => {
+                                                                failed = true;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    if failed {
+                                                        break;
+                                                    }
+                                                    did_work = true;
+                                                }
+                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                                                Err(_) => break,
+                                            }
+
+                                            if !did_work {
+                                                thread::sleep(Duration::from_millis(1));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Failed to open direct-tcpip channel: {}", e),
+                                }
+                                break; // Exit after handling one connection
+                            }
+                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                thread::sleep(Duration::from_millis(10));
+                                continue;
+                            }
+                            Err(_) => break,
+                        }
                     }
                 }
             });
 
-            TcpStream::connect(format!("127.0.0.1:{}", local_port))
-                .map_err(|e| format!("Failed to connect to local proxy: {}", e))?
+            // Try to connect to local proxy with timeout
+            let connect_start = std::time::Instant::now();
+            let connect_timeout = Duration::from_secs(5);
+            let tcp_stream;
+            
+            loop {
+                match TcpStream::connect(format!("127.0.0.1:{}", local_port)) {
+                    Ok(stream) => {
+                        // Signal proxy thread that we're connected
+                        let _ = tx.send(true);
+                        tcp_stream = Some(stream);
+                        break;
+                    }
+                    Err(e) => {
+                        if connect_start.elapsed() > connect_timeout {
+                            // Signal proxy thread to stop and return error
+                            let _ = tx.send(false);
+                            return Err(format!("Failed to connect to local proxy within timeout: {}", e));
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            }
+            
+            tcp_stream.ok_or_else(|| "Failed to establish connection".to_string())?
         }
     } else {
         let addr_str = format!("{}:{}", config.host, config.port);
@@ -377,10 +434,17 @@ pub async fn connect(
 
     // 启动定时清理任务
     let cleanup_pool = ssh_pool.clone();
+    let shutdown_signal = Arc::new(AtomicBool::new(false));
+    let monitor_signal = shutdown_signal.clone();
+    
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5分钟
         loop {
             interval.tick().await;
+            // 关键修复：检查停止信号
+            if monitor_signal.load(Ordering::Relaxed) {
+                break;
+            }
             cleanup_pool.cleanup_disconnected();
         }
     });
@@ -476,6 +540,7 @@ pub async fn connect(
         ssh_pool: Arc::new(ssh_pool),
         shell_tx: Some(tx),
         owner_cache: Arc::new(Mutex::new(HashMap::new())),
+        shutdown_signal,
     };
 
     state
@@ -490,10 +555,15 @@ pub async fn connect(
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), String> {
     if let Some(client) = state.clients.lock().map_err(|e| e.to_string())?.remove(&id) {
+        // 1. 发送停止信号，终止后台监控任务
+        client.shutdown_signal.store(true, Ordering::Relaxed);
+        
+        // 2. 关闭 Shell 线程
         if let Some(tx) = client.shell_tx {
             let _ = tx.send(ShellMsg::Exit);
         }
-        // 关闭SSH池中的所有连接
+        
+        // 3. 关闭所有 SSH 连接
         client.ssh_pool.close_all();
     }
     Ok(())
