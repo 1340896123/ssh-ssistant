@@ -346,6 +346,7 @@ function openEditConnectionModal(conn: Connection) {
             <!-- AI -->
             <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
               <AIAssistant
+                :sessionId="session.id"
                 :terminal-context="terminalContext"
                 @refresh-context="updateTerminalContext"
               />
