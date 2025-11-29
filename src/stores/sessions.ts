@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import { useNotificationStore } from './notifications';
-import type { Session, Connection, Workspace } from '../types';
+import type { Session, Connection } from '../types';
 
 export const useSessionStore = defineStore('sessions', {
   state: () => ({

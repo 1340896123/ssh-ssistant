@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-vue-next';
+import { CheckCircle, XCircle, AlertTriangle, Info } from 'lucide-vue-next';
 import { onMounted, onUnmounted, ref } from 'vue';
 
 export type NotificationType = 'success' | 'error' | 'warning' | 'info';

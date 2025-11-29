@@ -114,6 +114,15 @@ export const useConnectionStore = defineStore('connections', {
           console.error('Store: Group not found:', id);
         }
       }
+    },
+    async testConnection(conn: Connection): Promise<boolean> {
+      try {
+        await invoke('test_connection', { config: conn });
+        return true;
+      } catch (e) {
+        console.error('Connection test failed:', e);
+        throw e; // Re-throw to let the UI handle the error message
+      }
     }
   }
 });

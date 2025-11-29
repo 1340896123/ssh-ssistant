@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { Connection } from '../types';
-import { Eye, EyeOff } from 'lucide-vue-next';
+import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-vue-next';
 import { useConnectionStore } from '../stores/connections';
 
 const props = defineProps<{ show: boolean, connectionToEdit?: Connection | null }>();
@@ -22,11 +22,15 @@ const form = ref<Connection>({
 
 const showPassword = ref(false);
 const showJumpPassword = ref(false);
+const isTesting = ref(false);
+const testResult = ref<{ success: boolean; message: string } | null>(null);
 
 watch(() => props.show, (newVal) => {
   if (newVal) {
     showPassword.value = false;
     showJumpPassword.value = false;
+    isTesting.value = false;
+    testResult.value = null;
     if (props.connectionToEdit) {
       form.value = { ...props.connectionToEdit };
       // Ensure optional fields are handled if undefined
@@ -48,6 +52,38 @@ watch(() => props.show, (newVal) => {
     }
   }
 });
+
+async function testConnection() {
+  if (!form.value.host || !form.value.username) {
+    testResult.value = { success: false, message: 'Host and Username are required' };
+    return;
+  }
+  
+  isTesting.value = true;
+  testResult.value = null;
+  
+  const payload = { ...form.value };
+  payload.port = parseInt(payload.port.toString(), 10);
+  if (payload.jumpPort) {
+    payload.jumpPort = parseInt(payload.jumpPort.toString(), 10);
+  }
+  // Clear jump fields if host is empty
+  if (!payload.jumpHost) {
+    delete payload.jumpHost;
+    delete payload.jumpPort;
+    delete payload.jumpUsername;
+    delete payload.jumpPassword;
+  }
+
+  try {
+    await connectionStore.testConnection(payload);
+    testResult.value = { success: true, message: 'Connection successful!' };
+  } catch (e: any) {
+    testResult.value = { success: false, message: e.toString() };
+  } finally {
+    isTesting.value = false;
+  }
+}
 
 function save() {
   const payload = { ...form.value };
@@ -162,11 +198,29 @@ function save() {
           </div>
         </div>
       </div>
-      <div class="mt-6 flex justify-end space-x-2">
-        <button @click="$emit('close')"
-          class="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded cursor-pointer text-sm">Cancel</button>
-        <button @click="save"
-          class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded cursor-pointer text-sm">Save</button>
+
+      <!-- Test Result Feedback -->
+      <div v-if="testResult" class="mt-4 p-2 rounded text-sm flex items-center gap-2"
+        :class="testResult.success ? 'bg-green-900/50 text-green-200' : 'bg-red-900/50 text-red-200'">
+        <CheckCircle v-if="testResult.success" class="w-4 h-4" />
+        <XCircle v-else class="w-4 h-4" />
+        <span>{{ testResult.message }}</span>
+      </div>
+
+      <div class="mt-6 flex justify-between items-center">
+        <button @click="testConnection"
+          :disabled="isTesting"
+          class="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+          <Loader2 v-if="isTesting" class="w-4 h-4 animate-spin" />
+          <span>Test Connection</span>
+        </button>
+
+        <div class="flex space-x-2">
+          <button @click="$emit('close')"
+            class="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded cursor-pointer text-sm">Cancel</button>
+          <button @click="save"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded cursor-pointer text-sm">Save</button>
+        </div>
       </div>
     </div>
   </div>

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { File, Folder, ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase } from 'lucide-vue-next';
-import { open, save, ask, message } from '@tauri-apps/plugin-dialog';
+import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
 import type { FileEntry, FileManagerViewMode } from '../types';
 import { useSessionStore } from '../stores/sessions'; // Import session store
@@ -35,21 +35,53 @@ function showTreeContextMenu(e: MouseEvent, node: TreeNode) {
         selectedTreePaths.value = next;
     }
 
-    let x = e.clientX;
-    let y = e.clientY;
+    const { x, y } = calculateContextMenuPosition(e.clientX, e.clientY);
+    contextMenu.value = { show: true, x, y, file: node.entry, treePath: node.path, isTree: true, isBackground: false };
+    updateContextMenuPosition();
+}
 
-    const menuWidth = 160;
-    const menuHeight = 180;
+function calculateContextMenuPosition(clientX: number, clientY: number) {
+    // Return raw coordinates and let updateContextMenuPosition handle boundaries
+    // after the menu is rendered and we know its actual size
+    return { x: clientX, y: clientY };
+}
 
-    if (x + menuWidth > window.innerWidth) {
-        x = window.innerWidth - menuWidth - 10;
+async function updateContextMenuPosition() {
+    await nextTick();
+    if (!contextMenuRef.value) return;
+
+    const rect = contextMenuRef.value.getBoundingClientRect();
+    let { x, y } = contextMenu.value;
+    
+    // Adjust if overflowing
+    if (rect.bottom > window.innerHeight) {
+        y = window.innerHeight - rect.height - 10; // 10px padding
+    }
+    if (rect.right > window.innerWidth) {
+        x = window.innerWidth - rect.width - 10;
+    }
+    
+    // Ensure not negative (top/left)
+    x = Math.max(0, x);
+    y = Math.max(0, y);
+
+    contextMenu.value.x = x;
+    contextMenu.value.y = y;
+}
+
+function showBackgroundContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    // If clicking on background, clear file selection unless Ctrl/Shift is held (handled by other listeners? usually background click clears selection)
+    // For now, just show menu.
+    // Maybe clear selection?
+    if (!e.ctrlKey && !e.shiftKey) {
+        selectedFiles.value.clear();
+        selectedTreePaths.value.clear();
     }
 
-    if (y + menuHeight > window.innerHeight) {
-        y = window.innerHeight - menuHeight - 10;
-    }
-
-    contextMenu.value = { show: true, x, y, file: node.entry, treePath: node.path, isTree: true };
+    const { x, y } = calculateContextMenuPosition(e.clientX, e.clientY);
+    contextMenu.value = { show: true, x, y, file: null, treePath: null, isTree: viewMode.value === 'tree', isBackground: true };
+    updateContextMenuPosition();
 }
 
 const props = defineProps<{ sessionId: string }>();
@@ -60,7 +92,8 @@ const notificationStore = useNotificationStore();
 const viewMode = computed<FileManagerViewMode>(() => settingsStore.fileManager.viewMode);
 const currentPath = ref('.');
 const files = ref<FileEntry[]>([]);
-const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null, treePath: string | null, isTree: boolean }>({ show: false, x: 0, y: 0, file: null, treePath: null, isTree: false });
+const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null, treePath: string | null, isTree: boolean, isBackground: boolean }>({ show: false, x: 0, y: 0, file: null, treePath: null, isTree: false, isBackground: false });
+const contextMenuRef = ref<HTMLElement | null>(null);
 const isEditingPath = ref(false);
 const pathInput = ref('');
 const containerRef = ref<HTMLElement | null>(null);
@@ -451,22 +484,9 @@ function showContextMenu(e: MouseEvent, file: FileEntry) {
         if (idx !== -1) lastSelectedIndex.value = idx;
     }
 
-    // Calculate position to avoid overflow
-    let x = e.clientX;
-    let y = e.clientY;
-
-    const menuWidth = 160; // Approximate width
-    const menuHeight = 180; // Approximate height
-
-    if (x + menuWidth > window.innerWidth) {
-        x = window.innerWidth - menuWidth - 10; // 10px padding
-    }
-
-    if (y + menuHeight > window.innerHeight) {
-        y = window.innerHeight - menuHeight - 10;
-    }
-
-    contextMenu.value = { show: true, x, y, file, treePath: null, isTree: false };
+    const { x, y } = calculateContextMenuPosition(e.clientX, e.clientY);
+    contextMenu.value = { show: true, x, y, file, treePath: null, isTree: false, isBackground: false };
+    updateContextMenuPosition();
 }
 
 function closeContextMenu() {
@@ -566,19 +586,27 @@ async function handleUploadDirectory() {
 }
 
 async function handleSetWorkspace() {
-    if (!contextMenu.value.file?.isDir) return;
+    let path = '';
 
-    const path = contextMenu.value.isTree && contextMenu.value.treePath
-        ? contextMenu.value.treePath
-        : (currentPath.value === '.' ? contextMenu.value.file.name : `${currentPath.value}/${contextMenu.value.file.name}`);
+    if (contextMenu.value.isBackground) {
+        path = currentPath.value;
+    } else if (contextMenu.value.file?.isDir) {
+        path = contextMenu.value.isTree && contextMenu.value.treePath
+            ? contextMenu.value.treePath
+            : (currentPath.value === '.' ? contextMenu.value.file.name : `${currentPath.value}/${contextMenu.value.file.name}`);
+    } else {
+        return;
+    }
 
     try {
         await sessionStore.setSessionWorkspace(props.sessionId, path);
-        await message(`Workspace set to: ${path}`, { title: 'Success', kind: 'info' });
-        // Switch to AI tab?
+        useNotificationStore().success(`Workspace set to: ${path}`);
+         // Switch to AI tab?
         sessionStore.setActiveTab('ai');
+        //await message(`Workspace set to: ${path}`, { title: 'Success', kind: 'info' });
+       
     } catch (e) {
-        await message(`Failed to set workspace: ${e}`, { title: 'Error', kind: 'error' });
+        notificationStore.error(`Failed to set workspace: ${e}`);
     }
     closeContextMenu();
 }
@@ -909,7 +937,7 @@ async function performDelete(skipConfirm: boolean) {
         }
         await loadFiles(currentPath.value);
     } catch (e) {
-        await message("Delete failed: " + e, { title: 'Error', kind: 'error' });
+        notificationStore.error("Delete failed: " + e);
     }
     closeContextMenu();
 }
@@ -1066,7 +1094,7 @@ function formatSize(size: number): string {
 
         <!-- File List -->
         <div class="flex-1 overflow-y-auto border border-gray-800 rounded bg-gray-900/50"
-            @dragover="handleNativeDragOver" @drop="handleNativeDrop">
+            @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu.prevent="showBackgroundContextMenu">
             <!-- Header -->
             <div
                 class="flex items-center p-2 text-xs text-gray-500 border-b border-gray-800 bg-gray-800/50 font-bold select-none">
@@ -1168,42 +1196,81 @@ function formatSize(size: number): string {
         </div>
 
         <!-- Context Menu -->
-        <div v-if="contextMenu.show" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+        <div v-if="contextMenu.show" ref="contextMenuRef" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
             class="fixed bg-gray-800 border border-gray-700 shadow-xl rounded z-50 py-1 min-w-[150px]">
-            <button @click.stop="handleDownload()"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
-                <span class="flex-1">{{
-                    (!contextMenu.isTree && selectedFiles.size > 1)
-                        ? t('fileManager.contextMenu.batchDownload')
-                        : t('fileManager.contextMenu.download')
-                }}</span>
-                <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-gray-400">({{
-                    selectedFiles.size
-                    }})</span>
-            </button>
-            <button @click.stop="handleRename(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.rename')
-                }}</button>
-            <button @click.stop="handleDelete(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 text-red-400">
-                {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : '' }}
-            </button>
-            <div class="border-t border-gray-700 my-1"></div>
-            <button v-if="contextMenu.file?.isDir" @click.stop="handleSetWorkspace()"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center text-purple-400">
-                <Briefcase class="w-4 h-4 mr-2" />
-                Set as AI Workspace
-            </button>
-            <button @click.stop="copyPath(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
-                    t('fileManager.contextMenu.copyPath') }}</button>
-            <button @click.stop="copyName(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
-                    t('fileManager.contextMenu.copyName') }}</button>
-            <button @click.stop="handleChangePermissions(contextMenu.file!)"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
-                    t('fileManager.contextMenu.changePermissions')
-                }}</button>
+            
+            <template v-if="contextMenu.isBackground">
+                <button @click.stop="refresh(); closeContextMenu()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <RefreshCw class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.toolbar.refresh') }}
+                </button>
+                <div class="border-t border-gray-700 my-1"></div>
+                <button @click.stop="createFile(); closeContextMenu()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <FilePlus class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.toolbar.newFile') }}
+                </button>
+                <button @click.stop="createFolder(); closeContextMenu()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <FolderPlus class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.toolbar.newFolder') }}
+                </button>
+                <div class="border-t border-gray-700 my-1"></div>
+                <button @click.stop="handleUpload(); closeContextMenu()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <Upload class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.toolbar.uploadFile') }}
+                </button>
+                <button @click.stop="handleUploadDirectory(); closeContextMenu()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <FolderPlus class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.toolbar.uploadDirectory') }}
+                </button>
+                <div class="border-t border-gray-700 my-1"></div>
+                <button @click.stop="handleSetWorkspace()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center text-purple-400">
+                    <Briefcase class="w-4 h-4 mr-2" />
+                    Set as AI Workspace
+                </button>
+            </template>
+
+            <template v-else>
+                <button @click.stop="handleDownload()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <span class="flex-1">{{
+                        (!contextMenu.isTree && selectedFiles.size > 1)
+                            ? t('fileManager.contextMenu.batchDownload')
+                            : t('fileManager.contextMenu.download')
+                    }}</span>
+                    <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-gray-400">({{
+                        selectedFiles.size
+                        }})</span>
+                </button>
+                <button @click.stop="handleRename(contextMenu.file!)"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.rename')
+                    }}</button>
+                <button @click.stop="handleDelete(contextMenu.file!)"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 text-red-400">
+                    {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : '' }}
+                </button>
+                <div class="border-t border-gray-700 my-1"></div>
+                <button v-if="contextMenu.file?.isDir" @click.stop="handleSetWorkspace()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center text-purple-400">
+                    <Briefcase class="w-4 h-4 mr-2" />
+                    Set as AI Workspace
+                </button>
+                <button @click.stop="copyPath(contextMenu.file!)"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
+                        t('fileManager.contextMenu.copyPath') }}</button>
+                <button @click.stop="copyName(contextMenu.file!)"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
+                        t('fileManager.contextMenu.copyName') }}</button>
+                <button @click.stop="handleChangePermissions(contextMenu.file!)"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
+                        t('fileManager.contextMenu.changePermissions')
+                    }}</button>
+            </template>
         </div>
     </div>
 </template>

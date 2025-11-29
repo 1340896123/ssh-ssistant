@@ -167,6 +167,7 @@ onMounted(() => {
   settingsStore.loadSettings();
   window.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('mouseup', handleMouseUp);
+  window.addEventListener('keydown', handleGlobalKeydown);
 
   clockTimer = window.setInterval(() => {
     now.value = Date.now();
@@ -180,6 +181,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mousemove', handleMouseMove);
   window.removeEventListener('mouseup', handleMouseUp);
+  window.removeEventListener('keydown', handleGlobalKeydown);
 
   if (clockTimer !== null) {
     clearInterval(clockTimer);
@@ -246,6 +248,16 @@ function handleMouseUp() {
     isResizing.value = null;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+  }
+}
+
+function handleGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+    e.preventDefault();
+    // Optional: Trigger your own search functionality here if needed
+    // For example, if you want Ctrl+F to focus the terminal search bar if it's visible,
+    // you could dispatch a custom event or handle it in the specific component.
+    // But the user specifically asked to just "block default browser search".
   }
 }
 

@@ -4,7 +4,7 @@ import { useSettingsStore } from '../stores/settings';
 import { useSessionStore } from '../stores/sessions';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { emit as tauriEmit, listen } from '@tauri-apps/api/event';
+import { listen } from '@tauri-apps/api/event';
 import { Send, Bot, User, TerminalSquare, Loader2, ChevronRight, ChevronDown, ClipboardPlus, Trash2, Square, Briefcase } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
 

@@ -393,6 +393,17 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
 }
 
 #[tauri::command]
+pub async fn test_connection(config: SshConnConfig) -> Result<String, String> {
+    execute_ssh_operation(move || {
+        let session = establish_connection(&config)?;
+        // Disconnect immediately as we only wanted to test credentials/reachability
+        let _ = session.disconnect(None, "Connection Test", None);
+        Ok("Connection successful".to_string())
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn connect(
     app: AppHandle,
     state: State<'_, AppState>,

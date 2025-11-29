@@ -23,6 +23,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            ssh::test_connection,
             ssh::connect,
             ssh::disconnect,
             ssh::cleanup_and_reconnect,
