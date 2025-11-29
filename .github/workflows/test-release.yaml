@@ -62,12 +62,16 @@ jobs:
         # If you don't have `beforeBuildCommand` configured you may want to build your frontend here too.
         run: npm install # change this to npm or pnpm depending on which one you use.
 
+      - name: Set OpenSSL environment variables (macOS only)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENSSL_DIR: ${{ startsWith(matrix.platform, 'macos') && steps.openssl-dir.outputs.prefix || '' }}
-          OPENSSL_ROOT_DIR: ${{ startsWith(matrix.platform, 'macos') && steps.openssl-dir.outputs.prefix || '' }}
-          PKG_CONFIG_PATH: ${{ startsWith(matrix.platform, 'macos') && format('{0}/lib/pkgconfig', steps.openssl-dir.outputs.prefix) || '' }}
         with:
           tagName: app-v__VERSION__ # the action automatically replaces __VERSION__ with the app version.
           releaseName: 'App v__VERSION__'
