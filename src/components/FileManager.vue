@@ -197,17 +197,18 @@ function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
 
 async function loadFiles(path: string) {
     try {
+        console.log('Loading files for path:', path);
         const loadedFiles = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
         
         // Add parent directory entry ".." when not in root
-        const filesWithParent = path !== '/' ? [{
+        const filesWithParent = path !== '.' ? [{
             name: '..',
             size: 0,
             mtime: 0,
             isDir: true,
             permissions: 755,
             uid: 0,
-            owner: 'root'
+            owner: '-'
         }, ...loadedFiles] : loadedFiles;
         
         files.value = filesWithParent;
@@ -215,6 +216,7 @@ async function loadFiles(path: string) {
         currentPath.value = path;
         // Display actual path instead of "."
         pathInput.value = path === '.' ? '/' : path;
+        console.log('Set currentPath to:', path, 'displayed as:', pathInput.value);
         selectedFiles.value.clear();
         lastSelectedIndex.value = -1;
 
@@ -466,10 +468,10 @@ onMounted(async () => {
     // Get the actual working directory for the user
     try {
         const workingDir = await invoke<string>('get_working_directory', { id: props.sessionId });
-        loadFiles(workingDir || '.'); // Fallback to '.' if working directory is not available
+        loadFiles(workingDir || '/'); // Fallback to '/' if working directory is not available
     } catch (e) {
         console.error('Failed to get working directory, using root:', e);
-        loadFiles('.'); // Fallback to root if there's an error
+        loadFiles('/'); // Fallback to root if there's an error
     }
     transferStore.initListeners();
     window.addEventListener('mousemove', handleMouseMove);
@@ -534,11 +536,13 @@ async function navigate(entry: FileEntry) {
 }
 
 function goUp() {
-    if (currentPath.value === '.' || currentPath.value === '/') return;
-    const parts = currentPath.value.split('/');
-    parts.pop();
-    const newPath = parts.join('/') || '/';
-    loadFiles(newPath);
+    if (currentPath.value === '/' || currentPath.value === '.') {
+        return;
+    }
+    
+    const parentPath = pathUtils.dirname(currentPath.value);
+    console.log('Going up from', currentPath.value, 'to', parentPath);
+    loadFiles(parentPath);
 }
 
 function refresh() {
@@ -554,11 +558,13 @@ function handlePathSubmit() {
             pathInput.value = '/';
         }
         
-        // Convert "/" back to "." for backend compatibility if needed
-        const backendPath = targetPath === '/' ? '.' : targetPath;
+        // Ensure it starts with /
+        if (!targetPath.startsWith('/')) {
+            targetPath = '/' + targetPath;
+        }
         
-        if (backendPath !== currentPath.value) {
-            loadFiles(backendPath);
+        if (targetPath !== currentPath.value) {
+            loadFiles(targetPath);
         }
     }
     isEditingPath.value = false;
