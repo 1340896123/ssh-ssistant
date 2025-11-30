@@ -174,7 +174,7 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
 
 
 function joinPath(parent: string, child: string): string {
-    if (parent === '.') return child;
+    if (parent === '.' || parent === '/') return child;
     return parent.endsWith('/') ? `${parent}${child}` : `${parent}/${child}`;
 }
 
@@ -423,7 +423,14 @@ async function handleTauriFileDrop(paths: string[]) {
 }
 
 onMounted(async () => {
-    loadFiles('.');
+    // Get the actual working directory for the user
+    try {
+        const workingDir = await invoke<string>('get_working_directory', { id: props.sessionId });
+        loadFiles(workingDir || '.'); // Fallback to '.' if working directory is not available
+    } catch (e) {
+        console.error('Failed to get working directory, using root:', e);
+        loadFiles('.'); // Fallback to root if there's an error
+    }
     transferStore.initListeners();
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', stopResize);
@@ -481,10 +488,10 @@ async function navigate(entry: FileEntry) {
 }
 
 function goUp() {
-    if (currentPath.value === '.') return;
+    if (currentPath.value === '.' || currentPath.value === '/') return;
     const parts = currentPath.value.split('/');
     parts.pop();
-    const newPath = parts.join('/') || '.';
+    const newPath = parts.join('/') || '/';
     loadFiles(newPath);
 }
 
@@ -501,8 +508,11 @@ function handlePathSubmit() {
             pathInput.value = '/';
         }
         
-        if (targetPath !== currentPath.value) {
-            loadFiles(targetPath);
+        // Convert "/" back to "." for backend compatibility if needed
+        const backendPath = targetPath === '/' ? '.' : targetPath;
+        
+        if (backendPath !== currentPath.value) {
+            loadFiles(backendPath);
         }
     }
     isEditingPath.value = false;
@@ -655,7 +665,7 @@ async function handleSetWorkspace() {
     } else if (contextMenu.value.file?.isDir) {
         path = contextMenu.value.isTree && contextMenu.value.treePath
             ? contextMenu.value.treePath
-            : (currentPath.value === '.' ? contextMenu.value.file.name : `${currentPath.value}/${contextMenu.value.file.name}`);
+            : (currentPath.value === '.' || currentPath.value === '/' ? contextMenu.value.file.name : `${currentPath.value}/${contextMenu.value.file.name}`);
     } else {
         return;
     }
@@ -905,7 +915,7 @@ async function handleDownload(file?: FileEntry) {
                 if (selectedDirectory && typeof selectedDirectory === 'string') {
                     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                         ? contextMenu.value.treePath
-                        : (currentPath.value === '.' ? targetFile.name : `${currentPath.value}/${targetFile.name}`);
+                        : (currentPath.value === '.' || currentPath.value === '/' ? targetFile.name : `${currentPath.value}/${targetFile.name}`);
 
                     const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
                         ? `${selectedDirectory}${targetFile.name}`
@@ -923,7 +933,7 @@ async function handleDownload(file?: FileEntry) {
                 if (savePath) {
                     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                         ? contextMenu.value.treePath
-                        : (currentPath.value === '.' ? targetFile.name : `${currentPath.value}/${targetFile.name}`);
+                        : (currentPath.value === '.' || currentPath.value === '/' ? targetFile.name : `${currentPath.value}/${targetFile.name}`);
 
                     transferStore.addTransfer({
                         id: crypto.randomUUID(),
@@ -954,7 +964,7 @@ async function handleChangePermissions(file: FileEntry) {
         try {
             const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                 ? contextMenu.value.treePath
-                : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
+                : (currentPath.value === '.' || currentPath.value === '/' ? file.name : `${currentPath.value}/${file.name}`);
             await invoke('change_file_permission', {
                 id: props.sessionId,
                 path: remotePath,
@@ -993,7 +1003,7 @@ async function performDelete(skipConfirm: boolean) {
                 const entry = files.value.find(f => f.name === name);
                 if (!entry) continue;
 
-                const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
+                const remotePath = (currentPath.value === '.' || currentPath.value === '/') ? name : `${currentPath.value}/${name}`;
                 await invoke('delete_item', { id: props.sessionId, path: remotePath, isDir: entry.isDir });
             }
         }
@@ -1025,7 +1035,7 @@ function handleKeyDown(e: KeyboardEvent) {
 async function handleRename(file: FileEntry) {
     const path = contextMenu.value.isTree && contextMenu.value.treePath
         ? contextMenu.value.treePath
-        : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
+        : (currentPath.value === '.' || currentPath.value === '/' ? file.name : `${currentPath.value}/${file.name}`);
 
     startRename(file, path);
     closeContextMenu();
@@ -1242,7 +1252,7 @@ async function createFile() {
 function copyPath(file: FileEntry) {
     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
         ? contextMenu.value.treePath
-        : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
+        : (currentPath.value === '.' || currentPath.value === '/' ? file.name : `${currentPath.value}/${file.name}`);
     navigator.clipboard.writeText(remotePath);
     closeContextMenu();
 }
