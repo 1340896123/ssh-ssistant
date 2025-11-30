@@ -2001,3 +2001,41 @@ pub async fn exec_command(
     block_on(|| channel.wait_close()).ok();
     Ok(s)
 }
+
+#[tauri::command]
+pub async fn get_working_directory(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<String, String> {
+    let client = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        let client = clients.get(&id).ok_or("Session not found")?;
+        client.clone()
+    };
+
+    // 使用后台会话执行pwd命令获取工作目录
+    let bg_session = client
+        .ssh_pool
+        .get_background_session()
+        .map_err(|e| format!("Failed to get background session: {}", e))?;
+    let sess = bg_session.lock().map_err(|e| e.to_string())?;
+    let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
+    block_on(|| channel.exec("pwd")).map_err(|e| e.to_string())?;
+
+    let mut working_dir = String::new();
+    let mut buf = [0u8; 1024];
+    loop {
+        match channel.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => working_dir.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    block_on(|| channel.wait_close()).ok();
+    
+    // 清理换行符和空白字符
+    Ok(working_dir.trim().to_string())
+}

@@ -47,6 +47,7 @@ pub fn run() {
             ssh::write_to_pty,
             ssh::write_binary_to_pty,
             ssh::resize_pty,
+            ssh::get_working_directory,
             db::get_connections,
             db::create_connection,
             db::update_connection,
