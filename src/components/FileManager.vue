@@ -1341,52 +1341,24 @@ function formatSize(size: number): string {
 
             <!-- Flat View -->
             <template v-if="viewMode === 'flat'">
-                <VirtualFileList
-                    :items="files"
-                    :view-mode="viewMode"
-                    :selected-files="selectedFiles"
-                    :selected-tree-paths="selectedTreePaths"
-                    :column-widths="columnWidths"
-                    :on-selection="handleSelection"
-                    :on-navigate="navigate"
-                    :on-context-menu="showContextMenu"
-                    :on-drag-start="onDragStart"
-                    :expanded-paths="expandedPaths"
-                    :format-size="formatSize"
-                    :format-date="formatDate"
-                    :renaming-path="renamingPath"
-                    v-model:rename-input="renameInput"
-                    @confirm-rename="confirmRename"
-                    @cancel-rename="cancelRename"
-                    :current-path="currentPath"
-                />
+                <VirtualFileList :items="files" :view-mode="viewMode" :selected-files="selectedFiles"
+                    :selected-tree-paths="selectedTreePaths" :column-widths="columnWidths"
+                    :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
+                    :on-drag-start="onDragStart" :expanded-paths="expandedPaths" :format-size="formatSize"
+                    :format-date="formatDate" :renaming-path="renamingPath" v-model:rename-input="renameInput"
+                    @confirm-rename="confirmRename" @cancel-rename="cancelRename" :current-path="currentPath" />
             </template>
 
             <!-- Tree View -->
             <template v-else>
-                <VirtualFileList
-                    :items="visibleTreeNodes"
-                    :view-mode="viewMode"
-                    :selected-files="selectedFiles"
-                    :selected-tree-paths="selectedTreePaths"
-                    :column-widths="columnWidths"
-                    :on-selection="handleSelection"
-                    :on-navigate="navigate"
-                    :on-context-menu="showContextMenu"
-                    :on-tree-selection="handleTreeSelection"
-                    :on-open-tree-file="openTreeFile"
-                    :on-tree-context-menu="showTreeContextMenu"
-                    :on-toggle-directory="toggleDirectory"
-                    :on-drag-start="onDragStart"
-                    :expanded-paths="expandedPaths"
-                    :format-size="formatSize"
-                    :format-date="formatDate"
-                    :renaming-path="renamingPath"
-                    v-model:rename-input="renameInput"
-                    @confirm-rename="confirmRename"
-                    @cancel-rename="cancelRename"
-                    :current-path="currentPath"
-                />
+                <VirtualFileList :items="visibleTreeNodes" :view-mode="viewMode" :selected-files="selectedFiles"
+                    :selected-tree-paths="selectedTreePaths" :column-widths="columnWidths"
+                    :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
+                    :on-tree-selection="handleTreeSelection" :on-open-tree-file="openTreeFile"
+                    :on-tree-context-menu="showTreeContextMenu" :on-toggle-directory="toggleDirectory"
+                    :on-drag-start="onDragStart" :expanded-paths="expandedPaths" :format-size="formatSize"
+                    :format-date="formatDate" :renaming-path="renamingPath" v-model:rename-input="renameInput"
+                    @confirm-rename="confirmRename" @cancel-rename="cancelRename" :current-path="currentPath" />
             </template>
 
             <div v-if="files.length === 0" class="p-4 text-center text-gray-600 text-sm">
