@@ -29,7 +29,16 @@ interface Props {
     expandedPaths?: Set<string>;
     formatSize: (size: number) => string;
     formatDate: (timestamp: number) => string;
+    renamingPath?: string | null;
+    renameInput?: string;
+    currentPath?: string;
 }
+
+const emit = defineEmits<{
+    (e: 'update:renameInput', value: string): void;
+    (e: 'confirmRename'): void;
+    (e: 'cancelRename'): void;
+}>();
 
 const props = withDefaults(defineProps<Props>(), {
     viewMode: 'flat'
@@ -80,7 +89,27 @@ function renderFileItem(item: FileEntry, index: number) {
                 : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
                 ]),
-            h('span', { class: 'text-sm truncate' }, item.name)
+            (props.renamingPath && props.currentPath && 
+             props.renamingPath === (props.currentPath === '.' ? item.name : `${props.currentPath}/${item.name}`))
+                ? h('input', {
+                    value: props.renameInput,
+                    class: 'bg-gray-700 text-white px-1 rounded border border-blue-500 focus:outline-none w-full',
+                    autofocus: true,
+                    onClick: (e: MouseEvent) => e.stopPropagation(),
+                    onInput: (e: Event) => emit('update:renameInput', (e.target as HTMLInputElement).value),
+                    onKeydown: (e: KeyboardEvent) => {
+                        if (e.key === 'Enter') emit('confirmRename');
+                        if (e.key === 'Escape') emit('cancelRename');
+                    },
+                    onBlur: () => emit('cancelRename'),
+                    onVnodeMounted: (vnode) => {
+                        if (vnode.el) {
+                            (vnode.el as HTMLInputElement).focus();
+                            (vnode.el as HTMLInputElement).select();
+                        }
+                    }
+                })
+                : h('span', { class: 'text-sm truncate' }, item.name)
         ]),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',
@@ -138,7 +167,26 @@ function renderTreeNode(node: TreeNode) {
                 : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
                 ]),
-            h('span', { class: 'text-sm truncate' }, node.entry.name)
+            (props.renamingPath && props.renamingPath === node.path)
+                ? h('input', {
+                    value: props.renameInput,
+                    class: 'bg-gray-700 text-white px-1 rounded border border-blue-500 focus:outline-none w-full',
+                    autofocus: true,
+                    onClick: (e: MouseEvent) => e.stopPropagation(),
+                    onInput: (e: Event) => emit('update:renameInput', (e.target as HTMLInputElement).value),
+                    onKeydown: (e: KeyboardEvent) => {
+                        if (e.key === 'Enter') emit('confirmRename');
+                        if (e.key === 'Escape') emit('cancelRename');
+                    },
+                    onBlur: () => emit('cancelRename'),
+                    onVnodeMounted: (vnode) => {
+                        if (vnode.el) {
+                            (vnode.el as HTMLInputElement).focus();
+                            (vnode.el as HTMLInputElement).select();
+                        }
+                    }
+                })
+                : h('span', { class: 'text-sm truncate' }, node.entry.name)
         ]),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',

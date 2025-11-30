@@ -110,6 +110,8 @@ const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry |
 const contextMenuRef = ref<HTMLElement | null>(null);
 const isEditingPath = ref(false);
 const pathInput = ref('');
+const renamingPath = ref<string | null>(null);
+const renameInput = ref('');
 const containerRef = ref<HTMLElement | null>(null);
 const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
@@ -1010,28 +1012,49 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 async function handleRename(file: FileEntry) {
-    const newName = prompt("New name:", file.name);
-    if (!newName || newName === file.name) return;
-    try {
-        let oldPath: string;
-        let newPath: string;
+    const path = contextMenu.value.isTree && contextMenu.value.treePath
+        ? contextMenu.value.treePath
+        : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
+    
+    startRename(file, path);
+    closeContextMenu();
+}
 
-        if (contextMenu.value.isTree && contextMenu.value.treePath) {
-            oldPath = contextMenu.value.treePath;
-            const parts = oldPath.split('/');
-            parts.pop();
-            const parent = parts.join('/');
-            newPath = parent ? `${parent}/${newName}` : newName;
-        } else {
-            oldPath = currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`;
-            newPath = currentPath.value === '.' ? newName : `${currentPath.value}/${newName}`;
-        }
+function startRename(file: FileEntry, path: string) {
+    renamingPath.value = path;
+    renameInput.value = file.name;
+}
+
+async function confirmRename() {
+    if (!renamingPath.value || !renameInput.value) return;
+    
+    const oldPath = renamingPath.value;
+    const newName = renameInput.value;
+    
+    // Calculate new path
+    const parts = oldPath.split('/');
+    const oldName = parts.pop();
+    if (newName === oldName) {
+        cancelRename();
+        return;
+    }
+    
+    const parent = parts.join('/');
+    const newPath = parent ? `${parent}/${newName}` : newName;
+
+    try {
         await invoke('rename_item', { id: props.sessionId, oldPath, newPath });
         await loadFiles(currentPath.value);
     } catch (e) {
         notificationStore.error("Rename failed: " + e);
+    } finally {
+        cancelRename();
     }
-    closeContextMenu();
+}
+
+function cancelRename() {
+    renamingPath.value = null;
+    renameInput.value = '';
 }
 
 async function createFolder() {
@@ -1182,6 +1205,11 @@ function formatSize(size: number): string {
                     :expanded-paths="expandedPaths"
                     :format-size="formatSize"
                     :format-date="formatDate"
+                    :renaming-path="renamingPath"
+                    v-model:rename-input="renameInput"
+                    @confirm-rename="confirmRename"
+                    @cancel-rename="cancelRename"
+                    :current-path="currentPath"
                 />
             </template>
 
@@ -1204,6 +1232,11 @@ function formatSize(size: number): string {
                     :expanded-paths="expandedPaths"
                     :format-size="formatSize"
                     :format-date="formatDate"
+                    :renaming-path="renamingPath"
+                    v-model:rename-input="renameInput"
+                    @confirm-rename="confirmRename"
+                    @cancel-rename="cancelRename"
+                    :current-path="currentPath"
                 />
             </template>
 
