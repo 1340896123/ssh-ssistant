@@ -13,6 +13,7 @@ import { useSettingsStore } from '../stores/settings';
 import TransferList from './TransferList.vue';
 import VirtualFileList from './VirtualFileList.vue';
 import { useI18n } from '../composables/useI18n';
+import { pathUtils } from '../composables/usePath';
 // import draggable from 'vuedraggable'; // Removed
 
 type ColumnKey = 'name' | 'size' | 'date' | 'owner';
@@ -171,13 +172,6 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
     return result;
 });
 
-
-
-function joinPath(parent: string, child: string): string {
-    if (parent === '.' || parent === '/') return child;
-    return parent.endsWith('/') ? `${parent}${child}` : `${parent}/${child}`;
-}
-
 function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
     let entry: FileEntry;
     let path: string;
@@ -187,7 +181,7 @@ function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
         path = (element as TreeNode).path;
     } else { // FileEntry
         entry = element as FileEntry;
-        path = joinPath(currentPath.value, entry.name);
+        path = pathUtils.join(currentPath.value, entry.name);
     }
 
     const data = {
@@ -235,7 +229,7 @@ async function loadFiles(path: string) {
             const childPaths: string[] = [];
 
             // Add parent directory entry ".." when not in root
-            if (path !== '.') {
+            if (path !== '/' && path !== '.') {
                 const parentEntry: FileEntry = {
                     name: '..',
                     size: 0,
@@ -243,9 +237,9 @@ async function loadFiles(path: string) {
                     isDir: true,
                     permissions: 755,
                     uid: 0,
-                    owner: 'root'
+                    owner: '-'
                 };
-                const parentDirPath = joinPath(path, '..');
+                const parentDirPath = pathUtils.dirname(path);
                 treeNodes.value.set(parentDirPath, {
                     entry: parentEntry,
                     path: parentDirPath,
@@ -261,7 +255,7 @@ async function loadFiles(path: string) {
                 // Skip the ".." entry as it's already added above
                 if (entry.name === '..') continue;
                 
-                const fullPath = joinPath(path, entry.name);
+                const fullPath = pathUtils.join(path, entry.name);
                 treeNodes.value.set(fullPath, {
                     entry,
                     path: fullPath,
@@ -322,7 +316,7 @@ async function toggleDirectory(node: TreeNode) {
         const childPaths: string[] = [];
 
         for (const child of children) {
-            const childPath = joinPath(node.path, child.name);
+            const childPath = pathUtils.join(node.path, child.name);
             if (!treeNodes.value.has(childPath)) {
                 treeNodes.value.set(childPath, {
                     entry: child,
@@ -430,7 +424,7 @@ function handleNativeDrop(event: DragEvent) {
 async function handleTauriFileDrop(paths: string[]) {
     for (const fullPath of paths) {
         const name = fullPath.split(/[\\/]/).pop() || 'uploaded';
-        const remotePath = joinPath(currentPath.value, name);
+        const remotePath = pathUtils.join(currentPath.value, name);
 
         try {
             // Check if it's a directory
@@ -518,7 +512,8 @@ async function navigate(entry: FileEntry) {
             // Go to parent directory
             goUp();
         } else {
-            const newPath = joinPath(currentPath.value === '.' ? '/' : currentPath.value, entry.name);
+            // Calculate the correct path for navigation
+            const newPath = pathUtils.join(currentPath.value, entry.name);
             loadFiles(newPath);
         }
     } else {
@@ -527,7 +522,7 @@ async function navigate(entry: FileEntry) {
         try {
             await invoke('edit_remote_file', {
                 id: props.sessionId,
-                remotePath: joinPath(currentPath.value === '.' ? '/' : currentPath.value, entry.name),
+                remotePath: pathUtils.join(currentPath.value, entry.name),
                 remoteName: entry.name
             });
         } catch (e) {
@@ -624,7 +619,7 @@ async function handleUpload() {
         });
         if (selected && typeof selected === 'string') {
             const name = selected.split(/[\\/]/).pop() || 'uploaded_file';
-            const remotePath = joinPath(currentPath.value, name);
+            const remotePath = pathUtils.join(currentPath.value, name);
 
             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
@@ -654,7 +649,7 @@ async function processDirectory(localPath: string, remoteBasePath: string) {
     for (const entry of entries) {
         const sep = localPath.includes('\\') ? '\\' : '/';
         const fullLocalPath = localPath.endsWith(sep) ? `${localPath}${entry.name}` : `${localPath}${sep}${entry.name}`;
-        const fullRemotePath = `${remoteBasePath}/${entry.name}`;
+        const fullRemotePath = pathUtils.join(remoteBasePath, entry.name);
 
         if (entry.isDirectory) {
             try {
@@ -691,7 +686,7 @@ async function handleUploadDirectory() {
 
         if (selected && typeof selected === 'string') {
             const name = selected.split(/[\\/]/).pop() || 'uploaded_dir';
-            const remotePath = joinPath(currentPath.value, name);
+            const remotePath = pathUtils.join(currentPath.value, name);
 
             try {
                 await invoke('create_directory', { id: props.sessionId, path: remotePath });
@@ -716,7 +711,7 @@ async function handleSetWorkspace() {
     } else if (contextMenu.value.file?.isDir) {
         path = contextMenu.value.isTree && contextMenu.value.treePath
             ? contextMenu.value.treePath
-            : (currentPath.value === '.' || currentPath.value === '/' ? contextMenu.value.file.name : `${currentPath.value}/${contextMenu.value.file.name}`);
+            : pathUtils.join(currentPath.value, contextMenu.value.file.name);
     } else {
         return;
     }
@@ -785,7 +780,7 @@ async function calculateDirectoryStats(remotePath: string, sessionId: string): P
         const entries = await invoke<FileEntry[]>('list_files', { id: sessionId, path });
 
         for (const entry of entries) {
-            const fullPath = `${path}/${entry.name}`;
+            const fullPath = pathUtils.join(path, entry.name);
 
             if (entry.isDir) {
                 await scanDirectory(fullPath);
@@ -823,8 +818,8 @@ async function downloadDirectoryRecursive(remoteDirPath: string, localDirPath: s
                 return; // 停止下载
             }
 
-            const remotePath = `${remoteDirPath}/${entry.name}`;
-            const localPath = `${localDirPath}/${entry.name}`;
+            const remotePath = pathUtils.join(remoteDirPath, entry.name);
+            const localPath = `${localDirPath}/${entry.name}`; // Local path handling (keeping as is for now or use separate utils)
 
             if (entry.isDir) {
                 // Create local subdirectory
@@ -926,7 +921,7 @@ async function handleDownload(file?: FileEntry) {
                     const entry = files.value.find(f => f.name === fileName);
                     if (!entry) continue;
 
-                    const remotePath = joinPath(currentPath.value, entry.name);
+                    const remotePath = pathUtils.join(currentPath.value, entry.name);
                     const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
                         ? `${selectedDirectory}${entry.name}`
                         : `${selectedDirectory}/${entry.name}`;
@@ -966,7 +961,7 @@ async function handleDownload(file?: FileEntry) {
                 if (selectedDirectory && typeof selectedDirectory === 'string') {
                     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                         ? contextMenu.value.treePath
-                        : (currentPath.value === '.' || currentPath.value === '/' ? targetFile.name : `${currentPath.value}/${targetFile.name}`);
+                        : pathUtils.join(currentPath.value, targetFile.name);
 
                     const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
                         ? `${selectedDirectory}${targetFile.name}`
@@ -984,7 +979,7 @@ async function handleDownload(file?: FileEntry) {
                 if (savePath) {
                     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                         ? contextMenu.value.treePath
-                        : (currentPath.value === '.' || currentPath.value === '/' ? targetFile.name : `${currentPath.value}/${targetFile.name}`);
+                        : pathUtils.join(currentPath.value, targetFile.name);
 
                     transferStore.addTransfer({
                         id: crypto.randomUUID(),
@@ -1015,7 +1010,7 @@ async function handleChangePermissions(file: FileEntry) {
         try {
             const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
                 ? contextMenu.value.treePath
-                : (currentPath.value === '.' || currentPath.value === '/' ? file.name : `${currentPath.value}/${file.name}`);
+                : pathUtils.join(currentPath.value, file.name);
             await invoke('change_file_permission', {
                 id: props.sessionId,
                 path: remotePath,
@@ -1054,7 +1049,7 @@ async function performDelete(skipConfirm: boolean) {
                 const entry = files.value.find(f => f.name === name);
                 if (!entry) continue;
 
-                const remotePath = (currentPath.value === '.' || currentPath.value === '/') ? name : `${currentPath.value}/${name}`;
+                const remotePath = pathUtils.join(currentPath.value, name);
                 await invoke('delete_item', { id: props.sessionId, path: remotePath, isDir: entry.isDir });
             }
         }
@@ -1086,7 +1081,7 @@ function handleKeyDown(e: KeyboardEvent) {
 async function handleRename(file: FileEntry) {
     const path = contextMenu.value.isTree && contextMenu.value.treePath
         ? contextMenu.value.treePath
-        : (currentPath.value === '.' || currentPath.value === '/' ? file.name : `${currentPath.value}/${file.name}`);
+        : pathUtils.join(currentPath.value, file.name);
 
     startRename(file, path);
     closeContextMenu();
@@ -1132,7 +1127,8 @@ async function startCreate(isDir: boolean) {
     }
 
     // For flat view, tempPath should match the path comparison logic in VirtualFileList
-    const tempPath = parentPath === '.' ? tempName : `${parentPath}/${tempName}`;
+    // Use pathUtils to join, but ensure we handle the root case correctly
+    const tempPath = pathUtils.join(parentPath, tempName);
 
     const tempEntry: FileEntry = {
         name: tempName,
@@ -1209,7 +1205,7 @@ async function confirmRename() {
             }
 
             const parent = parts.join('/');
-            const newPath = parent ? `${parent}/${newName}` : newName;
+            const newPath = pathUtils.join(parent, newName);
 
             await invoke('rename_item', { id: props.sessionId, oldPath, newPath });
         } else {
@@ -1221,10 +1217,10 @@ async function confirmRename() {
             if (viewMode.value === 'tree' && renamingPath.value) {
                 const parts = renamingPath.value.split('/');
                 parts.pop(); // Remove empty name
-                parentPath = parts.join('/') || '.';
+                parentPath = parts.join('/') || '/'; // Ensure parentPath is not empty, default to root
             }
             
-            remotePath = parentPath === '.' ? newName : `${parentPath}/${newName}`;
+            remotePath = pathUtils.join(parentPath, newName);
             
             if (renamingType.value === 'create_folder') {
                 await invoke('create_directory', { id: props.sessionId, path: remotePath });
@@ -1303,7 +1299,7 @@ async function createFile() {
 function copyPath(file: FileEntry) {
     const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
         ? contextMenu.value.treePath
-        : (currentPath.value === '.' || currentPath.value === '/' ? file.name : `${currentPath.value}/${file.name}`);
+        : pathUtils.join(currentPath.value, file.name);
     navigator.clipboard.writeText(remotePath);
     closeContextMenu();
 }
