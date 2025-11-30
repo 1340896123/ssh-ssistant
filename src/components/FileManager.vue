@@ -493,8 +493,17 @@ function refresh() {
 }
 
 function handlePathSubmit() {
-    if (pathInput.value && pathInput.value !== currentPath.value) {
-        loadFiles(pathInput.value);
+    if (pathInput.value) {
+        // If input is empty, set to root path
+        let targetPath = pathInput.value.trim();
+        if (targetPath === '') {
+            targetPath = '/';
+            pathInput.value = '/';
+        }
+        
+        if (targetPath !== currentPath.value) {
+            loadFiles(targetPath);
+        }
     }
     isEditingPath.value = false;
 }
