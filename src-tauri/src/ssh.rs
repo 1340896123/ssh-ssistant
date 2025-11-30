@@ -926,8 +926,20 @@ pub async fn create_directory(
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    block_on(|| sftp.mkdir(std::path::Path::new(&path), 0o755)).map_err(|e| e.to_string())?;
-    Ok(())
+    
+    match block_on(|| sftp.mkdir(std::path::Path::new(&path), 0o755)) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let error_msg = e.to_string();
+            if error_msg.contains("Permission denied") {
+                Err(format!("Permission denied: Cannot create directory '{}'. Check if you have write permissions.", path))
+            } else if error_msg.contains("No such file") {
+                Err(format!("Parent directory does not exist: {}", path))
+            } else {
+                Err(format!("Failed to create directory '{}': {}", path, error_msg))
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -949,8 +961,20 @@ pub async fn create_file(
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    block_on(|| sftp.create(std::path::Path::new(&path))).map_err(|e| e.to_string())?;
-    Ok(())
+    
+    match block_on(|| sftp.create(std::path::Path::new(&path))) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let error_msg = e.to_string();
+            if error_msg.contains("Permission denied") {
+                Err(format!("Permission denied: Cannot create file '{}'. Check if you have write permissions.", path))
+            } else if error_msg.contains("No such file") {
+                Err(format!("Parent directory does not exist: {}", path))
+            } else {
+                Err(format!("Failed to create file '{}': {}", path, error_msg))
+            }
+        }
+    }
 }
 
 fn rm_recursive(sftp: &ssh2::Sftp, path: &std::path::Path) -> Result<(), String> {
