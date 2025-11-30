@@ -53,7 +53,7 @@ async function updateContextMenuPosition() {
 
     const rect = contextMenuRef.value.getBoundingClientRect();
     let { x, y } = contextMenu.value;
-    
+
     // Adjust if overflowing
     if (rect.bottom > window.innerHeight) {
         y = window.innerHeight - rect.height - 10; // 10px padding
@@ -61,7 +61,7 @@ async function updateContextMenuPosition() {
     if (rect.right > window.innerWidth) {
         x = window.innerWidth - rect.width - 10;
     }
-    
+
     // Ensure not negative (top/left)
     x = Math.max(0, x);
     y = Math.max(0, y);
@@ -74,7 +74,7 @@ function handleContainerContextMenu(e: MouseEvent) {
     // 检查点击的是否是背景区域（不是文件项）
     const target = e.target as HTMLElement;
     const fileItem = target.closest('[data-file-item]');
-    
+
     if (!fileItem) {
         // 点击的是背景区域
         e.preventDefault();
@@ -112,6 +112,8 @@ const isEditingPath = ref(false);
 const pathInput = ref('');
 const renamingPath = ref<string | null>(null);
 const renameInput = ref('');
+const renamingType = ref<'rename' | 'create_file' | 'create_folder'>('rename');
+const isConfirmingRename = ref(false);
 const containerRef = ref<HTMLElement | null>(null);
 const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
@@ -142,7 +144,7 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
     const collectChildren = (parentPath: string | null, depth: number) => {
         const childPaths = children.get(parentPath) || [];
         const childNodes: TreeNode[] = [];
-        
+
         for (const childPath of childPaths) {
             const node = nodes.get(childPath);
             if (node) {
@@ -217,7 +219,7 @@ async function loadFiles(path: string) {
             const parentPath = path === '.' ? null : path;
             const newChildrenMap = new Map<string | null, string[]>();
             const childPaths: string[] = [];
-            
+
             for (const entry of files.value) {
                 const fullPath = joinPath(path, entry.name);
                 treeNodes.value.set(fullPath, {
@@ -230,7 +232,7 @@ async function loadFiles(path: string) {
                 });
                 childPaths.push(fullPath);
             }
-            
+
             newChildrenMap.set(parentPath, childPaths);
             childrenMap.value = newChildrenMap;
             triggerRef(treeNodes);
@@ -272,7 +274,7 @@ async function toggleDirectory(node: TreeNode) {
         const children = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path: node.path });
         const currentChildrenMap = new Map(childrenMap.value);
         const childPaths: string[] = [];
-        
+
         for (const child of children) {
             const childPath = joinPath(node.path, child.name);
             if (!treeNodes.value.has(childPath)) {
@@ -287,7 +289,7 @@ async function toggleDirectory(node: TreeNode) {
             }
             childPaths.push(childPath);
         }
-        
+
         currentChildrenMap.set(node.path, childPaths);
         childrenMap.value = currentChildrenMap;
         existing.childrenLoaded = true;
@@ -347,7 +349,7 @@ let resizeAnimationFrame: number | null = null;
 
 function handleMouseMove(event: MouseEvent) {
     if (!resizingColumn.value) return;
-    
+
     if (!resizeAnimationFrame) {
         resizeAnimationFrame = requestAnimationFrame(() => {
             const delta = event.clientX - resizeStartX.value;
@@ -652,10 +654,10 @@ async function handleSetWorkspace() {
     try {
         await sessionStore.setSessionWorkspace(props.sessionId, path);
         useNotificationStore().success(`Workspace set to: ${path}`);
-         // Switch to AI tab?
+        // Switch to AI tab?
         sessionStore.setActiveTab('ai');
         //await message(`Workspace set to: ${path}`, { title: 'Success', kind: 'info' });
-       
+
     } catch (e) {
         notificationStore.error(`Failed to set workspace: ${e}`);
     }
@@ -1015,7 +1017,7 @@ async function handleRename(file: FileEntry) {
     const path = contextMenu.value.isTree && contextMenu.value.treePath
         ? contextMenu.value.treePath
         : (currentPath.value === '.' ? file.name : `${currentPath.value}/${file.name}`);
-    
+
     startRename(file, path);
     closeContextMenu();
 }
@@ -1023,62 +1025,209 @@ async function handleRename(file: FileEntry) {
 function startRename(file: FileEntry, path: string) {
     renamingPath.value = path;
     renameInput.value = file.name;
+    renamingType.value = 'rename';
+}
+
+async function startCreate(isDir: boolean) {
+    const tempName = '';
+    let parentPath = currentPath.value;
+
+    if (viewMode.value === 'tree') {
+        // Determine parent path for tree view
+        if (contextMenu.value.isBackground) {
+            // Background click in tree view - use current tree root
+            parentPath = treeRootPath.value;
+        } else if (contextMenu.value.isTree && contextMenu.value.file?.isDir && contextMenu.value.treePath) {
+            parentPath = contextMenu.value.treePath;
+        } else if (selectedTreePaths.value.size === 1) {
+            const path = Array.from(selectedTreePaths.value)[0];
+            const node = treeNodes.value.get(path);
+            if (node && node.entry.isDir) {
+                parentPath = path;
+            }
+        } else {
+            // Default to current tree root
+            parentPath = treeRootPath.value;
+        }
+
+        // If parent is not root, ensure it's expanded
+        if (parentPath !== treeRootPath.value && parentPath !== '.') {
+            const node = treeNodes.value.get(parentPath);
+            if (node) {
+                if (!expandedPaths.value.has(parentPath)) {
+                    await toggleDirectory(node);
+                }
+            }
+        }
+    }
+
+    // For flat view, tempPath should match the path comparison logic in VirtualFileList
+    const tempPath = parentPath === '.' ? tempName : `${parentPath}/${tempName}`;
+
+    const tempEntry: FileEntry = {
+        name: tempName,
+        size: 0,
+        mtime: Date.now() / 1000,
+        isDir: isDir,
+        permissions: isDir ? 755 : 644,
+        uid: 0,
+        owner: 'user'
+    };
+
+    if (viewMode.value === 'flat') {
+        files.value = [tempEntry, ...files.value];
+        triggerRef(files);
+    } else {
+        // Tree view insertion
+        const node: TreeNode = {
+            entry: tempEntry,
+            path: tempPath,
+            depth: parentPath === '.' ? 0 : (parentPath.split('/').length),
+            parentPath: parentPath === '.' ? null : parentPath,
+            childrenLoaded: false,
+            loading: false
+        };
+
+        treeNodes.value.set(tempPath, node);
+
+        const parentKey = parentPath === '.' ? null : parentPath;
+        const children = childrenMap.value.get(parentKey) || [];
+        childrenMap.value.set(parentKey, [tempPath, ...children]);
+
+        triggerRef(treeNodes);
+        triggerRef(childrenMap);
+
+        // Ensure parent is expanded if it's the root or we just expanded it
+        if (parentPath !== '.') {
+            expandedPaths.value.add(parentPath);
+        }
+    }
+
+    // Close any open context menu
+    closeContextMenu();
+    
+    // Start renaming immediately
+    renamingPath.value = tempPath;
+    renameInput.value = '';
+    renamingType.value = isDir ? 'create_folder' : 'create_file';
+    
+    // Focus the input field after next tick
+    await nextTick();
 }
 
 async function confirmRename() {
-    if (!renamingPath.value || !renameInput.value) return;
+    if (renamingPath.value === null || isConfirmingRename.value) return;
     
-    const oldPath = renamingPath.value;
+    isConfirmingRename.value = true;
+
     const newName = renameInput.value;
-    
-    // Calculate new path
-    const parts = oldPath.split('/');
-    const oldName = parts.pop();
-    if (newName === oldName) {
+    if (!newName) {
         cancelRename();
+        isConfirmingRename.value = false;
         return;
     }
-    
-    const parent = parts.join('/');
-    const newPath = parent ? `${parent}/${newName}` : newName;
 
     try {
-        await invoke('rename_item', { id: props.sessionId, oldPath, newPath });
+        if (renamingType.value === 'rename') {
+            const oldPath = renamingPath.value;
+            const parts = oldPath.split('/');
+            const oldName = parts.pop();
+            if (newName === oldName) {
+                cancelRename();
+                isConfirmingRename.value = false;
+                return;
+            }
+
+            const parent = parts.join('/');
+            const newPath = parent ? `${parent}/${newName}` : newName;
+
+            await invoke('rename_item', { id: props.sessionId, oldPath, newPath });
+        } else {
+            // Create
+            let parentPath = currentPath.value;
+            let remotePath: string;
+            
+            // For tree view, get the correct parent path
+            if (viewMode.value === 'tree' && renamingPath.value) {
+                const parts = renamingPath.value.split('/');
+                parts.pop(); // Remove empty name
+                parentPath = parts.join('/') || '.';
+            }
+            
+            remotePath = parentPath === '.' ? newName : `${parentPath}/${newName}`;
+            
+            if (renamingType.value === 'create_folder') {
+                await invoke('create_directory', { id: props.sessionId, path: remotePath });
+            } else {
+                await invoke('create_file', { id: props.sessionId, path: remotePath });
+            }
+        }
         await loadFiles(currentPath.value);
     } catch (e) {
-        notificationStore.error("Rename failed: " + e);
+        // Provide more user-friendly error message
+        let errorMessage = `${renamingType.value === 'rename' ? 'Rename' : 'Create'} failed: ${e}`;
+        if (e && typeof e === 'object' && 'toString' in e && e.toString().includes('SFTP(4)')) {
+            errorMessage = `${renamingType.value === 'rename' ? 'Rename' : 'Create'} failed: Permission denied or invalid path`;
+        }
+        
+        notificationStore.error(errorMessage);
+        // If create failed, we should probably remove the temp entry
+        if (renamingType.value !== 'rename') {
+            if (viewMode.value === 'flat') {
+                files.value = files.value.filter(f => f.name !== '');
+                triggerRef(files);
+            } else {
+                // Remove from tree
+                if (renamingPath.value) {
+                    treeNodes.value.delete(renamingPath.value);
+                    for (const [key, children] of childrenMap.value.entries()) {
+                        if (children.includes(renamingPath.value)) {
+                            childrenMap.value.set(key, children.filter(c => c !== renamingPath.value));
+                            break;
+                        }
+                    }
+                    triggerRef(treeNodes);
+                    triggerRef(childrenMap);
+                }
+            }
+        }
     } finally {
         cancelRename();
+        isConfirmingRename.value = false;
     }
 }
 
 function cancelRename() {
+    if (renamingType.value !== 'rename') {
+        // Remove temporary entry for create operations
+        if (viewMode.value === 'flat') {
+            files.value = files.value.filter(f => f.name !== '');
+            triggerRef(files);
+        } else {
+            // Remove from tree
+            if (renamingPath.value) {
+                treeNodes.value.delete(renamingPath.value);
+                for (const [key, children] of childrenMap.value.entries()) {
+                    if (children.includes(renamingPath.value)) {
+                        childrenMap.value.set(key, children.filter(c => c !== renamingPath.value));
+                        break;
+                    }
+                }
+                triggerRef(treeNodes);
+                triggerRef(childrenMap);
+            }
+        }
+    }
     renamingPath.value = null;
     renameInput.value = '';
 }
 
 async function createFolder() {
-    const name = prompt("Folder name:");
-    if (!name) return;
-    try {
-        const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
-        await invoke('create_directory', { id: props.sessionId, path: remotePath });
-        await loadFiles(currentPath.value);
-    } catch (e) {
-        notificationStore.error("Create folder failed: " + e);
-    }
+    startCreate(true);
 }
 
 async function createFile() {
-    const name = prompt("File name:");
-    if (!name) return;
-    try {
-        const remotePath = currentPath.value === '.' ? name : `${currentPath.value}/${name}`;
-        await invoke('create_file', { id: props.sessionId, path: remotePath });
-        await loadFiles(currentPath.value);
-    } catch (e) {
-        notificationStore.error("Create file failed: " + e);
-    }
+    startCreate(false);
 }
 
 function copyPath(file: FileEntry) {
@@ -1255,9 +1404,10 @@ function formatSize(size: number): string {
         </div>
 
         <!-- Context Menu -->
-        <div v-if="contextMenu.show" ref="contextMenuRef" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+        <div v-if="contextMenu.show" ref="contextMenuRef"
+            :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
             class="fixed bg-gray-800 border border-gray-700 shadow-xl rounded z-50 py-1 min-w-[150px]">
-            
+
             <template v-if="contextMenu.isBackground">
                 <button @click.stop="refresh(); closeContextMenu()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
@@ -1311,7 +1461,8 @@ function formatSize(size: number): string {
                     }}</button>
                 <button @click.stop="handleDelete(contextMenu.file!)"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 text-red-400">
-                    {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : '' }}
+                    {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : ''
+                    }}
                 </button>
                 <div class="border-t border-gray-700 my-1"></div>
                 <button v-if="contextMenu.file?.isDir" @click.stop="handleSetWorkspace()"
