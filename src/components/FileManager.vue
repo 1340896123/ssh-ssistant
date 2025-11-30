@@ -203,10 +203,24 @@ function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
 
 async function loadFiles(path: string) {
     try {
-        files.value = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
+        const loadedFiles = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
+        
+        // Add parent directory entry ".." when not in root
+        const filesWithParent = path !== '/' ? [{
+            name: '..',
+            size: 0,
+            mtime: 0,
+            isDir: true,
+            permissions: 755,
+            uid: 0,
+            owner: 'root'
+        }, ...loadedFiles] : loadedFiles;
+        
+        files.value = filesWithParent;
         triggerRef(files);
         currentPath.value = path;
-        pathInput.value = path;
+        // Display actual path instead of "."
+        pathInput.value = path === '.' ? '/' : path;
         selectedFiles.value.clear();
         lastSelectedIndex.value = -1;
 
@@ -220,7 +234,33 @@ async function loadFiles(path: string) {
             const newChildrenMap = new Map<string | null, string[]>();
             const childPaths: string[] = [];
 
+            // Add parent directory entry ".." when not in root
+            if (path !== '.') {
+                const parentEntry: FileEntry = {
+                    name: '..',
+                    size: 0,
+                    mtime: 0,
+                    isDir: true,
+                    permissions: 755,
+                    uid: 0,
+                    owner: 'root'
+                };
+                const parentDirPath = joinPath(path, '..');
+                treeNodes.value.set(parentDirPath, {
+                    entry: parentEntry,
+                    path: parentDirPath,
+                    depth: 0,
+                    parentPath,
+                    childrenLoaded: false,
+                    loading: false,
+                });
+                childPaths.push(parentDirPath);
+            }
+
             for (const entry of files.value) {
+                // Skip the ".." entry as it's already added above
+                if (entry.name === '..') continue;
+                
                 const fullPath = joinPath(path, entry.name);
                 treeNodes.value.set(fullPath, {
                     entry,
@@ -249,6 +289,12 @@ async function loadFiles(path: string) {
 async function toggleDirectory(node: TreeNode) {
     if (!node.entry.isDir) {
         await openTreeFile(node);
+        return;
+    }
+
+    // Handle ".." parent directory
+    if (node.entry.name === '..') {
+        goUp();
         return;
     }
 
@@ -468,15 +514,20 @@ watch(viewMode, (mode) => {
 
 async function navigate(entry: FileEntry) {
     if (entry.isDir) {
-        const newPath = joinPath(currentPath.value, entry.name);
-        loadFiles(newPath);
+        if (entry.name === '..') {
+            // Go to parent directory
+            goUp();
+        } else {
+            const newPath = joinPath(currentPath.value === '.' ? '/' : currentPath.value, entry.name);
+            loadFiles(newPath);
+        }
     } else {
         // Edit remote file
         isOpeningFile.value = true;
         try {
             await invoke('edit_remote_file', {
                 id: props.sessionId,
-                remotePath: joinPath(currentPath.value, entry.name),
+                remotePath: joinPath(currentPath.value === '.' ? '/' : currentPath.value, entry.name),
                 remoteName: entry.name
             });
         } catch (e) {

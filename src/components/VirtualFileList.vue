@@ -61,6 +61,7 @@ const totalSize = computed(() => virtualizer.value.getTotalSize());
 
 function renderFileItem(item: FileEntry, index: number) {
     const isSelected = props.selectedFiles.has(item.name);
+    const isParentDir = item.name === '..';
     
     const expectedPath = props.currentPath === '.' ? item.name : `${props.currentPath}/${item.name}`;
     const shouldShowInput = props.renamingPath !== null && props.currentPath && props.renamingPath === expectedPath;
@@ -72,7 +73,8 @@ function renderFileItem(item: FileEntry, index: number) {
             'flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none h-full',
             {
                 'bg-blue-900/50': isSelected,
-                'hover:bg-gray-800': !isSelected
+                'hover:bg-gray-800': !isSelected,
+                'text-gray-400': isParentDir // Special styling for parent directory
             }
         ],
         draggable: true,
@@ -86,7 +88,15 @@ function renderFileItem(item: FileEntry, index: number) {
             style: { width: props.columnWidths.name + 'px' }
         }, [
             item.isDir
-                ? h('svg', { class: 'w-4 h-4 mr-2 text-yellow-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
+                ? h('svg', { 
+                    class: [
+                        'w-4 h-4 mr-2 flex-shrink-0',
+                        isParentDir ? 'text-gray-500' : 'text-yellow-400'
+                    ], 
+                    fill: 'none', 
+                    stroke: 'currentColor', 
+                    viewBox: '0 0 24 24' 
+                }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' })
                 ])
                 : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
@@ -114,26 +124,33 @@ function renderFileItem(item: FileEntry, index: number) {
                         }
                     }
                 })
-                : h('span', { class: 'text-sm truncate' }, item.name)
+                : h('span', { 
+                    class: [
+                        'text-sm truncate',
+                        isParentDir ? 'font-semibold' : ''
+                    ], 
+                    title: isParentDir ? '回到上一级目录' : item.name
+                }, item.name)
         ]),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',
             style: { width: props.columnWidths.size + 'px', paddingLeft: '8px' }
-        }, props.formatSize(item.size)),
+        }, isParentDir ? '-' : props.formatSize(item.size)),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',
             style: { width: props.columnWidths.date + 'px', paddingLeft: '8px' }
-        }, props.formatDate(item.mtime)),
+        }, isParentDir ? '-' : props.formatDate(item.mtime)),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',
             style: { width: props.columnWidths.owner + 'px', paddingLeft: '8px' }
-        }, item.owner || '-')
+        }, isParentDir ? '-' : (item.owner || '-'))
     ]);
 }
 
 function renderTreeNode(node: TreeNode) {
     const isSelected = props.selectedTreePaths.has(node.path);
     const isExpanded = props.expandedPaths?.has(node.path);
+    const isParentDir = node.entry.name === '..';
 
     return h('div', {
         key: node.path,
@@ -142,7 +159,8 @@ function renderTreeNode(node: TreeNode) {
             'flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none h-full',
             {
                 'bg-blue-900/50': isSelected,
-                'hover:bg-gray-800': !isSelected
+                'hover:bg-gray-800': !isSelected,
+                'text-gray-400': isParentDir // Special styling for parent directory
             }
         ],
         draggable: true,
@@ -159,14 +177,25 @@ function renderTreeNode(node: TreeNode) {
             }
         }, [
             node.entry.isDir ? h('button', {
-                class: 'mr-1 w-3 h-3 flex items-center justify-center text-xs text-gray-400',
+                class: [
+                    'mr-1 w-3 h-3 flex items-center justify-center text-xs',
+                    isParentDir ? 'text-gray-500' : 'text-gray-400'
+                ],
                 onClick: (e: MouseEvent) => {
                     e.stopPropagation();
                     props.onToggleDirectory?.(node);
                 }
-            }, isExpanded ? '-' : '+') : h('span', { class: 'mr-4' }),
+            }, isParentDir ? '↖' : (isExpanded ? '-' : '+')) : h('span', { class: 'mr-4' }),
             node.entry.isDir
-                ? h('svg', { class: 'w-4 h-4 mr-2 text-yellow-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
+                ? h('svg', { 
+                    class: [
+                        'w-4 h-4 mr-2 flex-shrink-0',
+                        isParentDir ? 'text-gray-500' : 'text-yellow-400'
+                    ], 
+                    fill: 'none', 
+                    stroke: 'currentColor', 
+                    viewBox: '0 0 24 24' 
+                }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' })
                 ])
                 : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
@@ -194,20 +223,26 @@ function renderTreeNode(node: TreeNode) {
                         }
                     }
                 })
-                : h('span', { class: 'text-sm truncate' }, node.entry.name)
+                : h('span', { 
+                    class: [
+                        'text-sm truncate',
+                        isParentDir ? 'font-semibold' : ''
+                    ], 
+                    title: isParentDir ? '回到上一级目录' : node.entry.name
+                }, node.entry.name)
         ]),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',
             style: { width: props.columnWidths.size + 'px', paddingLeft: '8px' }
-        }, node.entry.isDir ? '' : props.formatSize(node.entry.size)),
+        }, node.entry.isDir ? (isParentDir ? '-' : '') : props.formatSize(node.entry.size)),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',
             style: { width: props.columnWidths.date + 'px', paddingLeft: '8px' }
-        }, props.formatDate(node.entry.mtime)),
+        }, isParentDir ? '-' : props.formatDate(node.entry.mtime)),
         h('span', {
             class: 'text-xs text-gray-500 font-mono',
             style: { width: props.columnWidths.owner + 'px', paddingLeft: '8px' }
-        }, node.entry.owner || '-')
+        }, isParentDir ? '-' : (node.entry.owner || '-'))
     ]);
 }
 </script>
