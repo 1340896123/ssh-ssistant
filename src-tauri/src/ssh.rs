@@ -243,24 +243,28 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
                 if let Ok(_) = listener.set_nonblocking(true) {
                     let start_time = std::time::Instant::now();
                     let timeout = Duration::from_secs(10); // 10 second timeout
-                    
+
                     loop {
                         // Check timeout
                         if start_time.elapsed() > timeout {
                             break;
                         }
-                        
+
                         // Check if main thread signaled us to stop
                         if rx.try_recv().is_ok() {
                             break;
                         }
-                        
+
                         match listener.accept() {
                             Ok((mut local_stream, _)) => {
                                 let _ = local_stream.set_nonblocking(true);
 
                                 // Keep blocking for channel creation to ensure it doesn't fail with WouldBlock
-                                match jump_sess.channel_direct_tcpip(&target_host, target_port, None) {
+                                match jump_sess.channel_direct_tcpip(
+                                    &target_host,
+                                    target_port,
+                                    None,
+                                ) {
                                     Ok(mut channel) => {
                                         let _ = jump_sess.set_blocking(false);
                                         let mut buf = [0u8; 8192];
@@ -274,10 +278,16 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
                                                     let mut total_written = 0;
                                                     let mut failed = false;
                                                     while total_written < n {
-                                                        match channel.write(&buf[total_written..n]) {
+                                                        match channel.write(&buf[total_written..n])
+                                                        {
                                                             Ok(w) => total_written += w,
-                                                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                                                                thread::sleep(Duration::from_millis(1));
+                                                            Err(e)
+                                                                if e.kind()
+                                                                    == ErrorKind::WouldBlock =>
+                                                            {
+                                                                thread::sleep(
+                                                                    Duration::from_millis(1),
+                                                                );
                                                             }
                                                             Err(_) => {
                                                                 failed = true;
@@ -301,10 +311,17 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
                                                     let mut total_written = 0;
                                                     let mut failed = false;
                                                     while total_written < n {
-                                                        match local_stream.write(&buf[total_written..n]) {
+                                                        match local_stream
+                                                            .write(&buf[total_written..n])
+                                                        {
                                                             Ok(w) => total_written += w,
-                                                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                                                                thread::sleep(Duration::from_millis(1));
+                                                            Err(e)
+                                                                if e.kind()
+                                                                    == ErrorKind::WouldBlock =>
+                                                            {
+                                                                thread::sleep(
+                                                                    Duration::from_millis(1),
+                                                                );
                                                             }
                                                             Err(_) => {
                                                                 failed = true;
@@ -326,7 +343,9 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
                                             }
                                         }
                                     }
-                                    Err(e) => eprintln!("Failed to open direct-tcpip channel: {}", e),
+                                    Err(e) => {
+                                        eprintln!("Failed to open direct-tcpip channel: {}", e)
+                                    }
                                 }
                                 break; // Exit after handling one connection
                             }
@@ -344,7 +363,7 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
             let connect_start = std::time::Instant::now();
             let connect_timeout = Duration::from_secs(5);
             let tcp_stream;
-            
+
             loop {
                 match TcpStream::connect(format!("127.0.0.1:{}", local_port)) {
                     Ok(stream) => {
@@ -357,13 +376,16 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
                         if connect_start.elapsed() > connect_timeout {
                             // Signal proxy thread to stop and return error
                             let _ = tx.send(false);
-                            return Err(format!("Failed to connect to local proxy within timeout: {}", e));
+                            return Err(format!(
+                                "Failed to connect to local proxy within timeout: {}",
+                                e
+                            ));
                         }
                         thread::sleep(Duration::from_millis(10));
                     }
                 }
             }
-            
+
             tcp_stream.ok_or_else(|| "Failed to establish connection".to_string())?
         }
     } else {
