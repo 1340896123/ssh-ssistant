@@ -30,7 +30,7 @@ export interface FileEntry {
   owner: string;
 }
 
-export type ColumnKey = 'name' | 'size' | 'date' | 'owner';
+export type ColumnKey = "name" | "size" | "date" | "owner";
 
 export interface AIConfig {
   apiUrl: string;
@@ -38,7 +38,7 @@ export interface AIConfig {
   modelName: string;
 }
 
-export type TerminalCursorStyle = 'block' | 'underline' | 'bar';
+export type TerminalCursorStyle = "block" | "underline" | "bar";
 
 export interface TerminalAppearanceSettings {
   fontSize: number;
@@ -47,7 +47,7 @@ export interface TerminalAppearanceSettings {
   lineHeight: number;
 }
 
-export type FileManagerViewMode = 'flat' | 'tree';
+export type FileManagerViewMode = "flat" | "tree";
 
 export interface FileManagerSettings {
   viewMode: FileManagerViewMode;
@@ -60,8 +60,8 @@ export interface SshPoolSettings {
 }
 
 export interface Settings {
-  theme: 'light' | 'dark';
-  language: 'en' | 'zh';
+  theme: "light" | "dark";
+  language: "en" | "zh";
   ai: AIConfig;
   terminalAppearance: TerminalAppearanceSettings;
   fileManager: FileManagerSettings;

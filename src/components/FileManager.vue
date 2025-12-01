@@ -72,16 +72,16 @@ async function updateContextMenuPosition() {
 }
 
 function handleContainerContextMenu(e: MouseEvent) {
-    // 检查点击的是否是背景区域（不是文件项）
+    // 妫€鏌ョ偣鍑荤殑鏄惁鏄儗鏅尯鍩燂紙涓嶆槸鏂囦欢椤癸級
     const target = e.target as HTMLElement;
     const fileItem = target.closest('[data-file-item]');
 
     if (!fileItem) {
-        // 点击的是背景区域
+        // 鐐瑰嚮鐨勬槸鑳屾櫙鍖哄煙
         e.preventDefault();
         showBackgroundContextMenu(e);
     }
-    // 如果点击的是文件项，让文件项自己处理右键菜单
+    // 濡傛灉鐐瑰嚮鐨勬槸鏂囦欢椤癸紝璁╂枃浠堕」鑷繁澶勭悊鍙抽敭鑿滃崟
 }
 
 function showBackgroundContextMenu(e: MouseEvent) {
@@ -1448,7 +1448,7 @@ function formatSize(size: number): string {
         <!-- Opening File Indicator -->
         <div v-if="isOpeningFile"
             class="fixed bottom-4 right-4 bg-gray-800/90 text-gray-100 text-xs px-3 py-2 rounded shadow-lg border border-gray-700 z-50">
-            正在打开...
+            姝ｅ湪鎵撳紑...
         </div>
 
         <!-- Context Menu -->

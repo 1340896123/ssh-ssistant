@@ -25,8 +25,8 @@ const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
 
 const activeWorkspace = computed(() => {
-    const session = sessionStore.sessions.find(s => s.id === props.sessionId);
-    return session?.activeWorkspace;
+  const session = sessionStore.sessions.find(s => s.id === props.sessionId);
+  return session?.activeWorkspace;
 });
 
 function renderMarkdown(content: string) {
@@ -56,6 +56,7 @@ const messages = ref<Message[]>([
 ]);
 const input = ref('');
 const isLoading = ref(false);
+const isDragOverInput = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 const toolStates = ref<Record<string, boolean>>({});
 let abortController = ref<AbortController | null>(null);
@@ -348,10 +349,10 @@ ${activeWorkspace.value.context}
 
           // Auto-CD into workspace if active
           if (activeWorkspace.value && !cmd.trim().startsWith('cd ')) {
-              // Use a safe way to cd, escape path quotes if needed (simplified here)
-              // We assume path is safe-ish or we wrap in quotes
-              const wsPath = activeWorkspace.value.path.replace(/'/g, "'\\''");
-              cmd = `cd '${wsPath}' && ${cmd}`;
+            // Use a safe way to cd, escape path quotes if needed (simplified here)
+            // We assume path is safe-ish or we wrap in quotes
+            const wsPath = activeWorkspace.value.path.replace(/'/g, "'\\''");
+            cmd = `cd '${wsPath}' && ${cmd}`;
           }
 
           // --- DANGER ZONE ---
@@ -515,14 +516,10 @@ onMounted(async () => {
   });
 });
 
-// const inputQueue = ref([]); // Removed
-const isDragOverInput = ref(false);
-
 function onInputDragOver(event: DragEvent) {
   event.preventDefault();
   isDragOverInput.value = true;
 }
-
 function onInputDragLeave(_: DragEvent) {
   isDragOverInput.value = false;
 }
@@ -575,13 +572,16 @@ onUnmounted(() => {
         </div>
       </div>
       <!-- Workspace Status Bar -->
-      <div v-if="activeWorkspace" class="px-4 py-1 bg-gray-900/50 border-t border-gray-700 flex items-center text-xs text-gray-400">
-          <Briefcase class="w-3 h-3 mr-1.5 text-blue-400" />
-          <span class="font-mono text-blue-300 mr-2">{{ activeWorkspace.name }}</span>
-          <span class="truncate opacity-60">{{ activeWorkspace.path }}</span>
-          <div class="flex-1"></div>
-          <span v-if="activeWorkspace.isIndexed" class="text-green-500">Indexed</span>
-          <span v-else class="text-yellow-500 flex items-center"><Loader2 class="w-3 h-3 animate-spin mr-1"/> Indexing</span>
+      <div v-if="activeWorkspace"
+        class="px-4 py-1 bg-gray-900/50 border-t border-gray-700 flex items-center text-xs text-gray-400">
+        <Briefcase class="w-3 h-3 mr-1.5 text-blue-400" />
+        <span class="font-mono text-blue-300 mr-2">{{ activeWorkspace.name }}</span>
+        <span class="truncate opacity-60">{{ activeWorkspace.path }}</span>
+        <div class="flex-1"></div>
+        <span v-if="activeWorkspace.isIndexed" class="text-green-500">Indexed</span>
+        <span v-else class="text-yellow-500 flex items-center">
+          <Loader2 class="w-3 h-3 animate-spin mr-1" /> Indexing
+        </span>
       </div>
     </div>
 

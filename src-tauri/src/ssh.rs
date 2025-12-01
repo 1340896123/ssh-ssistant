@@ -517,7 +517,7 @@ pub async fn connect(
     let cleanup_pool = ssh_pool.clone();
     let shutdown_signal = Arc::new(AtomicBool::new(false));
     let monitor_signal = shutdown_signal.clone();
-    
+
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5分钟
         loop {
@@ -643,12 +643,12 @@ pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), St
     if let Some(client) = state.clients.lock().map_err(|e| e.to_string())?.remove(&id) {
         // 1. 发送停止信号，终止后台监控任务
         client.shutdown_signal.store(true, Ordering::Relaxed);
-        
+
         // 2. 关闭 Shell 线程
         if let Some(tx) = client.shell_tx {
             let _ = tx.send(ShellMsg::Exit);
         }
-        
+
         // 3. 关闭所有 SSH 连接
         client.ssh_pool.close_all();
     }
@@ -1008,7 +1008,7 @@ pub async fn create_directory(
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    
+
     match block_on(|| sftp.mkdir(std::path::Path::new(&path), 0o755)) {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -1018,7 +1018,10 @@ pub async fn create_directory(
             } else if error_msg.contains("No such file") {
                 Err(format!("Parent directory does not exist: {}", path))
             } else {
-                Err(format!("Failed to create directory '{}': {}", path, error_msg))
+                Err(format!(
+                    "Failed to create directory '{}': {}",
+                    path, error_msg
+                ))
             }
         }
     }
@@ -1043,7 +1046,7 @@ pub async fn create_file(
         .map_err(|e| format!("Failed to get background session: {}", e))?;
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-    
+
     match block_on(|| sftp.create(std::path::Path::new(&path))) {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -2117,7 +2120,7 @@ pub async fn get_working_directory(
         }
     }
     block_on(|| channel.wait_close()).ok();
-    
+
     // 清理换行符和空白字符
     Ok(working_dir.trim().to_string())
 }
