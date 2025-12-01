@@ -260,8 +260,18 @@ async function processChat() {
 
   // Inject System Prompt with Workspace Context
   let systemContent = "You are an intelligent SSH DevOps assistant. Use tools to manage the server.";
+
+  // Add OS Context
+  const currentSession = sessionStore.sessions.find(s => s.id === props.sessionId);
+  if (currentSession?.os) {
+    systemContent += `\n\nTARGET OS: ${currentSession.os}`;
+    if (currentSession.os === 'Windows') {
+      systemContent += "\nNOTE: The remote system is Windows. Use PowerShell or CMD syntax as appropriate.";
+    }
+  }
+
   if (activeWorkspace.value) {
-      systemContent += `\n\n== CURRENT WORKSPACE ==
+    systemContent += `\n\n== CURRENT WORKSPACE ==
 PATH: ${activeWorkspace.value.path}
 
 INSTRUCTIONS:

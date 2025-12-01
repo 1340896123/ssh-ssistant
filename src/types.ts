@@ -80,10 +80,11 @@ export interface Session {
   id: string; // UUID from backend
   connectionId: number;
   connectionName: string;
-  status: 'connected' | 'disconnected' | 'connecting';
-  activeTab: 'terminal' | 'files' | 'ai';
+  status: "connected" | "disconnected" | "connecting";
+  activeTab: "terminal" | "files" | "ai";
   currentPath: string;
   files: FileEntry[];
   connectedAt: number;
   activeWorkspace?: Workspace;
+  os?: string;
 }

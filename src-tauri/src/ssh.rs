@@ -140,7 +140,8 @@ pub struct SshClient {
     ssh_pool: Arc<SessionSshPool>,                 // SSH连接池
     shell_tx: Option<Sender<ShellMsg>>,            // 终端消息通道
     owner_cache: Arc<Mutex<HashMap<u32, String>>>, // UID缓存
-    shutdown_signal: Arc<AtomicBool>,               // 用于通知后台监控任务停止
+    shutdown_signal: Arc<AtomicBool>,              // 用于通知后台监控任务停止
+    os_info: Option<String>,                       // Remote OS information
 }
 
 pub struct AppState {
@@ -392,6 +393,53 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
     Ok(sess)
 }
 
+fn detect_os(session: &Session) -> String {
+    // Try uname -s first (Linux/macOS)
+    // Wrap in a scope to ensure channel is dropped before next attempt
+    {
+        if let Ok(mut channel) = block_on(|| session.channel_session()) {
+            if let Ok(_) = block_on(|| channel.exec("uname -s")) {
+                let mut buf = Vec::new();
+                if let Ok(_) = channel.read_to_end(&mut buf) {
+                    let s = String::from_utf8_lossy(&buf);
+                    let os = s.trim();
+                    if !os.is_empty() && !os.to_lowercase().contains("command not found") {
+                        // Check for Windows-like output from uname (e.g., MINGW, CYGWIN)
+                        if os.to_uppercase().contains("MINGW") 
+                           || os.to_uppercase().contains("CYGWIN") 
+                           || os.to_uppercase().contains("MSYS") {
+                            return "Windows".to_string();
+                        }
+                        return os.to_string();
+                    }
+                }
+            }
+            // Explicitly close if we fall through
+            let _ = channel.close();
+            let _ = channel.wait_close();
+        }
+    }
+
+    // If uname fails, try to detect Windows
+    // We can try to run 'ver' or check for environment variables
+    let mut channel = match block_on(|| session.channel_session()) {
+        Ok(c) => c,
+        Err(_) => return "Unknown".to_string(),
+    };
+
+    if let Ok(_) = block_on(|| channel.exec("cmd.exe /c ver")) {
+        let mut buf = Vec::new();
+        if let Ok(_) = channel.read_to_end(&mut buf) {
+            let s = String::from_utf8_lossy(&buf);
+            if s.contains("Microsoft Windows") {
+                return "Windows".to_string();
+            }
+        }
+    }
+
+    "Unknown".to_string()
+}
+
 #[tauri::command]
 pub async fn test_connection(config: SshConnConfig) -> Result<String, String> {
     execute_ssh_operation(move || {
@@ -547,11 +595,16 @@ pub async fn connect(
         let _ = app.emit(&format!("term-exit:{}", shell_id), ());
     });
 
+    // Detect OS
+    let os_info = detect_os(&main_session.lock().unwrap());
+    println!("Detected OS: {}", os_info);
+
     let client = SshClient {
         ssh_pool: Arc::new(ssh_pool),
         shell_tx: Some(tx),
         owner_cache: Arc::new(Mutex::new(HashMap::new())),
         shutdown_signal,
+        os_info: Some(os_info),
     };
 
     state
@@ -792,6 +845,13 @@ pub async fn resize_pty(
         let _ = tx.send(ShellMsg::Resize { rows, cols });
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_os_info(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    let clients = state.clients.lock().map_err(|e| e.to_string())?;
+    let client = clients.get(&id).ok_or("Session not found")?;
+    Ok(client.os_info.clone().unwrap_or("Unknown".to_string()))
 }
 
 #[tauri::command]

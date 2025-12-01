@@ -116,6 +116,15 @@ export const useSessionStore = defineStore('sessions', {
           files: [],
           connectedAt: Date.now(),
         };
+        
+        // Fetch OS info
+        try {
+            const os = await invoke<string>('get_os_info', { id });
+            session.os = os;
+        } catch (e) {
+            console.error('Failed to get OS info', e);
+        }
+
         this.sessions.push(session);
         this.activeSessionId = id;
       } catch (e) {
@@ -175,6 +184,14 @@ export const useSessionStore = defineStore('sessions', {
         await invoke('connect', { config: conn, id: session.id });
         session.status = 'connected';
         session.connectedAt = Date.now();
+        
+        // Fetch OS info on reconnect
+        try {
+            const os = await invoke<string>('get_os_info', { id: session.id });
+            session.os = os;
+        } catch (e) {
+            console.error('Failed to get OS info', e);
+        }
       } catch (e) {
         console.error('Failed to reconnect', e);
         session.status = 'disconnected';
