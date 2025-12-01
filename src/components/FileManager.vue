@@ -749,30 +749,30 @@ async function downloadDirectory(remoteDirPath: string, localDirPath: string, se
             console.log('Directory might already exist:', e);
         }
 
-        // 创建目录传输项
+        // 鍒涘缓鐩綍浼犺緭椤?
         const directoryTransferId = transferStore.addDirectoryTransfer(remoteDirPath, localDirPath, sessionId);
 
-        // 扫描目录并计算统计信息
+        // 鎵弿鐩綍骞惰绠楃粺璁′俊鎭?
         const { totalFiles, totalSize } = await calculateDirectoryStats(remoteDirPath, sessionId);
         transferStore.updateDirectoryStats(directoryTransferId, totalFiles, totalSize);
 
-        // 开始传输
+        // 寮€濮嬩紶杈?
         const directoryItem = transferStore.items.find(item => item.id === directoryTransferId);
         if (directoryItem) {
             directoryItem.status = 'running';
         }
 
-        // 递归下载所有文件
+        // 閫掑綊涓嬭浇鎵€鏈夋枃浠?
         await downloadDirectoryRecursive(remoteDirPath, localDirPath, sessionId, directoryTransferId);
 
-        // 标记目录传输为完成
+        // 鏍囪鐩綍浼犺緭涓哄畬鎴?
         if (directoryItem) {
             directoryItem.status = 'completed';
             directoryItem.progress = 100;
         }
     } catch (e) {
         console.error(`Failed to download directory ${remoteDirPath}:`, e);
-        // 标记目录传输为失败
+        // 鏍囪鐩綍浼犺緭涓哄け璐?
         const directoryItem = transferStore.items.find(item => item.remotePath === remoteDirPath && item.isDirectory);
         if (directoryItem) {
             directoryItem.status = 'error';
@@ -858,10 +858,10 @@ async function downloadDirectoryRecursive(remoteDirPath: string, localDirPath: s
                     sessionId
                 });
 
-                // 等待文件下载完成
+                // 绛夊緟鏂囦欢涓嬭浇瀹屾垚
                 await waitForFileCompletion(fileTransferId);
 
-                // 更新目录完成计数
+                // 鏇存柊鐩綍瀹屾垚璁℃暟
                 transferStore.incrementDirectoryCompleted(directoryTransferId);
             }
         }
@@ -876,11 +876,11 @@ async function waitForDirectoryResume(directoryTransferId: string): Promise<void
         const checkResume = () => {
             const item = transferStore.items.find(i => i.id === directoryTransferId);
             if (!item || item.status === 'cancelled' || item.status === 'error') {
-                resolve(); // 停止等待
+                resolve(); // 鍋滄绛夊緟
             } else if (item.status === 'running') {
-                resolve(); // 恢复了
+                resolve(); // 鎭㈠浜?
             } else {
-                // 继续等待
+                // 缁х画绛夊緟
                 setTimeout(checkResume, 500);
             }
         };
@@ -903,7 +903,7 @@ async function waitForFileCompletion(fileTransferId: string): Promise<void> {
             } else if (item.status === 'error' || item.status === 'cancelled') {
                 reject(new Error(item.error || 'Transfer failed'));
             } else {
-                // 继续等待
+                // 缁х画绛夊緟
                 setTimeout(checkCompletion, 500);
             }
         };
