@@ -15,19 +15,32 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
-#[derive(Clone)]
-enum ShellMsg {
+#[derive(Debug, Clone)]
+pub enum ShellMsg {
     Data(Vec<u8>),
     Resize { rows: u16, cols: u16 },
     Exit,
+}
+
+pub struct ManagedSession {
+    pub session: Session,
+    pub jump_session: Option<Session>,
+    pub forward_listener: Option<TcpListener>,
+}
+
+impl std::ops::Deref for ManagedSession {
+    type Target = Session;
+    fn deref(&self) -> &Self::Target {
+        &self.session
+    }
 }
 
 /// 会话级SSH连接池：1个主会话（终端专用）+ N个后台会话（文件操作、命令执行）
 #[derive(Clone)]
 pub struct SessionSshPool {
     config: SshConnConfig,
-    main_session: Arc<Mutex<Session>>, // 主会话，专用于终端
-    background_sessions: Arc<Mutex<Vec<Arc<Mutex<Session>>>>>, // 后台会话池
+    main_session: Arc<Mutex<ManagedSession>>, // 主会话，专用于终端
+    background_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 后台会话池
     max_background_sessions: usize,    // 最大后台会话数量
     next_bg_index: Arc<Mutex<usize>>,  // 轮询索引
 }
@@ -52,12 +65,12 @@ impl SessionSshPool {
     }
 
     /// 获取主会话（终端专用）
-    pub fn get_main_session(&self) -> Arc<Mutex<Session>> {
+    pub fn get_main_session(&self) -> Arc<Mutex<ManagedSession>> {
         self.main_session.clone()
     }
 
     /// 获取后台会话（轮询分配）
-    pub fn get_background_session(&self) -> Result<Arc<Mutex<Session>>, String> {
+    pub fn get_background_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
         let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
 
         // 如果没有后台会话或需要扩容，创建新会话
@@ -193,20 +206,13 @@ where
         })?
 }
 
-fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
-    // Determine the underlying TCP stream (either direct or via jump host)
-    let tcp_stream = if let Some(jump_host) = &config.jump_host {
-        if jump_host.trim().is_empty() {
-            // Fallback to direct if empty
-            let addr_str = format!("{}:{}", config.host, config.port);
-            let addr = addr_str
-                .to_socket_addrs()
-                .map_err(|e| e.to_string())?
-                .next()
-                .ok_or("Invalid address")?;
-            TcpStream::connect_timeout(&addr, Duration::from_secs(5))
-                .map_err(|e| format!("Connection failed: {}", e))?
-        } else {
+fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String> {
+    let mut sess = Session::new().map_err(|e| e.to_string())?;
+    let mut jump_session_holder = None;
+    let mut listener_holder = None;
+
+    if let Some(jump_host) = &config.jump_host {
+        if !jump_host.trim().is_empty() {
             // Jump Host Logic
             let jump_port = config.jump_port.unwrap_or(22);
             let jump_addr = format!("{}:{}", jump_host, jump_port);
@@ -218,8 +224,7 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
             jump_sess
                 .handshake()
                 .map_err(|e| format!("Jump handshake failed: {}", e))?;
-            jump_sess.set_keepalive(true, 60);
-
+            
             jump_sess
                 .userauth_password(
                     config.jump_username.as_deref().unwrap_or(""),
@@ -227,180 +232,114 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
                 )
                 .map_err(|e| format!("Jump auth failed: {}", e))?;
 
-            // Setup local listener for forwarding
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-            let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+            // Local Port Forwarding Pattern using direct TCP channel
+            // Create a local listener on a random port
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .map_err(|e| format!("Failed to bind local port: {}", e))?;
 
-            let target_host = config.host.clone();
-            let target_port = config.port;
+            let local_port = listener.local_addr()
+                .map_err(|e| format!("Failed to get local port: {}", e))?
+                .port();
 
-            // Create a channel for communication between threads
-            let (tx, rx) = std::sync::mpsc::channel::<bool>();
-
-            // Spawn proxy thread with timeout
-            thread::spawn(move || {
-                // Set listener timeout to avoid infinite blocking
-                if let Ok(_) = listener.set_nonblocking(true) {
-                    let start_time = std::time::Instant::now();
-                    let timeout = Duration::from_secs(10); // 10 second timeout
-
-                    loop {
-                        // Check timeout
-                        if start_time.elapsed() > timeout {
-                            break;
-                        }
-
-                        // Check if main thread signaled us to stop
-                        if rx.try_recv().is_ok() {
-                            break;
-                        }
-
-                        match listener.accept() {
-                            Ok((mut local_stream, _)) => {
-                                let _ = local_stream.set_nonblocking(true);
-
-                                // Keep blocking for channel creation to ensure it doesn't fail with WouldBlock
-                                match jump_sess.channel_direct_tcpip(
-                                    &target_host,
-                                    target_port,
-                                    None,
-                                ) {
-                                    Ok(mut channel) => {
-                                        let _ = jump_sess.set_blocking(false);
-                                        let mut buf = [0u8; 8192];
-                                        loop {
-                                            let mut did_work = false;
-
-                                            // Local -> Remote
-                                            match local_stream.read(&mut buf) {
-                                                Ok(0) => break, // EOF
-                                                Ok(n) => {
-                                                    let mut total_written = 0;
-                                                    let mut failed = false;
-                                                    while total_written < n {
-                                                        match channel.write(&buf[total_written..n])
-                                                        {
-                                                            Ok(w) => total_written += w,
-                                                            Err(e)
-                                                                if e.kind()
-                                                                    == ErrorKind::WouldBlock =>
-                                                            {
-                                                                thread::sleep(
-                                                                    Duration::from_millis(1),
-                                                                );
-                                                            }
-                                                            Err(_) => {
-                                                                failed = true;
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                    if failed {
-                                                        break;
-                                                    }
-                                                    did_work = true;
-                                                }
-                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {}
-                                                Err(_) => break,
-                                            }
-
-                                            // Remote -> Local
-                                            match channel.read(&mut buf) {
-                                                Ok(0) => break, // EOF from remote
-                                                Ok(n) => {
-                                                    let mut total_written = 0;
-                                                    let mut failed = false;
-                                                    while total_written < n {
-                                                        match local_stream
-                                                            .write(&buf[total_written..n])
-                                                        {
-                                                            Ok(w) => total_written += w,
-                                                            Err(e)
-                                                                if e.kind()
-                                                                    == ErrorKind::WouldBlock =>
-                                                            {
-                                                                thread::sleep(
-                                                                    Duration::from_millis(1),
-                                                                );
-                                                            }
-                                                            Err(_) => {
-                                                                failed = true;
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                    if failed {
-                                                        break;
-                                                    }
-                                                    did_work = true;
-                                                }
-                                                Err(e) if e.kind() == ErrorKind::WouldBlock => {}
-                                                Err(_) => break,
-                                            }
-
-                                            if !did_work {
-                                                thread::sleep(Duration::from_millis(1));
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to open direct-tcpip channel: {}", e)
-                                    }
-                                }
-                                break; // Exit after handling one connection
-                            }
-                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                                thread::sleep(Duration::from_millis(10));
-                                continue;
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                }
-            });
-
-            // Try to connect to local proxy with timeout
-            let connect_start = std::time::Instant::now();
-            let connect_timeout = Duration::from_secs(5);
-            let tcp_stream;
-
-            loop {
-                match TcpStream::connect(format!("127.0.0.1:{}", local_port)) {
-                    Ok(stream) => {
-                        // Signal proxy thread that we're connected
-                        let _ = tx.send(true);
-                        tcp_stream = Some(stream);
+            // Robust connect with retry
+            let connect_addr = format!("127.0.0.1:{}", local_port);
+            let mut tcp_stream = None;
+            let start = std::time::Instant::now();
+            let timeout = Duration::from_secs(5);
+            
+            while start.elapsed() < timeout {
+                match TcpStream::connect(&connect_addr) {
+                    Ok(s) => {
+                        tcp_stream = Some(s);
                         break;
                     }
-                    Err(e) => {
-                        if connect_start.elapsed() > connect_timeout {
-                            // Signal proxy thread to stop and return error
-                            let _ = tx.send(false);
-                            return Err(format!(
-                                "Failed to connect to local proxy within timeout: {}",
-                                e
-                            ));
-                        }
-                        thread::sleep(Duration::from_millis(10));
+                    Err(_) => {
+                        thread::sleep(Duration::from_millis(50));
                     }
                 }
             }
 
-            tcp_stream.ok_or_else(|| "Failed to establish connection".to_string())?
+            let tcp_stream = tcp_stream.ok_or_else(|| 
+                format!("Failed to connect to local forwarded port {}", local_port))?;
+
+            sess.set_tcp_stream(tcp_stream);
+            
+            // Start port forwarding thread
+            let jump_sess_clone = jump_sess.clone();
+            let target_host = config.host.clone();
+            let target_port = config.port;
+            let listener_clone = listener.try_clone()
+                .map_err(|e| format!("Failed to clone listener: {}", e))?;
+
+            thread::spawn(move || {
+                for stream in listener_clone.incoming() {
+                    match stream {
+                        Ok(local_stream) => {
+                            let jump_sess = jump_sess_clone.clone();
+                            let host = target_host.clone();
+                            let port = target_port;
+                            thread::spawn(move || {
+                                if let Ok(mut channel) = jump_sess.channel_direct_tcpip(&host, port, None) {
+                                    let mut local_stream = local_stream;
+                                    let mut buf = [0u8; 8192];
+                                    loop {
+                                        match local_stream.read(&mut buf) {
+                                            Ok(0) => break,
+                                            Ok(n) => {
+                                                if let Err(_) = channel.write_all(&buf[..n]) {
+                                                    break;
+                                                }
+                                            }
+                                            Err(_) => break,
+                                        }
+
+                                        match channel.read(&mut buf) {
+                                            Ok(0) => break,
+                                            Ok(n) => {
+                                                if let Err(_) = local_stream.write_all(&buf[..n]) {
+                                                    break;
+                                                }
+                                            }
+                                            Err(_) => break,
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+
+            // Keep alive
+            jump_session_holder = Some(jump_sess);
+            listener_holder = Some(listener);
+
+        } else {
+             // Direct connection (empty jump host string)
+            let addr_str = format!("{}:{}", config.host, config.port);
+            let addr = addr_str
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?
+                .next()
+                .ok_or("Invalid address")?;
+            let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+                .map_err(|e| format!("Connection failed: {}", e))?;
+            sess.set_tcp_stream(tcp);
         }
     } else {
+        // Direct connection (no jump host config)
         let addr_str = format!("{}:{}", config.host, config.port);
         let addr = addr_str
             .to_socket_addrs()
             .map_err(|e| e.to_string())?
             .next()
             .ok_or("Invalid address")?;
-        TcpStream::connect_timeout(&addr, Duration::from_secs(5))
-            .map_err(|e| format!("Connection failed: {}", e))?
+        let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+            .map_err(|e| format!("Connection failed: {}", e))?;
+        sess.set_tcp_stream(tcp);
     };
 
-    let mut sess = Session::new().map_err(|e| e.to_string())?;
-    sess.set_tcp_stream(tcp_stream);
     sess.handshake().map_err(|e| e.to_string())?;
 
     sess.userauth_password(&config.username, config.password.as_deref().unwrap_or(""))
@@ -412,7 +351,11 @@ fn establish_connection(config: &SshConnConfig) -> Result<Session, String> {
     // Set non-blocking mode for concurrency
     sess.set_blocking(false);
 
-    Ok(sess)
+    Ok(ManagedSession {
+        session: sess,
+        jump_session: jump_session_holder,
+        forward_listener: listener_holder,
+    })
 }
 
 fn detect_os(session: &Session) -> String {
