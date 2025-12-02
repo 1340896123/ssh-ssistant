@@ -374,9 +374,10 @@ fn detect_os(session: &Session) -> String {
                     let os = s.trim();
                     if !os.is_empty() && !os.to_lowercase().contains("command not found") {
                         // Check for Windows-like output from uname (e.g., MINGW, CYGWIN)
-                        if os.to_uppercase().contains("MINGW") 
-                           || os.to_uppercase().contains("CYGWIN") 
-                           || os.to_uppercase().contains("MSYS") {
+                        if os.to_uppercase().contains("MINGW")
+                            || os.to_uppercase().contains("CYGWIN")
+                            || os.to_uppercase().contains("MSYS")
+                        {
                             return "Windows".to_string();
                         }
                         return os.to_string();
