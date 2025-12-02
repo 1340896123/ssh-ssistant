@@ -1428,6 +1428,7 @@ fn upload_recursive_progress(
     total_size: u64,
     transferred: &mut u64,
     resume: bool,
+    last_emit_time: &mut std::time::Instant,
 ) -> Result<(), String> {
     if cancel_flag.load(Ordering::Relaxed) {
         return Err("Cancelled".to_string());
@@ -1457,6 +1458,7 @@ fn upload_recursive_progress(
                 total_size,
                 transferred,
                 resume,
+                last_emit_time,
             )?;
         }
     } else {
@@ -1601,18 +1603,19 @@ fn upload_recursive_progress(
                             Ok(written) => {
                                 pos += written;
                                 *transferred += written as u64;
-                                // Emit progress periodically? Or every chunk?
-                                // 32KB is small. Maybe every 1MB or just every chunk.
-                                // Emitting every chunk might be too much for frontend IPC?
-                                // Let's try every chunk for smoothness, Tauri is fast.
-                                let _ = app.emit(
-                                    "transfer-progress",
-                                    ProgressPayload {
-                                        id: transfer_id.to_string(),
-                                        transferred: *transferred,
-                                        total: total_size,
-                                    },
-                                );
+
+                                // Throttle progress updates: emit at most every 100ms
+                                if last_emit_time.elapsed() >= Duration::from_millis(100) {
+                                    let _ = app.emit(
+                                        "transfer-progress",
+                                        ProgressPayload {
+                                            id: transfer_id.to_string(),
+                                            transferred: *transferred,
+                                            total: total_size,
+                                        },
+                                    );
+                                    *last_emit_time = std::time::Instant::now();
+                                }
                             }
                             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                                 thread::sleep(Duration::from_millis(10));
@@ -1624,6 +1627,16 @@ fn upload_recursive_progress(
                 Err(e) => return Err(e.to_string()),
             }
         }
+
+        // Ensure final progress is sent
+        let _ = app.emit(
+            "transfer-progress",
+            ProgressPayload {
+                id: transfer_id.to_string(),
+                transferred: *transferred,
+                total: total_size,
+            },
+        );
     }
     Ok(())
 }
@@ -1671,6 +1684,8 @@ pub async fn upload_file_with_progress(
 
     let mut transferred = 0;
 
+    let mut last_emit_time = std::time::Instant::now();
+
     let res = upload_recursive_progress(
         &sess,
         &sftp,
@@ -1682,6 +1697,7 @@ pub async fn upload_file_with_progress(
         total_size,
         &mut transferred,
         resume,
+        &mut last_emit_time,
     );
 
     state
@@ -1795,14 +1811,18 @@ pub async fn download_file_with_progress(
             Ok(n) => {
                 local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
                 transferred += n as u64;
-                let _ = app.emit(
-                    "transfer-progress",
-                    ProgressPayload {
-                        id: transfer_id.clone(),
-                        transferred,
-                        total: total_size,
-                    },
-                );
+
+                if last_emit_time.elapsed() >= Duration::from_millis(100) {
+                    let _ = app.emit(
+                        "transfer-progress",
+                        ProgressPayload {
+                            id: transfer_id.clone(),
+                            transferred,
+                            total: total_size,
+                        },
+                    );
+                    last_emit_time = std::time::Instant::now();
+                }
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
@@ -1818,6 +1838,16 @@ pub async fn download_file_with_progress(
             }
         }
     }
+
+    // Ensure final progress is sent
+    let _ = app.emit(
+        "transfer-progress",
+        ProgressPayload {
+            id: transfer_id.clone(),
+            transferred: total_size,
+            total: total_size,
+        },
+    );
 
     state
         .transfers
