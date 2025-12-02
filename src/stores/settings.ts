@@ -19,7 +19,8 @@ export const useSettingsStore = defineStore('settings', {
       lineHeight: 1.0
     },
     fileManager: {
-      viewMode: 'flat'
+      viewMode: 'flat',
+      sftpBufferSize: 512
     },
     sshPool: {
       maxBackgroundSessions: 3,

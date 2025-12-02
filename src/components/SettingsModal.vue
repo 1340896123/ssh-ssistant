@@ -185,6 +185,11 @@ const tabs = [
                     <option value="tree">{{ t('fileManager.viewMode.tree') }}</option>
                   </select>
                 </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-300 mb-1">SFTP Buffer Size (KB)</label>
+                  <input v-model.number="form.fileManager.sftpBufferSize" type="number" min="64" max="1024" step="64" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  <p class="text-xs text-gray-400 mt-1">Buffer size for SFTP file transfers (64KB-1024KB, step 64KB)</p>
+                </div>
               </div>
             </section>
           </div>

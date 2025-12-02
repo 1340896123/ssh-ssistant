@@ -58,6 +58,7 @@ pub struct TerminalAppearanceSettings {
 #[serde(rename_all = "camelCase")]
 pub struct FileManagerSettings {
     pub view_mode: String,
+    pub sftp_buffer_size: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

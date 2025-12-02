@@ -92,6 +92,12 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
         [],
     );
 
+    // Migration: Add SFTP buffer size
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN file_manager_sftp_buffer_size INTEGER NOT NULL DEFAULT 512"#,
+        [],
+    );
+
     // Groups table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS connection_groups (
@@ -281,6 +287,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
                     view_mode: row
                         .get::<_, Option<String>>(9)?
                         .unwrap_or_else(|| "flat".to_string()),
+                    sftp_buffer_size: row.get::<_, Option<i32>>(13)?.unwrap_or(512),
                 },
                 ssh_pool: SshPoolSettings {
                     max_background_sessions: row.get::<_, Option<i32>>(10)?.unwrap_or(3),

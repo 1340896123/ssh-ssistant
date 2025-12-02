@@ -447,6 +447,7 @@ pub async fn connect(
                 },
                 file_manager: crate::models::FileManagerSettings {
                     view_mode: "flat".to_string(),
+                    sftp_buffer_size: 512,
                 },
                 ssh_pool: crate::models::SshPoolSettings {
                     max_background_sessions: 3,

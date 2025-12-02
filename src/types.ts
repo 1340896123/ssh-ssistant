@@ -51,6 +51,7 @@ export type FileManagerViewMode = "flat" | "tree";
 
 export interface FileManagerSettings {
   viewMode: FileManagerViewMode;
+  sftpBufferSize: number; // SFTP buffer size in KB
 }
 
 export interface SshPoolSettings {
