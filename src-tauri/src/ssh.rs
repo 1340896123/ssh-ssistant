@@ -206,6 +206,17 @@ where
         })?
 }
 
+// Get SFTP buffer size from settings
+fn get_sftp_buffer_size(app: Option<&AppHandle>) -> usize {
+    if let Some(app_handle) = app {
+        if let Ok(settings) = crate::db::get_settings(app_handle.clone()) {
+            return (settings.file_manager.sftp_buffer_size * 1024) as usize; // Convert KB to bytes
+        }
+    }
+    // Default to 512KB if settings not available
+    512 * 1024
+}
+
 fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String> {
     let mut sess = Session::new().map_err(|e| e.to_string())?;
     let mut jump_session_holder = None;
@@ -1109,6 +1120,7 @@ pub async fn change_file_permission(
 
 #[tauri::command]
 pub async fn download_file(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     remote_path: String,
@@ -1131,7 +1143,8 @@ pub async fn download_file(
         block_on(|| sftp.open(std::path::Path::new(&remote_path))).map_err(|e| e.to_string())?;
     let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
 
-    let mut buf = [0u8; 65536];
+    let buffer_size = get_sftp_buffer_size(Some(&app));
+    let mut buf = vec![0u8; buffer_size];
     loop {
         match remote_file.read(&mut buf) {
             Ok(0) => break,
@@ -1152,6 +1165,7 @@ fn upload_recursive(
     sftp: &ssh2::Sftp,
     local_path: &std::path::Path,
     remote_path: &str,
+    buffer_size: usize,
 ) -> Result<(), String> {
     if local_path.is_dir() {
         // Create remote directory
@@ -1171,14 +1185,14 @@ fn upload_recursive(
             } else {
                 format!("{}/{}", remote_path, name)
             };
-            upload_recursive(sftp, &path, &new_remote)?;
+            upload_recursive(sftp, &path, &new_remote, buffer_size)?;
         }
     } else {
         let mut local_file = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
         let mut remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path)))
             .map_err(|e| e.to_string())?;
 
-        let mut buf = [0u8; 65536];
+        let mut buf = vec![0u8; buffer_size];
         loop {
             match local_file.read(&mut buf) {
                 Ok(0) => break,
@@ -1203,6 +1217,7 @@ fn upload_recursive(
 
 #[tauri::command]
 pub async fn upload_file(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     local_path: String,
@@ -1222,7 +1237,8 @@ pub async fn upload_file(
     let sess = bg_session.lock().map_err(|e| e.to_string())?;
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
 
-    upload_recursive(&sftp, std::path::Path::new(&local_path), &remote_path)?;
+    let buffer_size = get_sftp_buffer_size(Some(&app));
+    upload_recursive(&sftp, std::path::Path::new(&local_path), &remote_path, buffer_size)?;
 
     Ok(())
 }
@@ -1257,7 +1273,8 @@ pub async fn download_temp_and_open(
             .map_err(|e| e.to_string())?;
         let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
 
-        let mut buf = [0u8; 65536];
+        let buffer_size = get_sftp_buffer_size(Some(&app));
+        let mut buf = vec![0u8; buffer_size];
         loop {
             match remote_file.read(&mut buf) {
                 Ok(0) => break,
@@ -1589,7 +1606,8 @@ fn upload_recursive_progress(
         // Update global transferred count with skipped bytes
         *transferred += offset;
 
-        let mut buf = [0u8; 65536];
+        let buffer_size = get_sftp_buffer_size(Some(app));
+        let mut buf = vec![0u8; buffer_size];
         loop {
             if cancel_flag.load(Ordering::Relaxed) {
                 return Err("Cancelled".to_string());
@@ -1794,7 +1812,8 @@ pub async fn download_file_with_progress(
     }
 
     let mut transferred = offset;
-    let mut buf = [0u8; 65536];
+    let buffer_size = get_sftp_buffer_size(Some(&app));
+    let mut buf = vec![0u8; buffer_size];
     let mut last_emit_time = std::time::Instant::now();
 
     loop {
@@ -1890,7 +1909,8 @@ pub async fn edit_remote_file(
             block_on(|| sftp.open(Path::new(&remote_path))).map_err(|e| e.to_string())?;
         let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
 
-        let mut buf = [0u8; 65536];
+        let buffer_size = get_sftp_buffer_size(Some(&app));
+        let mut buf = vec![0u8; buffer_size];
         loop {
             match remote_file.read(&mut buf) {
                 Ok(0) => break,
@@ -1911,6 +1931,7 @@ pub async fn edit_remote_file(
     let local_p = local_path.clone();
     let remote_p = remote_path.clone();
     let app_handle = app.clone();
+    let buffer_size = get_sftp_buffer_size(Some(&app));
 
     // Remove existing watcher if any
     if let Ok(mut watchers) = state.watchers.lock() {
@@ -1940,7 +1961,7 @@ pub async fn edit_remote_file(
                                     if let Ok(mut remote_file) =
                                         block_on(|| sftp.create(Path::new(&remote_p2)))
                                     {
-                                        let mut buf = [0u8; 65536];
+                                        let mut buf = vec![0u8; buffer_size];
                                         loop {
                                             match local_file.read(&mut buf) {
                                                 Ok(0) => break,
