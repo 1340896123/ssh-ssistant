@@ -41,8 +41,8 @@ pub struct SessionSshPool {
     config: SshConnConfig,
     main_session: Arc<Mutex<ManagedSession>>, // 主会话，专用于终端
     background_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 后台会话池
-    max_background_sessions: usize,    // 最大后台会话数量
-    next_bg_index: Arc<Mutex<usize>>,  // 轮询索引
+    max_background_sessions: usize,           // 最大后台会话数量
+    next_bg_index: Arc<Mutex<usize>>,         // 轮询索引
 }
 
 impl SessionSshPool {
@@ -224,7 +224,7 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
             jump_sess
                 .handshake()
                 .map_err(|e| format!("Jump handshake failed: {}", e))?;
-            
+
             jump_sess
                 .userauth_password(
                     config.jump_username.as_deref().unwrap_or(""),
@@ -246,7 +246,7 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
             let mut tcp_stream = None;
             let start = std::time::Instant::now();
             let timeout = Duration::from_secs(5);
-            
+
             while start.elapsed() < timeout {
                 match TcpStream::connect(&connect_addr) {
                     Ok(s) => {
@@ -314,9 +314,8 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
             // Keep alive
             jump_session_holder = Some(jump_sess);
             listener_holder = Some(listener);
-
         } else {
-             // Direct connection (empty jump host string)
+            // Direct connection (empty jump host string)
             let addr_str = format!("{}:{}", config.host, config.port);
             let addr = addr_str
                 .to_socket_addrs()
