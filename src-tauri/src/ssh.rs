@@ -1130,7 +1130,7 @@ pub async fn download_file(
         block_on(|| sftp.open(std::path::Path::new(&remote_path))).map_err(|e| e.to_string())?;
     let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
 
-    let mut buf = [0u8; 32768];
+    let mut buf = [0u8; 65536];
     loop {
         match remote_file.read(&mut buf) {
             Ok(0) => break,
@@ -1177,7 +1177,7 @@ fn upload_recursive(
         let mut remote_file = block_on(|| sftp.create(std::path::Path::new(remote_path)))
             .map_err(|e| e.to_string())?;
 
-        let mut buf = [0u8; 32768];
+        let mut buf = [0u8; 65536];
         loop {
             match local_file.read(&mut buf) {
                 Ok(0) => break,
@@ -1256,7 +1256,7 @@ pub async fn download_temp_and_open(
             .map_err(|e| e.to_string())?;
         let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
 
-        let mut buf = [0u8; 32768];
+        let mut buf = [0u8; 65536];
         loop {
             match remote_file.read(&mut buf) {
                 Ok(0) => break,
@@ -1586,7 +1586,7 @@ fn upload_recursive_progress(
         // Update global transferred count with skipped bytes
         *transferred += offset;
 
-        let mut buf = [0u8; 32768];
+        let mut buf = [0u8; 65536];
         loop {
             if cancel_flag.load(Ordering::Relaxed) {
                 return Err("Cancelled".to_string());
@@ -1777,7 +1777,9 @@ pub async fn download_file_with_progress(
     }
 
     let mut transferred = offset;
-    let mut buf = [0u8; 32768];
+    let mut buf = [0u8; 65536];
+    let mut last_emit_time = std::time::Instant::now();
+
     loop {
         if cancel_flag.load(Ordering::Relaxed) {
             state
@@ -1857,7 +1859,7 @@ pub async fn edit_remote_file(
             block_on(|| sftp.open(Path::new(&remote_path))).map_err(|e| e.to_string())?;
         let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
 
-        let mut buf = [0u8; 32768];
+        let mut buf = [0u8; 65536];
         loop {
             match remote_file.read(&mut buf) {
                 Ok(0) => break,
@@ -1907,7 +1909,7 @@ pub async fn edit_remote_file(
                                     if let Ok(mut remote_file) =
                                         block_on(|| sftp.create(Path::new(&remote_p2)))
                                     {
-                                        let mut buf = [0u8; 32768];
+                                        let mut buf = [0u8; 65536];
                                         loop {
                                             match local_file.read(&mut buf) {
                                                 Ok(0) => break,
