@@ -373,53 +373,6 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
     })
 }
 
-fn detect_os(session: &Session) -> String {
-    // Try uname -s first (Linux/macOS)
-    // Wrap in a scope to ensure channel is dropped before next attempt
-    {
-        if let Ok(mut channel) = block_on(|| session.channel_session()) {
-            if let Ok(_) = block_on(|| channel.exec("uname -s")) {
-                let mut buf = Vec::new();
-                if let Ok(_) = channel.read_to_end(&mut buf) {
-                    let s = String::from_utf8_lossy(&buf);
-                    let os = s.trim();
-                    if !os.is_empty() && !os.to_lowercase().contains("command not found") {
-                        // Check for Windows-like output from uname (e.g., MINGW, CYGWIN)
-                        if os.to_uppercase().contains("MINGW")
-                            || os.to_uppercase().contains("CYGWIN")
-                            || os.to_uppercase().contains("MSYS")
-                        {
-                            return "Windows".to_string();
-                        }
-                        return os.to_string();
-                    }
-                }
-            }
-            // Explicitly close if we fall through
-            let _ = channel.close();
-            let _ = channel.wait_close();
-        }
-    }
-
-    // If uname fails, try to detect Windows
-    // We can try to run 'ver' or check for environment variables
-    let mut channel = match block_on(|| session.channel_session()) {
-        Ok(c) => c,
-        Err(_) => return "Unknown".to_string(),
-    };
-
-    if let Ok(_) = block_on(|| channel.exec("cmd.exe /c ver")) {
-        let mut buf = Vec::new();
-        if let Ok(_) = channel.read_to_end(&mut buf) {
-            let s = String::from_utf8_lossy(&buf);
-            if s.contains("Microsoft Windows") {
-                return "Windows".to_string();
-            }
-        }
-    }
-
-    "Unknown".to_string()
-}
 
 #[tauri::command]
 pub async fn test_connection(config: SshConnConfig) -> Result<String, String> {
