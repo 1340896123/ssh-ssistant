@@ -237,7 +237,8 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
             let listener = TcpListener::bind("127.0.0.1:0")
                 .map_err(|e| format!("Failed to bind local port: {}", e))?;
 
-            let local_port = listener.local_addr()
+            let local_port = listener
+                .local_addr()
                 .map_err(|e| format!("Failed to get local port: {}", e))?
                 .port();
 
@@ -259,16 +260,18 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
                 }
             }
 
-            let tcp_stream = tcp_stream.ok_or_else(|| 
-                format!("Failed to connect to local forwarded port {}", local_port))?;
+            let tcp_stream = tcp_stream.ok_or_else(|| {
+                format!("Failed to connect to local forwarded port {}", local_port)
+            })?;
 
             sess.set_tcp_stream(tcp_stream);
-            
+
             // Start port forwarding thread
             let jump_sess_clone = jump_sess.clone();
             let target_host = config.host.clone();
             let target_port = config.port;
-            let listener_clone = listener.try_clone()
+            let listener_clone = listener
+                .try_clone()
                 .map_err(|e| format!("Failed to clone listener: {}", e))?;
 
             thread::spawn(move || {
@@ -279,7 +282,9 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
                             let host = target_host.clone();
                             let port = target_port;
                             thread::spawn(move || {
-                                if let Ok(mut channel) = jump_sess.channel_direct_tcpip(&host, port, None) {
+                                if let Ok(mut channel) =
+                                    jump_sess.channel_direct_tcpip(&host, port, None)
+                                {
                                     let mut local_stream = local_stream;
                                     let mut buf = [0u8; 8192];
                                     loop {
