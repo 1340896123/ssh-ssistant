@@ -577,9 +577,9 @@ pub async fn connect(
         let _ = app.emit(&format!("term-exit:{}", shell_id), ());
     });
 
-    // Detect OS
-    let os_info = detect_os(&main_session.lock().unwrap());
-    println!("Detected OS: {}", os_info);
+    // Use OS type from connection config with fallback to Linux for backward compatibility
+    let os_info = config.os_type.clone().unwrap_or_else(|| "Linux".to_string());
+    println!("Using OS type from config: {}", os_info);
 
     let client = SshClient {
         ssh_pool: Arc::new(ssh_pool),

@@ -15,6 +15,7 @@ pub struct Connection {
     pub jump_username: Option<String>,
     pub jump_password: Option<String>,
     pub group_id: Option<i64>,
+    pub os_type: Option<String>, // Default "Linux" for backward compatibility
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

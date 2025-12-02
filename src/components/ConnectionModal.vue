@@ -17,7 +17,8 @@ const form = ref<Connection>({
   jumpHost: '',
   jumpPort: 22,
   jumpUsername: '',
-  jumpPassword: ''
+  jumpPassword: '',
+  osType: 'Linux'
 });
 
 const showPassword = ref(false);
@@ -35,6 +36,8 @@ watch(() => props.show, (newVal) => {
       form.value = { ...props.connectionToEdit };
       // Ensure optional fields are handled if undefined
       if (!form.value.jumpPort) form.value.jumpPort = 22;
+      // Provide default OS type for backward compatibility
+      if (!form.value.osType) form.value.osType = 'Linux';
     } else {
       // Reset for new connection
       form.value = {
@@ -47,7 +50,8 @@ watch(() => props.show, (newVal) => {
         jumpPort: 22,
         jumpUsername: '',
         jumpPassword: '',
-        groupId: null
+        groupId: null,
+        osType: 'Linux'
       };
     }
   }
@@ -58,14 +62,18 @@ async function testConnection() {
     testResult.value = { success: false, message: 'Host and Username are required' };
     return;
   }
-  
+
   isTesting.value = true;
   testResult.value = null;
-  
+
   const payload = { ...form.value };
   payload.port = parseInt(payload.port.toString(), 10);
   if (payload.jumpPort) {
     payload.jumpPort = parseInt(payload.jumpPort.toString(), 10);
+  }
+  // Ensure osType is provided for backward compatibility
+  if (!payload.osType) {
+    payload.osType = 'Linux';
   }
   // Clear jump fields if host is empty
   if (!payload.jumpHost) {
@@ -90,6 +98,10 @@ function save() {
   payload.port = parseInt(payload.port.toString(), 10);
   if (payload.jumpPort) {
     payload.jumpPort = parseInt(payload.jumpPort.toString(), 10);
+  }
+  // Ensure osType is provided for backward compatibility
+  if (!payload.osType) {
+    payload.osType = 'Linux';
   }
   // Clear jump fields if host is empty to avoid sending empty strings as Some("")
   if (!payload.jumpHost) {
@@ -145,6 +157,16 @@ function save() {
               <EyeOff v-else class="w-5 h-5" />
             </button>
           </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-400 uppercase mb-1">Operating System</label>
+          <select v-model="form.osType"
+            class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none">
+            <option value="Linux">Linux</option>
+            <option value="Windows">Windows</option>
+            <option value="macOS">macOS</option>
+          </select>
         </div>
 
         <div>

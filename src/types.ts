@@ -11,6 +11,7 @@ export interface Connection {
   jumpUsername?: string;
   jumpPassword?: string;
   groupId?: number | null;
+  osType?: string; // Operating system type: "Linux", "Windows", "macOS", optional for backward compatibility
 }
 
 export interface ConnectionGroup {

@@ -112,6 +112,9 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     // Migration: Add group_id to connections
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN group_id INTEGER REFERENCES connection_groups(id) ON DELETE SET NULL", []);
 
+    // Migration: Add os_type to connections with default 'Linux'
+    let _ = conn.execute("ALTER TABLE connections ADD COLUMN os_type TEXT NOT NULL DEFAULT 'Linux'", []);
+
     Ok(())
 }
 
@@ -120,7 +123,7 @@ pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, Stri
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let mut stmt = conn.prepare("SELECT id, name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id FROM connections")
+    let mut stmt = conn.prepare("SELECT id, name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type FROM connections")
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
@@ -137,6 +140,7 @@ pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, Stri
                 jump_username: row.get(8)?,
                 jump_password: row.get(9)?,
                 group_id: row.get(10)?,
+                os_type: row.get(11)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -181,8 +185,8 @@ pub fn create_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(
     let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     db_conn.execute(
-        "INSERT INTO connections (name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id],
+        "INSERT INTO connections (name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.os_type],
     ).map_err(|e| {
         println!("Error inserting connection: {}", e);
         e.to_string()
@@ -197,8 +201,8 @@ pub fn update_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(
     let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     db_conn.execute(
-        "UPDATE connections SET name=?1, host=?2, port=?3, username=?4, password=?5, jump_host=?6, jump_port=?7, jump_username=?8, jump_password=?9, group_id=?10 WHERE id=?11",
-        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.id],
+        "UPDATE connections SET name=?1, host=?2, port=?3, username=?4, password=?5, jump_host=?6, jump_port=?7, jump_username=?8, jump_password=?9, group_id=?10, os_type=?11 WHERE id=?12",
+        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.os_type, conn.id],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }
