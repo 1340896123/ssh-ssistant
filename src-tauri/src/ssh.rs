@@ -596,7 +596,13 @@ pub async fn connect(
 
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    if let Some(client) = state.clients.lock().map_err(|e| e.to_string())?.remove(&id) {
+    // Get client to disconnect
+    let client = {
+        let mut clients = state.clients.lock().map_err(|e| e.to_string())?;
+        clients.remove(&id)
+    };
+
+    if let Some(client) = client {
         // 1. 发送停止信号，终止后台监控任务
         client.shutdown_signal.store(true, Ordering::Relaxed);
 
@@ -608,6 +614,10 @@ pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), St
         // 3. 关闭所有 SSH 连接
         client.ssh_pool.close_all();
     }
+
+    // 4. 清理所有编辑会话 (outside the lock scope)
+    let _ = cleanup_all_editing_sessions(state).await;
+
     Ok(())
 }
 
