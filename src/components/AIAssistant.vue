@@ -252,7 +252,10 @@ function stopMessage() {
     abortController.value.abort();
     
     // Cancel command execution on backend
-    invoke('cancel_command_execution', { id: props.sessionId }).catch(console.error);
+    const runningCommandId = getCurrentRunningCommandId();
+    if (runningCommandId) {
+      invoke('cancel_command_execution', { commandId: runningCommandId }).catch(console.error);
+    }
     
     isLoading.value = false;
     abortController.value = null;
@@ -263,6 +266,26 @@ function stopMessage() {
     messages.value.push({ role: 'assistant', content: `Request stopped by user.` });
     scrollToBottom();
   }
+}
+
+function getCurrentRunningCommandId(): string | null {
+  // Find the most recent assistant message with tool calls
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const msg = messages.value[i];
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      for (const toolCall of msg.tool_calls) {
+        // Check if this tool call has a corresponding tool output message
+        const hasToolOutput = messages.value.some((toolMsg: any) => 
+          toolMsg.role === 'tool' && toolMsg.tool_call_id === toolCall.id
+        );
+        
+        if (!hasToolOutput) {
+          return toolCall.id; // This tool call is still pending/running
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function updateRunningCommandsStatus() {
