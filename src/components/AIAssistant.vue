@@ -114,7 +114,9 @@ const displayMessages = computed(() => {
           name: tc.function.name,
           args: tc.function.arguments,
           command,
-          output: toolOutputMap.get(tc.id)
+          output: toolOutputMap.get(tc.id),
+          isRunning: !toolOutputMap.has(tc.id),
+          realTimeOutput: toolRealTimeOutputs.value[tc.id] || []
         };
       });
 
@@ -402,17 +404,34 @@ ${activeWorkspace.value.context}
           }
 
           try {
+            // Initialize real-time output storage for this tool call
+            toolRealTimeOutputs.value[toolCall.id] = [];
+            
+            // Start listening for real-time output events
+            const unlisten = await listen(`command-output-${props.sessionId}-${toolCall.id}`, (event: any) => {
+              const output = event.payload;
+              if (output && output.data) {
+                toolRealTimeOutputs.value[toolCall.id].push(output.data);
+                // Force UI update to show new output
+                scrollToBottom();
+              }
+            });
+            
             let result = '';
             
             // Check if aborted before executing command
             if (abortController.value?.signal.aborted) {
+              unlisten();
               throw new DOMException('Aborted', 'AbortError');
             }
             
             result = await invoke<string>('exec_command', {
               id: props.sessionId,
-              command: cmd
+              command: cmd,
+              toolCallId: toolCall.id
             });
+            
+            unlisten();
             
             // Check if aborted after command completed
             if (abortController.value?.signal.aborted) {
@@ -721,9 +740,20 @@ onUnmounted(() => {
                     </button>
                   </div>
                 </div>
-                <div v-if="toolStates[exec.id] && exec.output" class="p-2 border-t border-gray-700 bg-black/30">
+                <div v-if="toolStates[exec.id]" class="p-2 border-t border-gray-700 bg-black/30">
                   <pre
-                    class="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto font-mono">{{ exec.output }}</pre>
+                    class="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto font-mono">
+                    <!-- Show real-time output if running, otherwise show final output -->
+                    <template v-if="exec.isRunning && exec.realTimeOutput && exec.realTimeOutput.length > 0">
+                      {{ exec.realTimeOutput.join('') }}
+                    </template>
+                    <template v-else-if="exec.output">
+                      {{ exec.output }}
+                    </template>
+                    <template v-else-if="exec.isRunning">
+                      <!-- Empty placeholder for running commands without output yet -->
+                    </template>
+                  </pre>
                 </div>
               </div>
             </div>

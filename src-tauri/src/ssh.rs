@@ -22,6 +22,11 @@ pub enum ShellMsg {
     Exit,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CommandOutputEvent {
+    pub data: String,
+}
+
 pub struct ManagedSession {
     pub session: Session,
     pub jump_session: Option<Session>,
@@ -2056,9 +2061,11 @@ pub async fn cancel_command_execution(state: State<'_, AppState>, id: String) ->
 
 #[tauri::command]
 pub async fn exec_command(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     command: String,
+    tool_call_id: Option<String>,
 ) -> Result<String, String> {
     let client = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
@@ -2099,7 +2106,18 @@ pub async fn exec_command(
 
         match channel.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Ok(n) => {
+                let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
+                s.push_str(&chunk);
+                
+                // Send real-time output event if tool_call_id is provided
+                if let Some(ref tool_id) = tool_call_id {
+                    let _ = app_handle.emit(
+                        &format!("command-output-{}-{}", id, tool_id),
+                        CommandOutputEvent { data: chunk.clone() }
+                    );
+                }
+            }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
             }
