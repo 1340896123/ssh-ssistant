@@ -1103,13 +1103,14 @@ pub async fn rename_item(
 
 #[tauri::command]
 pub async fn change_file_permission(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     path: String,
     perms: String,
 ) -> Result<(), String> {
     let command = format!("chmod {} \"{}\"", perms, path);
-    exec_command(state, id, command).await.map(|_| ())
+    exec_command(app_handle, state, id, command, None).await.map(|_| ())
 }
 
 #[tauri::command]
