@@ -535,7 +535,10 @@ pub async fn connect(
     });
 
     // Use OS type from connection config with fallback to Linux for backward compatibility
-    let os_info = config.os_type.clone().unwrap_or_else(|| "Linux".to_string());
+    let os_info = config
+        .os_type
+        .clone()
+        .unwrap_or_else(|| "Linux".to_string());
     println!("Using OS type from config: {}", os_info);
 
     let client = SshClient {
@@ -1118,7 +1121,9 @@ pub async fn change_file_permission(
     perms: String,
 ) -> Result<(), String> {
     let command = format!("chmod {} \"{}\"", perms, path);
-    exec_command(app_handle, state, id, command, None).await.map(|_| ())
+    exec_command(app_handle, state, id, command, None)
+        .await
+        .map(|_| ())
 }
 
 #[tauri::command]
@@ -1914,7 +1919,10 @@ pub async fn exec_command(
     // Create cancellation flag for this command
     let cancel_flag = Arc::new(AtomicBool::new(false));
     {
-        let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+        let mut cancellations = state
+            .command_cancellations
+            .lock()
+            .map_err(|e| e.to_string())?;
         cancellations.insert(id.clone(), cancel_flag.clone());
     }
 
@@ -1934,11 +1942,14 @@ pub async fn exec_command(
         if cancel_flag.load(Ordering::Relaxed) {
             // Try to close the channel to stop the command
             let _ = channel.close();
-            
+
             // Remove the cancellation flag
-            let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+            let mut cancellations = state
+                .command_cancellations
+                .lock()
+                .map_err(|e| e.to_string())?;
             cancellations.remove(&id);
-            
+
             return Err("Command execution cancelled by user".to_string());
         }
 
@@ -1947,12 +1958,14 @@ pub async fn exec_command(
             Ok(n) => {
                 let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
                 s.push_str(&chunk);
-                
+
                 // Send real-time output event if tool_call_id is provided
                 if let Some(ref tool_id) = tool_call_id {
                     let _ = app_handle.emit(
                         &format!("command-output-{}-{}", id, tool_id),
-                        CommandOutputEvent { data: chunk.clone() }
+                        CommandOutputEvent {
+                            data: chunk.clone(),
+                        },
                     );
                 }
             }
@@ -1961,19 +1974,25 @@ pub async fn exec_command(
             }
             Err(e) => {
                 // Remove the cancellation flag on error
-                let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+                let mut cancellations = state
+                    .command_cancellations
+                    .lock()
+                    .map_err(|e| e.to_string())?;
                 cancellations.remove(&id);
                 return Err(e.to_string());
             }
         }
     }
-    
+
     block_on(|| channel.wait_close()).ok();
-    
+
     // Remove the cancellation flag on successful completion
-    let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+    let mut cancellations = state
+        .command_cancellations
+        .lock()
+        .map_err(|e| e.to_string())?;
     cancellations.remove(&id);
-    
+
     Ok(s)
 }
 
