@@ -398,7 +398,7 @@ ${activeWorkspace.value.context}
       // Handle tool calls
       for (const toolCall of message.tool_calls) {
         // Check if aborted before executing tool
-        if (abortController.value?.signal.aborted) {
+        if (currentController?.signal.aborted) {
           throw new DOMException('Aborted', 'AbortError');
         }
 
@@ -446,7 +446,7 @@ ${activeWorkspace.value.context}
             let result = '';
 
             // Check if aborted before executing command
-            if (abortController.value?.signal.aborted) {
+            if (currentController?.signal.aborted) {
               unlisten();
               throw new DOMException('Aborted', 'AbortError');
             }
@@ -460,7 +460,7 @@ ${activeWorkspace.value.context}
             unlisten();
 
             // Check if aborted after command completed
-            if (abortController.value?.signal.aborted) {
+            if (currentController?.signal.aborted) {
               throw new DOMException('Aborted', 'AbortError');
             }
 
@@ -559,7 +559,7 @@ ${activeWorkspace.value.context}
       }
 
       // Check if aborted before recursive call
-      if (abortController.value?.signal.aborted) {
+      if (currentController?.signal.aborted) {
         throw new DOMException('Aborted', 'AbortError');
       }
 
