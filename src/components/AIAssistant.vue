@@ -246,11 +246,43 @@ async function sendMessage() {
 function stopMessage() {
   if (abortController.value) {
     abortController.value.abort();
+    
+    // Cancel command execution on backend
+    invoke('cancel_command_execution', { id: props.sessionId }).catch(console.error);
+    
     isLoading.value = false;
     abortController.value = null;
+    
+    // Update running commands display to show they were stopped
+    updateRunningCommandsStatus();
+    
     messages.value.push({ role: 'assistant', content: `Request stopped by user.` });
     scrollToBottom();
   }
+}
+
+function updateRunningCommandsStatus() {
+  // Find all messages with tool calls and update their status
+  messages.value.forEach((msg: any) => {
+    if (msg.tool_calls) {
+      msg.tool_calls.forEach((tc: any) => {
+        // Check if this tool call doesn't have a corresponding tool message yet
+        const hasToolOutput = messages.value.some((toolMsg: any) => 
+          toolMsg.role === 'tool' && toolMsg.tool_call_id === tc.id
+        );
+        
+        if (!hasToolOutput) {
+          // Add a tool message indicating the command was stopped
+          messages.value.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            name: tc.function.name,
+            content: `Command execution stopped by user`
+          });
+        }
+      });
+    }
+  });
 }
 
 async function processChat() {
@@ -371,10 +403,21 @@ ${activeWorkspace.value.context}
 
           try {
             let result = '';
+            
+            // Check if aborted before executing command
+            if (abortController.value?.signal.aborted) {
+              throw new DOMException('Aborted', 'AbortError');
+            }
+            
             result = await invoke<string>('exec_command', {
               id: props.sessionId,
               command: cmd
             });
+            
+            // Check if aborted after command completed
+            if (abortController.value?.signal.aborted) {
+              throw new DOMException('Aborted', 'AbortError');
+            }
 
             messages.value.push({
               role: 'tool',
@@ -382,13 +425,22 @@ ${activeWorkspace.value.context}
               name: toolCall.function.name,
               content: result || "(No output)"
             });
-          } catch (e) {
-            messages.value.push({
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              name: toolCall.function.name,
-              content: `Error executing command: ${e}`
-            });
+          } catch (e: any) {
+            if (e.name === 'AbortError' || e.message?.includes('Aborted')) {
+              messages.value.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: toolCall.function.name,
+                content: `Command execution stopped by user.`
+              });
+            } else {
+              messages.value.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: toolCall.function.name,
+                content: `Error executing command: ${e}`
+              });
+            }
           }
         } else if (name === 'read_file') {
           const args = JSON.parse(toolCall.function.arguments) as { path: string; maxBytes?: number };
@@ -547,6 +599,23 @@ function removeContextPath(pathToRemove: string) {
   contextPaths.value = contextPaths.value.filter((c) => c.path !== pathToRemove);
 }
 
+function copyCommand(command: string) {
+  navigator.clipboard.writeText(command).then(() => {
+    // Optional: Show a brief success message
+    console.log('Command copied to clipboard');
+  }).catch(err => {
+    console.error('Failed to copy command:', err);
+  });
+}
+
+function rerunCommand(command: string) {
+  input.value = command;
+  // Auto-focus and send the command
+  nextTick(() => {
+    sendMessage();
+  });
+}
+
 onUnmounted(() => {
   if (unlistenDrop) {
     unlistenDrop();
@@ -615,11 +684,42 @@ onUnmounted(() => {
                     class="w-4 h-4 text-gray-400 mr-1" />
                   <TerminalSquare class="w-3 h-3 mr-2 text-purple-400" />
                   <span class="font-mono flex-1 truncate text-gray-300">{{ exec.command }}</span>
+                  
+                  <!-- Status indicator -->
                   <span v-if="!exec.output" class="flex items-center text-yellow-500 ml-2">
                     <Loader2 class="w-3 h-3 animate-spin mr-1" />
                     Running
                   </span>
+                  <span v-else-if="exec.output === 'Command execution stopped by user'" class="text-red-500 ml-2 text-[10px] uppercase">
+                    Stopped
+                  </span>
                   <span v-else class="text-green-500 ml-2 text-[10px] uppercase">Done</span>
+                  
+                  <!-- Action buttons -->
+                  <div class="flex items-center gap-1 ml-2">
+                    <!-- Copy command button -->
+                    <button @click.stop="copyCommand(exec.command)"
+                      class="p-1 text-gray-400 hover:text-blue-400 hover:bg-gray-700 rounded transition-colors"
+                      title="Copy command">
+                      <ClipboardPlus class="w-3 h-3" />
+                    </button>
+                    
+                    <!-- Rerun button (only for completed commands) -->
+                    <button v-if="exec.output" 
+                      @click.stop="rerunCommand(exec.command)"
+                      class="p-1 text-gray-400 hover:text-green-400 hover:bg-gray-700 rounded transition-colors"
+                      title="Rerun command">
+                      <Loader2 class="w-3 h-3" />
+                    </button>
+                    
+                    <!-- Stop button (only for running commands) -->
+                    <button v-if="!exec.output && isLoading" 
+                      @click.stop="stopMessage()"
+                      class="p-1 text-red-500 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                      title="Stop command">
+                      <Square class="w-3 h-3 fill-current" />
+                    </button>
+                  </div>
                 </div>
                 <div v-if="toolStates[exec.id] && exec.output" class="p-2 border-t border-gray-700 bg-black/30">
                   <pre

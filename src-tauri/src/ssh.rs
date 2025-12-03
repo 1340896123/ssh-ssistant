@@ -161,6 +161,7 @@ pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>, // ID -> CancelFlag
     pub watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+    pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Session ID -> CancelFlag
 }
 
 impl AppState {
@@ -169,6 +170,7 @@ impl AppState {
             clients: Mutex::new(HashMap::new()),
             transfers: Mutex::new(HashMap::new()),
             watchers: Mutex::new(HashMap::new()),
+            command_cancellations: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -2044,6 +2046,15 @@ pub async fn edit_remote_file(
 }
 
 #[tauri::command]
+pub async fn cancel_command_execution(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+    if let Some(cancel_flag) = cancellations.get(&id) {
+        cancel_flag.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn exec_command(
     state: State<'_, AppState>,
     id: String,
@@ -2054,6 +2065,13 @@ pub async fn exec_command(
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
+
+    // Create cancellation flag for this command
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    {
+        let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+        cancellations.insert(id.clone(), cancel_flag.clone());
+    }
 
     // 使用后台会话执行命令，避免阻塞SFTP操作
     let bg_session = client
@@ -2067,16 +2085,39 @@ pub async fn exec_command(
     let mut s = String::new();
     let mut buf = [0u8; 1024];
     loop {
+        // Check for cancellation
+        if cancel_flag.load(Ordering::Relaxed) {
+            // Try to close the channel to stop the command
+            let _ = channel.close();
+            
+            // Remove the cancellation flag
+            let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+            cancellations.remove(&id);
+            
+            return Err("Command execution cancelled by user".to_string());
+        }
+
         match channel.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => s.push_str(&String::from_utf8_lossy(&buf[..n])),
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
             }
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                // Remove the cancellation flag on error
+                let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+                cancellations.remove(&id);
+                return Err(e.to_string());
+            }
         }
     }
+    
     block_on(|| channel.wait_close()).ok();
+    
+    // Remove the cancellation flag on successful completion
+    let mut cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+    cancellations.remove(&id);
+    
     Ok(s)
 }
 
