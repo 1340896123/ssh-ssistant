@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import TerminalView from './TerminalView.vue';
 import FileEditorModal from './FileEditorModal.vue';
 import { Terminal, FileText, X } from 'lucide-vue-next';
@@ -12,6 +12,7 @@ const activeTab = ref<'terminal' | 'editor'>('terminal');
 const editorFiles = ref<Array<{ id: string; name: string; path: string; fileName: string }>>([]);
 const activeEditorId = ref<string | null>(null);
 const terminalViewRef = ref<any>(null);
+const fileEditorModalRef = ref<any>(null);
 
 const activeEditorFile = computed(() => {
   if (!activeEditorId.value) return null;
@@ -32,18 +33,39 @@ function openFileEditor(filePath: string, fileName: string) {
     path: filePath,
     fileName
   };
-  
+
   editorFiles.value.push(newFile);
   activeEditorId.value = newFile.id;
   activeTab.value = 'editor';
 }
 
-function closeEditor(fileId: string) {
+async function closeEditor(fileId: string) {
+  const file = editorFiles.value.find(f => f.id === fileId);
+  if (!file) return;
+
+  // Check for unsaved changes if the modal is available
+  if (fileEditorModalRef.value) {
+    const hasChanges = fileEditorModalRef.value.hasUnsavedChanges(file.path);
+    if (hasChanges) {
+      // Switch to this tab so the user can see the confirmation dialog
+      activeTab.value = 'editor';
+      activeEditorId.value = fileId;
+
+      // Wait for Vue to update props
+      await nextTick();
+
+      // Trigger the close flow in the modal (which shows confirmation)
+      fileEditorModalRef.value.triggerClose();
+      return;
+    }
+  }
+
+  // No unsaved changes, proceed to close
   const index = editorFiles.value.findIndex(f => f.id === fileId);
   if (index === -1) return;
 
   editorFiles.value.splice(index, 1);
-  
+
   if (activeEditorId.value === fileId) {
     if (editorFiles.value.length > 0) {
       activeEditorId.value = editorFiles.value[editorFiles.value.length - 1].id;
@@ -54,15 +76,42 @@ function closeEditor(fileId: string) {
   }
 }
 
-function closeAllEditors() {
+async function closeAllEditors() {
+  // Check for unsaved changes in all files
+  if (fileEditorModalRef.value) {
+    for (const file of editorFiles.value) {
+      if (fileEditorModalRef.value.hasUnsavedChanges(file.path)) {
+        // Found a file with unsaved changes, switch to it and trigger close
+        activeTab.value = 'editor';
+        activeEditorId.value = file.id;
+        await nextTick();
+        fileEditorModalRef.value.triggerClose();
+        return; // Stop here, user must handle this one first
+      }
+    }
+  }
+
+  // No unsaved changes, close all
   editorFiles.value = [];
   activeEditorId.value = null;
   activeTab.value = 'terminal';
 }
 
 function handleEditorClose() {
+  // This is called when the modal emits 'close' (e.g. after saving or discarding)
   if (activeEditorId.value) {
-    closeEditor(activeEditorId.value);
+    // We can directly remove it because the modal has already handled the confirmation
+    const index = editorFiles.value.findIndex(f => f.id === activeEditorId.value);
+    if (index !== -1) {
+      editorFiles.value.splice(index, 1);
+
+      if (editorFiles.value.length > 0) {
+        activeEditorId.value = editorFiles.value[editorFiles.value.length - 1].id;
+      } else {
+        activeTab.value = 'terminal';
+        activeEditorId.value = null;
+      }
+    }
   }
 }
 
@@ -135,27 +184,15 @@ defineExpose({
     <!-- Tab Content -->
     <div class="flex-1 overflow-hidden">
       <!-- Terminal View -->
-      <div
-        v-show="activeTab === 'terminal'"
-        class="h-full w-full"
-      >
+      <div v-show="activeTab === 'terminal'" class="h-full w-full">
         <TerminalView ref="terminalViewRef" :sessionId="sessionId" />
       </div>
 
       <!-- File Editor View -->
-      <div
-        v-show="activeTab === 'editor' && activeEditorFile"
-        class="h-full w-full"
-      >
-        <FileEditorModal
-          v-if="activeEditorFile"
-          :show="true"
-          :sessionId="sessionId"
-          :filePath="activeEditorFile.path"
-          :fileName="activeEditorFile.fileName"
-          @close="handleEditorClose"
-          @save="handleEditorSave"
-        />
+      <div v-show="activeTab === 'editor' && activeEditorFile" class="h-full w-full">
+        <FileEditorModal v-if="activeEditorFile" ref="fileEditorModalRef" :show="true" :sessionId="sessionId"
+          :filePath="activeEditorFile.path" :fileName="activeEditorFile.fileName" @close="handleEditorClose"
+          @save="handleEditorSave" />
       </div>
     </div>
   </div>
