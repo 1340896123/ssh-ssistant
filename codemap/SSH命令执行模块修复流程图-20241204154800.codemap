@@ -1,0 +1,172 @@
+{
+  "schemaVersion": "1.0",
+  "id": "ssh-command-execution-fix-flow",
+  "metadata": {
+    "created": "2024-12-04T15:48:00Z",
+    "version": "1.0.0",
+    "description": "SSH命令执行模块 deadlock风险和取消机制问题的修复流程图",
+    "project": "ssh-ssistant",
+    "severity": "High",
+    "components": ["ssh.rs", "AIAssistant.vue", "AppState"]
+  },
+  "title": "SSH命令执行模块修复流程图",
+  "traces": [
+    {
+      "id": "trace-1",
+      "title": "当前问题分析 - Session级Deadlock风险",
+      "description": "分析exec_command函数中mutex锁导致的deadlock风险",
+      "locations": [
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1854,
+          "lineContent": "pub async fn exec_command(",
+          "title": "问题入口点",
+          "description": "exec_command函数是命令执行的入口，存在潜在的锁持有问题"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1878,
+          "lineContent": "let bg_session = client.ssh_pool.get_background_session()",
+          "title": "获取后台会话",
+          "description": "获取后台会话用于执行命令"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1882,
+          "lineContent": "let sess = bg_session.lock().map_err(|e| e.to_string())?;",
+          "title": "关键问题点",
+          "description": "在整个命令执行期间持有background_session mutex锁，阻塞其他文件操作"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1884,
+          "lineContent": "let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;",
+          "title": "创建命令通道",
+          "description": "在持有锁的情况下创建SSH通道"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1888,
+          "lineContent": "loop {",
+          "title": "阻塞循环",
+          "description": "在整个命令输出读取循环中持续持有mutex锁"
+        }
+      ],
+      "traceTextDiagram": "┌─────────────────────────────────────────────────────────────┐\n│                  Session级Deadlock风险分析                      │\n├─────────────────────────────────────────────────────────────┤\n│                                                             │\n│  exec_command() 开始                                         │\n│       │                                                    │\n│       ▼                                                    │\n│  获取background_session [获取会话]                           │\n│       │                                                    │\n│       ▼                                                    │\n│  🔒 锁定 mutex.lock() [⚠️ 问题点]                           │\n│       │                                                    │\n│       ▼                                                    │\n│  创建SSH通道 channel_session()                              │\n│       │                                                    │\n│       ▼                                                    │\n│  执行命令 channel.exec(command)                             │\n│       │                                                    │\n│       ▼                                                    │\n│  🔄 读取输出循环 (长时间持有锁)                              │\n│  │  ┌─ 检查取消标志                                          │\n│  │  └─ 读取channel数据                                      │\n│       │                                                    │\n│       ▼                                                    │\n│  ❌ 阻塞其他文件操作 (SFTP、上传下载等)                       │\n│       │                                                    │\n│       ▼                                                    │\n│  释放锁 [命令完成或错误时]                                   │\n│                                                             │\n└─────────────────────────────────────────────────────────────┘",
+      "traceGuide": {
+        "motivation": "解决exec_command函数长时间持有background_session mutex锁导致的deadlock风险，该问题会阻塞所有文件操作（SFTP、上传下载等），严重影响系统并发性能。",
+        "details": "当前实现在命令执行的整个生命周期中持有mutex锁，包括：\n1. SSH通道创建\n2. 命令执行\n3. 输出读取循环\n\n这导致：\n- 文件操作无法获取后台会话\n- SFTP操作被阻塞\n- 上传下载功能不可用\n- 用户体验严重受损\n\n关键技术：\n- 使用Arc<Session>替代Arc<Mutex<Session>>\n- 引用计数管理会话生命周期\n- 异步任务分离锁管理"
+      }
+    },
+    {
+      "id": "trace-2",
+      "title": "命令取消机制逻辑缺陷",
+      "description": "分析使用Session ID而非Command ID作为取消键的问题",
+      "locations": [
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 168,
+          "lineContent": "pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Session ID -> CancelFlag",
+          "title": "问题数据结构",
+          "description": "使用Session ID作为key，无法精确控制单个命令的取消"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1874,
+          "lineContent": "cancellations.insert(id.clone(), cancel_flag.clone());",
+          "title": "错误键值使用",
+          "description": "使用session id而非command id插入取消标志"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1839,
+          "lineContent": "pub async fn cancel_command_execution(",
+          "title": "取消函数实现",
+          "description": "取消函数只能按session取消，无法精确到具体命令"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1890,
+          "lineContent": "if cancel_flag.load(Ordering::Relaxed) {",
+          "title": "取消检查点",
+          "description": "在执行循环中检查取消标志"
+        }
+      ],
+      "traceTextDiagram": "┌─────────────────────────────────────────────────────────────┐\n│                命令取消机制逻辑缺陷分析                          │\n├─────────────────────────────────────────────────────────────┤\n│                                                             │\n│  当前实现：                                                  │\n│                                                             │\n│  AppState.command_cancellations                              │\n│  HashMap<SessionID, CancelFlag>  [⚠️ 错误键设计]              │\n│                                                             │\n│  执行流程：                                                  │\n│                                                             │\n│  exec_command(session_id, command)                           │\n│       │                                                    │\n│       ▼                                                    │\n│  创建 cancel_flag                                            │\n│       │                                                    │\n│       ▼                                                    │\n│  🔑 insert(session_id, cancel_flag) [使用session id]         │\n│       │                                                    │\n│       ▼                                                    │\n│  执行命令...                                                 │\n│       │                                                    │\n│       ▼                                                    │\n│  🚫 问题：同一session的多个命令互相干扰                         │\n│  ┌─ 无法精确取消单个命令                                      │\n│  └─ 新命令会覆盖旧命令的取消标志                              │\n│                                                             │\n│  正确设计：                                                  │\n│                                                             │\n│  HashMap<CommandID, CancelFlag>                             │\n│       │                                                    │\n│       ▼                                                    │\n│  🔑 insert(command_id, cancel_flag) [使用command id]         │\n│       │                                                    │\n│       ▼                                                    │\n│  ✅ 精确控制每个命令的取消                                    │\n│                                                             │\n└─────────────────────────────────────────────────────────────┘",
+      "traceGuide": {
+        "motivation": "修复命令取消机制中使用Session ID而非Command ID的逻辑缺陷，实现精确的命令级取消控制。",
+        "details": "当前问题：\n1. 使用Session ID作为取消键，同一会话的多个命令会互相干扰\n2. 新命令执行会覆盖旧命令的取消标志\n3. 无法精确控制单个命令的取消\n4. 前端传递tool_call_id但后端未使用\n\n解决方案：\n1. 修改AppState数据结构，使用CommandID作为key\n2. 在exec_command中使用tool_call_id生成唯一命令ID\n3. 修改cancel_command_execution接收command_id参数\n4. 实现命令完成后的自动清理机制"
+      }
+    },
+    {
+      "id": "trace-3",
+      "title": "错误处理和状态泄漏问题",
+      "description": "分析错误路径中缺少清理逻辑导致的状态泄漏",
+      "locations": [
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1923,
+          "lineContent": "Err(e) => {",
+          "title": "错误处理路径",
+          "description": "错误路径中需要清理取消标志"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1924,
+          "lineContent": "// Remove the cancellation flag on error",
+          "title": "已有清理逻辑",
+          "description": "已经有基本的错误清理，但不够完善"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1894,
+          "lineContent": "// Remove the cancellation flag",
+          "title": "取消清理",
+          "description": "用户取消时的清理逻辑"
+        }
+      ],
+      "traceTextDiagram": "┌─────────────────────────────────────────────────────────────┐\n│                错误处理和状态泄漏分析                            │\n├─────────────────────────────────────────────────────────────┤\n│                                                             │\n│  当前清理场景：                                              │\n│                                                             │\n│  exec_command()                                             │\n│       │                                                    │\n│       ├─ 成功完成 ✅                                           │\n│       │  └─ cancellations.remove(&id)                        │\n│       │                                                    │\n│       ├─ 用户取消 ✅                                           │\n│       │  └─ cancellations.remove(&id)                        │\n│       │                                                    │\n│       └─ 错误情况 ✅                                           │\n│          └─ cancellations.remove(&id)                        │\n│                                                             │\n│  🤔 潜在问题：                                               │\n│                                                             │\n│  1. 如果exec_command被panic中断                               │\n│  2. 如果进程异常终止                                          │\n│  3. 如果存在多个并发执行路径                                   │\n│                                                             │\n│  🛡️ 增强方案：                                              │\n│                                                             │\n│  1. 使用RAII模式自动清理                                      │\n│  2. 添加Drop trait实现                                       │\n│  3. 定时清理过期标志                                          │\n│  4. 使用Weak引用避免循环引用                                   │\n│                                                             │\n└─────────────────────────────────────────────────────────────┘",
+      "traceGuide": {
+        "motivation": "虽然当前代码有基本的错误清理逻辑，但需要增强清理机制以防止极端情况下的状态泄漏。",
+        "details": "当前清理机制相对完善，但仍需考虑：\n1. panic情况下的资源清理\n2. 异常终止时的状态一致性\n3. 长时间运行会话的内存累积\n4. 并发执行场景下的竞态条件\n\n增强策略：\n1. 实现RAII模式的自动清理器\n2. 添加定时清理任务\n3. 使用Weak引用避免内存泄漏\n4. 添加清理失败的日志记录"
+      }
+    },
+    {
+      "id": "trace-4",
+      "title": "修复方案实现流程",
+      "description": "分步骤实施修复方案的具体流程",
+      "locations": [
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 30,
+          "title": "新增数据结构定义",
+          "description": "添加CommandExecutor结构体和相关类型"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 165,
+          "title": "修改AppState",
+          "description": "更新command_cancellations使用CommandID"
+        },
+        {
+          "path": "src-tauri/src/ssh.rs",
+          "lineNumber": 1854,
+          "title": "重构exec_command",
+          "description": "完全重写命令执行逻辑"
+        },
+        {
+          "path": "src/components/AIAssistant.vue",
+          "lineNumber": 255,
+          "title": "更新前端调用",
+          "description": "修改取消命令的参数传递"
+        }
+      ],
+      "traceTextDiagram": "┌─────────────────────────────────────────────────────────────┐\n│                  修复方案实施流程                               │\n├─────────────────────────────────────────────────────────────┤\n│                                                             │\n│  Phase 1: 数据结构重构                                       │\n│                                                             │\n│  1. 定义CommandExecutor结构体                                │\n│     ├─ session: Arc<Session>                                │\n│     ├─ command_id: String                                   │\n│     └─ cancel_flag: Arc<AtomicBool>                         │\n│                                                             │\n│  2. 修改AppState.command_cancellations                      │\n│     └─ HashMap<CommandID, Arc<AtomicBool>>                  │\n│                                                             │\n│  Phase 2: 核心逻辑重构                                       │\n│                                                             │\n│  3. 重构exec_command函数                                     │\n│     ├─ 使用Arc<Session>替代锁定                              │\n│     ├─ 生成唯一command_id                                   │\n│     └─ 实现RAII自动清理                                      │\n│                                                             │\n│  4. 修改cancel_command_execution                            │\n│     └─ 接收command_id参数                                   │\n│                                                             │\n│  Phase 3: 前端适配                                           │\n│                                                             │\n│  5. 更新AIAssistant.vue                                     │\n│     ├─ 传递tool_call_id作为command_id                        │\n│     └─ 更新取消逻辑                                          │\n│                                                             │\n│  Phase 4: 测试验证                                           │\n│                                                             │\n│  6. 并发测试                                                │\n│  7. 取消功能测试                                            │\n│  8. 错误恢复测试                                            │\n│                                                             │\n└─────────────────────────────────────────────────────────────┘",
+      "traceGuide": {
+        "motivation": "提供系统性的修复实施方案，确保在解决问题的同时保持系统稳定性和向后兼容性。",
+        "details": "实施策略：\n1. **渐进式重构**：先添加新结构，再逐步替换旧逻辑\n2. **向后兼容**：保持API接口不变，内部实现优化\n3. **充分测试**：每个阶段都有对应的测试验证\n4. **错误处理**：完善的错误恢复和回滚机制\n\n关键技术点：\n- Arc<Session>实现共享所有权\n- RAII模式确保资源清理\n- UUID生成唯一命令ID\n- AtomicBool实现无锁取消\n- Weak引用避免循环引用"
+      }
+    }
+  ],
+  "mermaidDiagram": "graph TB\n    subgraph \"Frontend Layer\"\n        A1[AIAssistant.vue] --> A2[User Request]\n        A2 --> A3[Generate Command]\n        A3 --> A4[Call exec_command API]\n        A4 --> A5[Pass tool_call_id]\n        A5 --> A6[Monitor Execution]\n        A6 --> A7[User Cancel Request]\n    end\n    \n    subgraph \"API Service Layer\"\n        B1[Tauri Command Handler] --> B2[exec_command Function]\n        B2 --> B3[Generate Command ID]\n        B3 --> B4[Create CommandExecutor]\n        B4 --> B5[Register Cancel Flag]\n        B5 --> B6[Execute Command Async]\n        B6 --> B7[cancel_command_execution]\n        B7 --> B8[Cleanup Resources]\n    end\n    \n    subgraph \"Backend Layer\"\n        C1[SessionSshPool] --> C2[get_background_session]\n        C2 --> C3[Arc<Session> No Lock]\n        C3 --> C4[SSH Channel Creation]\n        C4 --> C5[Command Execution]\n        C5 --> C6[Output Streaming]\n        C6 --> C7[Cancel Flag Check]\n        C7 --> C8[Resource Cleanup]\n        C8 --> C9[Session Management]\n    end\n    \n    subgraph \"Current Issues (Red)\"\n        I1[❌ Long Mutex Lock] --> I2[⚠️ Session ID as Key]\n        I2 --> I3[⚠️ State Leakage Risk]\n        I3 --> I4[🚫 Blocking File Ops]\n    end\n    \n    subgraph \"Fix Implementation (Green)\"\n        F1[✅ Arc<Session> Shared] --> F2[✅ Command ID Key]\n        F2 --> F3[✅ RAII Auto Cleanup]\n        F3 --> F4[✅ Non-blocking Ops]\n    end\n    \n    %% Connections\n    A7 --> B7\n    B6 --> C5\n    B8 --> C8\n    \n    %% Issue to Fix Mapping\n    I1 -.-> F1\n    I2 -.-> F2\n    I3 -.-> F3\n    I4 -.-> F4\n    \n    %% Styling\n    classDef frontend fill:#e1f5fe\n    classDef api fill:#f3e5f5\n    classDef backend fill:#e8f5e8\n    classDef issue fill:#ffebee\n    classDef fix fill:#e8f5e8,stroke:#4caf50,stroke-width:3px\n    \n    class A1,A2,A3,A4,A5,A6,A7 frontend\n    class B1,B2,B3,B4,B5,B6,B7,B8 api\n    class C1,C2,C3,C4,C5,C6,C7,C8,C9 backend\n    class I1,I2,I3,I4 issue\n    class F1,F2,F3,F4 fix"
+}
