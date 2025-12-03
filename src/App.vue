@@ -196,8 +196,9 @@ async function refreshActiveSessionStatus() {
   }
 }
 
-onMounted(() => {
-  settingsStore.loadSettings();
+onMounted(async () => {
+  // 确保设置在组件挂载前完成加载
+  await settingsStore.loadSettings();
   window.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('mouseup', handleMouseUp);
   window.addEventListener('keydown', handleGlobalKeydown);
