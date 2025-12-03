@@ -1246,64 +1246,12 @@ pub async fn upload_file(
     let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
 
     let buffer_size = get_sftp_buffer_size(Some(&app));
-    upload_recursive(&sftp, std::path::Path::new(&local_path), &remote_path, buffer_size)?;
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn download_temp_and_open(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    remote_path: String,
-    remote_name: String,
-) -> Result<(), String> {
-    let client = {
-        let clients = state.clients.lock().map_err(|e| e.to_string())?;
-        let client = clients.get(&id).ok_or("Session not found")?;
-        client.clone()
-    };
-
-    // Generate unique temporary file name to avoid conflicts
-    let unique_name = generate_unique_temp_name(&remote_name, &remote_path);
-    let temp_dir = std::env::temp_dir();
-    let local_path = temp_dir.join(&unique_name);
-    let local_path_str = local_path.to_str().ok_or("Invalid path")?.to_string();
-
-    {
-        // 使用后台会话进行下载操作
-        let bg_session = client
-            .ssh_pool
-            .get_background_session()
-            .map_err(|e| format!("Failed to get background session: {}", e))?;
-        let sess = bg_session.lock().map_err(|e| e.to_string())?;
-        let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-        let mut remote_file = block_on(|| sftp.open(std::path::Path::new(&remote_path)))
-            .map_err(|e| e.to_string())?;
-        let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
-
-        let buffer_size = get_sftp_buffer_size(Some(&app));
-        let mut buf = vec![0u8; buffer_size];
-        loop {
-            match remote_file.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(10));
-                    continue;
-                }
-                Err(e) => return Err(e.to_string()),
-            }
-        }
-    }
-
-    use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_path(local_path_str, None::<String>)
-        .map_err(|e| e.to_string())?;
+    upload_recursive(
+        &sftp,
+        std::path::Path::new(&local_path),
+        &remote_path,
+        buffer_size,
+    )?;
 
     Ok(())
 }
