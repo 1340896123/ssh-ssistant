@@ -742,7 +742,7 @@ onUnmounted(() => {
                     </button>
                   </div>
                 </div>
-                <div v-if="toolStates[exec.id]" class="p-2 border-t border-gray-700 bg-black/30">
+                <div v-if="toolStates[exec.id]" class="p-2 border-t border-gray-700 bg-black/30 overflow-y-auto max-h-64">
                   <pre
                     class="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto font-mono">
                     <!-- Show real-time output if running, otherwise show final output -->
