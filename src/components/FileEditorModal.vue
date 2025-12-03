@@ -107,6 +107,11 @@ function handleClose() {
   } else {
     // Save current content to cache before closing
     saveCurrentContentToCache();
+    // Dispose editor to free resources
+    if (editor.value) {
+      editor.value.dispose();
+      editor.value = null;
+    }
     emit("close");
   }
 }
@@ -116,6 +121,11 @@ function confirmCloseWithoutSave() {
   showConfirmDialog.value = false;
   // Save current content to cache even if not saved to remote
   saveCurrentContentToCache();
+  // Dispose editor
+  if (editor.value) {
+    editor.value.dispose();
+    editor.value = null;
+  }
   emit("close");
 }
 
@@ -123,6 +133,11 @@ function confirmCloseWithoutSave() {
 function saveAndClose() {
   showConfirmDialog.value = false;
   saveFile().then(() => {
+    // Dispose editor
+    if (editor.value) {
+      editor.value.dispose();
+      editor.value = null;
+    }
     emit("close");
   });
 }
