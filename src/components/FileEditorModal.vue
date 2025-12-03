@@ -160,9 +160,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div v-if="show" class="fixed inset-0 z-50 flex flex-col bg-gray-900 text-white">
+    <div v-if="show" class="h-full w-full flex flex-col bg-gray-900 text-white">
         <!-- Header -->
-        <div class="h-12 border-b border-gray-700 flex items-center justify-between px-4 bg-gray-800">
+        <div class="h-12 border-b border-gray-700 flex items-center justify-between px-4 bg-gray-800 flex-shrink-0">
             <div class="flex items-center space-x-4">
                 <span class="font-bold text-sm text-gray-300">{{ fileName }}</span>
                 <span v-if="isDirty" class="text-xs text-yellow-500 italic">(Modified)</span>
