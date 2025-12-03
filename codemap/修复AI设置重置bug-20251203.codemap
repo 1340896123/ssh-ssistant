@@ -1,0 +1,60 @@
+# 修复AI设置重置bug
+
+## 问题描述
+用户反馈AI助手设置中的 `baseurl` (实际为 `api_url`) 每次打开应用都会重置。
+
+## 原因分析
+经过代码审查，发现 `src-tauri/src/db.rs` 中的 `get_settings` 和 `save_settings` 函数存在严重缺陷：
+
+1.  **`get_settings` 加载失败**:
+    *   SQL `SELECT` 语句缺少 `file_manager_sftp_buffer_size` 字段。
+    *   代码中试图通过 `row.get(13)` 读取该字段，但由于 `SELECT` 只有 13 个字段（索引 0-12），导致索引越界错误。
+    *   这个错误导致整个 `get_settings` 调用失败，前端因此无法加载任何已保存的设置，只能回退到默认值。这就是为什么 `api_url` 看起来被重置了。
+
+2.  **`save_settings` 保存不完整**:
+    *   SQL `UPDATE` 语句缺少 `file_manager_sftp_buffer_size` 字段。
+    *   参数列表也缺少对应的 `settings.file_manager.sftp_buffer_size`。
+    *   这导致 SFTP 缓冲区大小设置永远无法保存。
+
+## 修复方案
+
+### 1. 修改 `src-tauri/src/db.rs` 中的 `get_settings` 函数
+*   在 SQL `SELECT` 语句中添加 `file_manager_sftp_buffer_size`。
+*   确保 `row.get` 的索引与 SQL 语句中的顺序一致。
+
+### 2. 修改 `src-tauri/src/db.rs` 中的 `save_settings` 函数
+*   在 SQL `UPDATE` 语句中添加 `file_manager_sftp_buffer_size`。
+*   在 `params!` 宏中添加 `settings.file_manager.sftp_buffer_size`。
+
+## 变更详情
+
+### `src-tauri/src/db.rs`
+
+#### `get_settings` 变更:
+```rust
+// 变更前
+let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes FROM settings WHERE id = 1")
+
+// 变更后
+let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes, file_manager_sftp_buffer_size FROM settings WHERE id = 1")
+```
+
+#### `save_settings` 变更:
+```rust
+// 变更前
+conn.execute(
+    "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, ssh_max_background_sessions=?11, ssh_enable_auto_cleanup=?12, ssh_cleanup_interval_minutes=?13 WHERE id = 1",
+    params![
+        // ... 13 params
+    ],
+)
+
+// 变更后
+conn.execute(
+    "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, ssh_max_background_sessions=?11, ssh_enable_auto_cleanup=?12, ssh_cleanup_interval_minutes=?13, file_manager_sftp_buffer_size=?14 WHERE id = 1",
+    params![
+        // ... 13 params
+        settings.file_manager.sftp_buffer_size,
+    ],
+)
+```

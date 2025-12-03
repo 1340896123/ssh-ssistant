@@ -264,7 +264,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes FROM settings WHERE id = 1")
+    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes, file_manager_sftp_buffer_size FROM settings WHERE id = 1")
         .map_err(|e| e.to_string())?;
 
     let mut rows = stmt
@@ -315,7 +315,7 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     conn.execute(
-        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, ssh_max_background_sessions=?11, ssh_enable_auto_cleanup=?12, ssh_cleanup_interval_minutes=?13 WHERE id = 1",
+        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, ssh_max_background_sessions=?11, ssh_enable_auto_cleanup=?12, ssh_cleanup_interval_minutes=?13, file_manager_sftp_buffer_size=?14 WHERE id = 1",
         params![
             settings.theme,
             settings.language,
@@ -330,6 +330,7 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
             settings.ssh_pool.max_background_sessions,
             settings.ssh_pool.enable_auto_cleanup,
             settings.ssh_pool.cleanup_interval_minutes,
+            settings.file_manager.sftp_buffer_size,
         ],
     ).map_err(|e| e.to_string())?;
 
