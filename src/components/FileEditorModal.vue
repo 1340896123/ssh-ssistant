@@ -316,11 +316,24 @@ watch(
 
 watch(
   () => props.filePath,
-  async () => {
+  async (newPath, oldPath) => {
     if (props.show) {
       await nextTick();
-      console.log('File path changed, loading file:', props.filePath);
-      
+      console.log('File path changed from', oldPath, 'to', newPath);
+
+      // 1. Save content to old path cache if applicable
+      if (oldPath && editor.value) {
+        const currentContent = editor.value.getValue();
+        const cacheKey = `${props.sessionId}:${oldPath}`;
+        // Only save if we have a valid old path
+        fileContentCache.value.set(cacheKey, {
+          content: currentContent,
+          originalContent: originalContent.value,
+          isDirty: currentContent !== originalContent.value
+        });
+        console.log('Saved cache for old path:', oldPath);
+      }
+
       if (!editor.value) {
         await initEditor();
       }
