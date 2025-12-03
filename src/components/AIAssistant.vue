@@ -250,19 +250,19 @@ async function sendMessage() {
 function stopMessage() {
   if (abortController.value) {
     abortController.value.abort();
-    
+
     // Cancel command execution on backend
     const runningCommandId = getCurrentRunningCommandId();
     if (runningCommandId) {
       invoke('cancel_command_execution', { commandId: runningCommandId }).catch(console.error);
     }
-    
+
     isLoading.value = false;
     abortController.value = null;
-    
+
     // Update running commands display to show they were stopped
     updateRunningCommandsStatus();
-    
+
     messages.value.push({ role: 'assistant', content: `Request stopped by user.` });
     scrollToBottom();
   }
@@ -275,10 +275,10 @@ function getCurrentRunningCommandId(): string | null {
     if (msg.role === 'assistant' && msg.tool_calls) {
       for (const toolCall of msg.tool_calls) {
         // Check if this tool call has a corresponding tool output message
-        const hasToolOutput = messages.value.some((toolMsg: any) => 
+        const hasToolOutput = messages.value.some((toolMsg: any) =>
           toolMsg.role === 'tool' && toolMsg.tool_call_id === toolCall.id
         );
-        
+
         if (!hasToolOutput) {
           return toolCall.id; // This tool call is still pending/running
         }
@@ -294,10 +294,10 @@ function updateRunningCommandsStatus() {
     if (msg.tool_calls) {
       msg.tool_calls.forEach((tc: any) => {
         // Check if this tool call doesn't have a corresponding tool message yet
-        const hasToolOutput = messages.value.some((toolMsg: any) => 
+        const hasToolOutput = messages.value.some((toolMsg: any) =>
           toolMsg.role === 'tool' && toolMsg.tool_call_id === tc.id
         );
-        
+
         if (!hasToolOutput) {
           // Add a tool message indicating the command was stopped
           messages.value.push({
@@ -313,6 +313,7 @@ function updateRunningCommandsStatus() {
 }
 
 async function processChat() {
+  const currentController = abortController.value;
   isLoading.value = true;
 
   // Clone messages for API to avoid mutating UI state, and inject context
@@ -431,7 +432,7 @@ ${activeWorkspace.value.context}
           try {
             // Initialize real-time output storage for this tool call
             toolRealTimeOutputs.value[toolCall.id] = [];
-            
+
             // Start listening for real-time output events
             const unlisten = await listen(`command-output-${props.sessionId}-${toolCall.id}`, (event: any) => {
               const output = event.payload;
@@ -441,23 +442,23 @@ ${activeWorkspace.value.context}
                 scrollToBottom();
               }
             });
-            
+
             let result = '';
-            
+
             // Check if aborted before executing command
             if (abortController.value?.signal.aborted) {
               unlisten();
               throw new DOMException('Aborted', 'AbortError');
             }
-            
+
             result = await invoke<string>('exec_command', {
               id: props.sessionId,
               command: cmd,
               toolCallId: toolCall.id
             });
-            
+
             unlisten();
-            
+
             // Check if aborted after command completed
             if (abortController.value?.signal.aborted) {
               throw new DOMException('Aborted', 'AbortError');
@@ -578,8 +579,11 @@ ${activeWorkspace.value.context}
       messages.value.push({ role: 'assistant', content: `Error: ${e}` });
     }
   } finally {
-    isLoading.value = false;
-    abortController.value = null;
+    // Only reset state if the controller hasn't changed (i.e., we are still the active request)
+    if (abortController.value === currentController) {
+      isLoading.value = false;
+      abortController.value = null;
+    }
     scrollToBottom();
   }
 }
@@ -728,17 +732,18 @@ onUnmounted(() => {
                     class="w-4 h-4 text-gray-400 mr-1" />
                   <TerminalSquare class="w-3 h-3 mr-2 text-purple-400" />
                   <span class="font-mono flex-1 truncate text-gray-300">{{ exec.command }}</span>
-                  
+
                   <!-- Status indicator -->
                   <span v-if="!exec.output" class="flex items-center text-yellow-500 ml-2">
                     <Loader2 class="w-3 h-3 animate-spin mr-1" />
                     Running
                   </span>
-                  <span v-else-if="exec.output === 'Command execution stopped by user'" class="text-red-500 ml-2 text-[10px] uppercase">
+                  <span v-else-if="exec.output === 'Command execution stopped by user'"
+                    class="text-red-500 ml-2 text-[10px] uppercase">
                     Stopped
                   </span>
                   <span v-else class="text-green-500 ml-2 text-[10px] uppercase">Done</span>
-                  
+
                   <!-- Action buttons -->
                   <div class="flex items-center gap-1 ml-2">
                     <!-- Copy command button -->
@@ -747,38 +752,36 @@ onUnmounted(() => {
                       title="Copy command">
                       <ClipboardPlus class="w-3 h-3" />
                     </button>
-                    
+
                     <!-- Rerun button (only for completed commands) -->
-                    <button v-if="exec.output" 
-                      @click.stop="rerunCommand(exec.command)"
+                    <button v-if="exec.output" @click.stop="rerunCommand(exec.command)"
                       class="p-1 text-gray-400 hover:text-green-400 hover:bg-gray-700 rounded transition-colors"
                       title="Rerun command">
                       <Loader2 class="w-3 h-3" />
                     </button>
-                    
+
                     <!-- Stop button (only for running commands) -->
-                    <button v-if="!exec.output && isLoading" 
-                      @click.stop="stopMessage()"
+                    <button v-if="!exec.output && isLoading" @click.stop="stopMessage()"
                       class="p-1 text-red-500 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
                       title="Stop command">
                       <Square class="w-3 h-3 fill-current" />
                     </button>
                   </div>
                 </div>
-                <div v-if="toolStates[exec.id]" class="p-2 border-t border-gray-700 bg-black/30 overflow-y-auto max-h-64">
-                  <pre
-                    class="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto font-mono">
+                <div v-if="toolStates[exec.id]"
+                  class="p-2 border-t border-gray-700 bg-black/30 overflow-y-auto max-h-64">
+                  <pre class="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto font-mono">
                     <!-- Show real-time output if running, otherwise show final output -->
                     <template v-if="exec.isRunning && exec.realTimeOutput && exec.realTimeOutput.length > 0">
                       {{ exec.realTimeOutput.join('') }}
                     </template>
-                    <template v-else-if="exec.output">
+<template v-else-if="exec.output">
                       {{ exec.output }}
                     </template>
-                    <template v-else-if="exec.isRunning">
+<template v-else-if="exec.isRunning">
                       <!-- Empty placeholder for running commands without output yet -->
                     </template>
-                  </pre>
+</pre>
                 </div>
               </div>
             </div>
