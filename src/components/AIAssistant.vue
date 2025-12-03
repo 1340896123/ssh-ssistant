@@ -763,7 +763,6 @@ onUnmounted(() => {
             <div class="markdown-content font-sans" v-html="renderMarkdown(msg.content)"></div>
           </div>
         </div>
-
       </div>
       <div v-if="isLoading" class="flex items-center space-x-2 text-gray-500 text-sm pl-12">
         <Loader2 class="w-4 h-4 animate-spin" />
