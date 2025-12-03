@@ -14,6 +14,7 @@ import TransferList from './TransferList.vue';
 import VirtualFileList from './VirtualFileList.vue';
 import { useI18n } from '../composables/useI18n';
 import { getPathUtils } from '../composables/usePath';
+import FileEditorModal from './FileEditorModal.vue';
 // import draggable from 'vuedraggable'; // Removed
 
 type ColumnKey = 'name' | 'size' | 'date' | 'owner';
@@ -140,6 +141,11 @@ const resizeStartWidth = ref(0);
 
 const isOpeningFile = ref(false);
 const unlistenDrop = ref<UnlistenFn | null>(null);
+
+// Editor State
+const showEditor = ref(false);
+const editorFile = ref<FileEntry | null>(null);
+const editorPath = ref<string>('');
 
 const visibleTreeNodes = computed<TreeNode[]>(() => {
     const result: TreeNode[] = [];
@@ -359,18 +365,10 @@ async function openTreeFile(node: TreeNode) {
         await toggleDirectory(node);
         return;
     }
-    isOpeningFile.value = true;
-    try {
-        await invoke('edit_remote_file', {
-            id: props.sessionId,
-            remotePath: node.path,
-            remoteName: node.entry.name,
-        });
-    } catch (e) {
-        notificationStore.error("Failed to open file: " + e);
-    } finally {
-        isOpeningFile.value = false;
-    }
+    
+    editorFile.value = node.entry;
+    editorPath.value = node.path;
+    showEditor.value = true;
 }
 
 function handleTreeSelection(node: TreeNode) {
@@ -524,18 +522,9 @@ async function navigate(entry: FileEntry) {
         }
     } else {
         // Edit remote file
-        isOpeningFile.value = true;
-        try {
-            await invoke('edit_remote_file', {
-                id: props.sessionId,
-                remotePath: pathUtils.value.join(currentPath.value, entry.name),
-                remoteName: entry.name
-            });
-        } catch (e) {
-            alert("Failed to open file: " + e);
-        } finally {
-            isOpeningFile.value = false;
-        }
+        editorFile.value = entry;
+        editorPath.value = pathUtils.value.join(currentPath.value, entry.name);
+        showEditor.value = true;
     }
 }
 
@@ -1531,4 +1520,12 @@ function formatSize(size: number): string {
             </template>
         </div>
     </div>
+    <FileEditorModal
+        :show="showEditor"
+        :session-id="props.sessionId"
+        :file-path="editorPath"
+        :file-name="editorFile?.name || ''"
+        @close="showEditor = false"
+        @save="refresh"
+    />
 </template>

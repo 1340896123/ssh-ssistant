@@ -1,12 +1,12 @@
 use crate::models::{Connection as SshConnConfig, FileEntry};
 use hex;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+
 use sha2::{Digest, Sha256};
 use ssh2::Session;
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::path::Path;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -165,9 +165,7 @@ pub struct SshClient {
 pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>, // ID -> CancelFlag
-    pub watchers: Mutex<HashMap<String, RecommendedWatcher>>,
     pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Session ID -> CancelFlag
-    pub editing_files: Mutex<HashMap<String, String>>, // remote_path -> local_path mapping for singleton pattern
 }
 
 impl AppState {
@@ -175,9 +173,7 @@ impl AppState {
         Self {
             clients: Mutex::new(HashMap::new()),
             transfers: Mutex::new(HashMap::new()),
-            watchers: Mutex::new(HashMap::new()),
             command_cancellations: Mutex::new(HashMap::new()),
-            editing_files: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -224,40 +220,6 @@ fn get_sftp_buffer_size(app: Option<&AppHandle>) -> usize {
     }
     // Default to 512KB if settings not available
     512 * 1024
-}
-
-// Generate unique temporary file name to avoid conflicts
-fn generate_unique_temp_name(original_name: &str, remote_path: &str) -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    // Get current timestamp in milliseconds
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-
-    // Create a short hash from remote path to ensure uniqueness across different directories
-    let path_hash = {
-        let mut hasher = Sha256::new();
-        hasher.update(remote_path.as_bytes());
-        let hash = hasher.finalize();
-        hex::encode(&hash[..8]) // Use first 8 characters of hash
-    };
-
-    // Extract file extension if present
-    let (name_without_ext, extension) = if let Some(dot_pos) = original_name.rfind('.') {
-        let (name, ext) = original_name.split_at(dot_pos);
-        (name, ext)
-    } else {
-        (original_name, "")
-    };
-
-    // Generate unique filename: original_name_timestamp_hash.ext
-    if extension.is_empty() {
-        format!("{}_{}_{}", name_without_ext, timestamp, path_hash)
-    } else {
-        format!("{}_{}_{}{}", name_without_ext, timestamp, path_hash, extension)
-    }
 }
 
 fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String> {
@@ -415,7 +377,6 @@ fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String
         forward_listener: listener_holder,
     })
 }
-
 
 #[tauri::command]
 pub async fn test_connection(config: SshConnConfig) -> Result<String, String> {
@@ -614,9 +575,6 @@ pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), St
         // 3. 关闭所有 SSH 连接
         client.ssh_pool.close_all();
     }
-
-    // 4. 清理所有编辑会话 (outside the lock scope)
-    let _ = cleanup_all_editing_sessions(state).await;
 
     Ok(())
 }
@@ -1887,324 +1845,14 @@ pub async fn download_file_with_progress(
 }
 
 #[tauri::command]
-pub async fn edit_remote_file(
-    app: AppHandle,
+pub async fn cancel_command_execution(
     state: State<'_, AppState>,
     id: String,
-    remote_path: String,
-    remote_name: String,
 ) -> Result<(), String> {
-    let client = {
-        let clients = state.clients.lock().map_err(|e| e.to_string())?;
-        let client = clients.get(&id).ok_or("Session not found")?;
-        client.clone()
-    };
-
-    // Check if file is already being edited (singleton pattern)
-    {
-        let editing_files = state.editing_files.lock().map_err(|e| e.to_string())?;
-        if let Some(existing_local_path) = editing_files.get(&remote_path) {
-            // File is already being edited, focus existing editor window
-            let _ = app.emit("file-already-editing", (remote_path.clone(), existing_local_path.clone()));
-            
-            // Try to bring the existing editor to front
-            if cfg!(target_os = "windows") {
-                let _ = std::process::Command::new("cmd").args(&["/c", "start", "", existing_local_path]).spawn();
-            } else if cfg!(target_os = "macos") {
-                let _ = std::process::Command::new("open").arg(existing_local_path).spawn();
-            } else {
-                let _ = std::process::Command::new("xdg-open").arg(existing_local_path).spawn();
-            }
-            return Ok(());
-        }
-    }
-
-    // 使用后台会话进行文件编辑操作
-    let bg_session = client
-        .ssh_pool
-        .get_background_session()
-        .map_err(|e| format!("Failed to get background session: {}", e))?;
-
-    // Generate unique temporary file name to avoid conflicts
-    let unique_name = generate_unique_temp_name(&remote_name, &remote_path);
-    let temp_dir = std::env::temp_dir();
-    let local_path = temp_dir.join(&unique_name);
-    let local_path_str = local_path.to_str().ok_or("Invalid path")?.to_string();
-
-    // Register this file as being edited
-    {
-        let mut editing_files = state.editing_files.lock().map_err(|e| e.to_string())?;
-        editing_files.insert(remote_path.clone(), local_path_str.clone());
-    }
-
-    // Download first
-    {
-        let sess = bg_session.lock().map_err(|e| e.to_string())?;
-        let sftp = block_on(|| sess.sftp()).map_err(|e| e.to_string())?;
-        let mut remote_file =
-            block_on(|| sftp.open(Path::new(&remote_path))).map_err(|e| e.to_string())?;
-        let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
-
-        let buffer_size = get_sftp_buffer_size(Some(&app));
-        let mut buf = vec![0u8; buffer_size];
-        loop {
-            match remote_file.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    local_file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(10));
-                    continue;
-                }
-                Err(e) => {
-                    // Clean up registration on download failure
-                    let mut editing_files = state.editing_files.lock().map_err(|e| e.to_string())?;
-                    editing_files.remove(&remote_path);
-                    return Err(e.to_string());
-                }
-            }
-        }
-    }
-
-    // Watcher setup
-    let sess_clone = bg_session.clone();
-    let local_p = local_path.clone();
-    let remote_p = remote_path.clone();
-    let app_handle = app.clone();
-    let buffer_size = get_sftp_buffer_size(Some(&app));
-
-    // Remove existing watcher if any
-    if let Ok(mut watchers) = state.watchers.lock() {
-        watchers.remove(&local_path_str);
-    }
-
-    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
-        match res {
-            Ok(event) => {
-                // Handle multiple event types for atomic save compatibility
-                match event.kind {
-                    EventKind::Modify(_) | EventKind::Create(_) => {
-                        let sess_clone2 = sess_clone.clone();
-                        let local_p2 = local_p.clone();
-                        let remote_p2 = remote_p.clone();
-                        let app_h = app_handle.clone();
-
-                        thread::spawn(move || {
-                            // Debounce slightly
-                            thread::sleep(Duration::from_millis(500));
-
-                            if let Ok(sess) = sess_clone2.lock() {
-                                if let Ok(sftp) = block_on(|| sess.sftp()) {
-                                    // Read local
-                                    if let Ok(mut local_file) = std::fs::File::open(&local_p2) {
-                                        // Overwrite remote
-                                        // Use create() to truncate and overwrite
-                                        match block_on(|| sftp.create(Path::new(&remote_p2))) {
-                                            Ok(mut remote_file) => {
-                                                let mut buf = vec![0u8; buffer_size];
-                                                let mut success = true;
-                                                loop {
-                                                    match local_file.read(&mut buf) {
-                                                        Ok(0) => break,
-                                                        Ok(n) => {
-                                                            let mut pos = 0;
-                                                            while pos < n {
-                                                                match remote_file.write(&buf[pos..n]) {
-                                                                    Ok(w) => pos += w,
-                                                                    Err(e)
-                                                                        if e.kind()
-                                                                            == ErrorKind::WouldBlock =>
-                                                                    {
-                                                                        thread::sleep(
-                                                                            Duration::from_millis(10),
-                                                                        )
-                                                                    }
-                                                                    Err(_) => {
-                                                                        success = false;
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-                                                            if !success {
-                                                                break;
-                                                            }
-                                                        }
-                                                        Err(_) => {
-                                                            success = false;
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                if success {
-                                                    // Notify frontend of successful sync
-                                                    let _ = app_h.emit("file-synced", remote_p2.clone());
-                                                } else {
-                                                    // Notify frontend of sync failure
-                                                    let _ = app_h.emit("file-sync-error", format!("Failed to sync file '{}' to remote server", remote_p2));
-                                                }
-                                            }
-                                            Err(e) => {
-                                                // Notify frontend of SFTP error
-                                                let error_msg = format!("Failed to create remote file '{}': {}", remote_p2, e);
-                                                let _ = app_h.emit("file-sync-error", error_msg);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
-            Err(e) => {
-                eprintln!("watch error: {:?}", e);
-                let _ = app_handle.emit("file-sync-error", format!("File watcher error: {:?}", e));
-            }
-        }
-    })
-    .map_err(|e| {
-        // Clean up registration on watcher setup failure
-        let mut editing_files = state.editing_files.lock().unwrap();
-        editing_files.remove(&remote_path);
-        e.to_string()
-    })?;
-
-    watcher
-        .watch(&local_path, RecursiveMode::NonRecursive)
-        .map_err(|e| {
-            // Clean up registration on watch failure
-            let mut editing_files = state.editing_files.lock().unwrap();
-            editing_files.remove(&remote_path);
-            e.to_string()
-        })?;
-    state
-        .watchers
+    let cancellations = state
+        .command_cancellations
         .lock()
-        .map_err(|e| e.to_string())?
-        .insert(local_path_str.clone(), watcher);
-
-    // Launch editor using system default program for better compatibility
-    let editor_opened = if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd")
-            .args(&["/c", "start", "", &local_path_str])
-            .spawn()
-            .is_ok()
-    } else if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
-            .arg(&local_path_str)
-            .spawn()
-            .is_ok()
-    } else {
-        std::process::Command::new("xdg-open")
-            .arg(&local_path_str)
-            .spawn()
-            .is_ok()
-    };
-
-    // Fallback to VS Code if system default fails
-    if !editor_opened {
-        let code_status = std::process::Command::new("code.cmd")
-            .arg(&local_path)
-            .spawn();
-
-        if code_status.is_err() {
-            // Try plain "code" (linux/mac or valid path)
-            let code_status2 = std::process::Command::new("code").arg(&local_path).spawn();
-
-            if code_status2.is_err() {
-                let _ = app.emit("installing-vscode", ());
-                // Try to install via winget
-                let local_p_install = local_path.clone();
-                thread::spawn(move || {
-                    let install_status = std::process::Command::new("winget")
-                        .args(&[
-                            "install",
-                            "-e",
-                            "--id",
-                            "Microsoft.VisualStudioCode",
-                            "--source",
-                            "winget",
-                            "--accept-source-agreements",
-                            "--accept-package-agreements",
-                        ])
-                        .output();
-
-                    if let Ok(output) = install_status {
-                        if output.status.success() {
-                            let _ = std::process::Command::new("code.cmd")
-                                .arg(&local_p_install)
-                                .spawn();
-                        }
-                    }
-                });
-            }
-        }
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn cleanup_file_editing(
-    state: State<'_, AppState>,
-    remote_path: String,
-) -> Result<(), String> {
-    // Remove from editing files tracking
-    let local_path = {
-        let mut editing_files = state.editing_files.lock().map_err(|e| e.to_string())?;
-        editing_files.remove(&remote_path)
-    };
-
-    // Remove watcher if exists
-    if let Some(local_path_str) = &local_path {
-        if let Ok(mut watchers) = state.watchers.lock() {
-            if let Some(watcher) = watchers.remove(local_path_str) {
-                // Drop the watcher to stop it
-                drop(watcher);
-            }
-        }
-
-        // Clean up temporary file
-        if let Err(e) = std::fs::remove_file(local_path_str) {
-            eprintln!("Failed to remove temp file '{}': {}", local_path_str, e);
-        }
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn cleanup_all_editing_sessions(state: State<'_, AppState>) -> Result<(), String> {
-    // Clean up all editing sessions
-    let editing_files = {
-        let mut editing_files = state.editing_files.lock().map_err(|e| e.to_string())?;
-        let files = editing_files.drain().collect::<Vec<_>>();
-        files
-    };
-
-    // Remove all watchers
-    if let Ok(mut watchers) = state.watchers.lock() {
-        for (_, watcher) in watchers.drain() {
-            drop(watcher);
-        }
-    }
-
-    // Clean up all temporary files
-    for (_, local_path) in editing_files {
-        if let Err(e) = std::fs::remove_file(&local_path) {
-            eprintln!("Failed to remove temp file '{}': {}", local_path, e);
-        }
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn cancel_command_execution(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let cancellations = state.command_cancellations.lock().map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
     if let Some(cancel_flag) = cancellations.get(&id) {
         cancel_flag.store(true, Ordering::Relaxed);
     }
