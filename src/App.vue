@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import SessionTabs from "./components/SessionTabs.vue";
-import TerminalView from "./components/TerminalView.vue";
+import TerminalTabArea from "./components/TerminalTabArea.vue";
 import FileManager from "./components/FileManager.vue";
 import AIAssistant from "./components/AIAssistant.vue";
 import SettingsModal from "./components/SettingsModal.vue";
@@ -27,18 +27,20 @@ const showSettingsModal = ref(false);
 const editingConnection = ref<Connection | null>(null);
 
 // AI Context Refs
-const terminalViewRefs = ref<any[]>([]);
+const terminalTabAreaRefs = ref<any[]>([]);
 const terminalContext = ref('');
 
 onBeforeUpdate(() => {
-  terminalViewRefs.value = [];
+  terminalTabAreaRefs.value = [];
 });
 
 function getActiveTerminalView() {
   if (!activeSession.value) return null;
   const activeIndex = sessionStore.sessions.findIndex(s => s.id === activeSession.value?.id);
-  if (activeIndex !== -1 && terminalViewRefs.value[activeIndex]) {
-    return terminalViewRefs.value[activeIndex];
+  if (activeIndex !== -1 && terminalTabAreaRefs.value[activeIndex]) {
+    // Get the terminal view from within the tab area
+    const tabArea = terminalTabAreaRefs.value[activeIndex];
+    return tabArea.terminalView || null;
   }
   return null;
 }
@@ -315,6 +317,13 @@ function openNewConnectionModal() {
   showConnectionModal.value = true;
 }
 
+function openFileEditor(sessionId: string, filePath: string, fileName: string) {
+  const sessionIndex = sessionStore.sessions.findIndex(s => s.id === sessionId);
+  if (sessionIndex !== -1 && terminalTabAreaRefs.value[sessionIndex]) {
+    terminalTabAreaRefs.value[sessionIndex].openFileEditor(filePath, fileName);
+  }
+}
+
 function openEditConnectionModal(conn: Connection) {
   editingConnection.value = conn;
   showConnectionModal.value = true;
@@ -361,7 +370,7 @@ function openEditConnectionModal(conn: Connection) {
           <div class="flex-1 flex overflow-hidden">
             <!-- Files -->
             <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
-              <FileManager :sessionId="session.id" />
+              <FileManager :sessionId="session.id" @openFileEditor="(filePath, fileName) => openFileEditor(session.id, filePath, fileName)" />
             </div>
 
             <!-- Resizer 1 -->
@@ -371,7 +380,7 @@ function openEditConnectionModal(conn: Connection) {
             <!-- Terminal -->
             <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
               :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
-              <TerminalView :ref="(el: any) => { if (el) terminalViewRefs[index] = el }" :sessionId="session.id" />
+              <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }" :sessionId="session.id" />
             </div>
 
             <!-- Resizer 2 -->

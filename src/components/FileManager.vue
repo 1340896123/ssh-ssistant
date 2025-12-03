@@ -14,7 +14,6 @@ import TransferList from './TransferList.vue';
 import VirtualFileList from './VirtualFileList.vue';
 import { useI18n } from '../composables/useI18n';
 import { getPathUtils } from '../composables/usePath';
-import FileEditorModal from './FileEditorModal.vue';
 // import draggable from 'vuedraggable'; // Removed
 
 type ColumnKey = 'name' | 'size' | 'date' | 'owner';
@@ -101,6 +100,9 @@ function showBackgroundContextMenu(e: MouseEvent) {
 }
 
 const props = defineProps<{ sessionId: string }>();
+const emit = defineEmits<{
+    (e: 'openFileEditor', filePath: string, fileName: string): void;
+}>();
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore(); // Init session store
@@ -142,10 +144,6 @@ const resizeStartWidth = ref(0);
 const isOpeningFile = ref(false);
 const unlistenDrop = ref<UnlistenFn | null>(null);
 
-// Editor State
-const showEditor = ref(false);
-const editorFile = ref<FileEntry | null>(null);
-const editorPath = ref<string>('');
 
 const visibleTreeNodes = computed<TreeNode[]>(() => {
     const result: TreeNode[] = [];
@@ -366,9 +364,8 @@ async function openTreeFile(node: TreeNode) {
         return;
     }
     
-    editorFile.value = node.entry;
-    editorPath.value = node.path;
-    showEditor.value = true;
+    // Edit remote file - emit event to open in terminal tab area
+    emit('openFileEditor', node.path, node.entry.name);
 }
 
 function handleTreeSelection(node: TreeNode) {
@@ -521,10 +518,9 @@ async function navigate(entry: FileEntry) {
             loadFiles(newPath);
         }
     } else {
-        // Edit remote file
-        editorFile.value = entry;
-        editorPath.value = pathUtils.value.join(currentPath.value, entry.name);
-        showEditor.value = true;
+        // Edit remote file - emit event to open in terminal tab area
+        const filePath = pathUtils.value.join(currentPath.value, entry.name);
+        emit('openFileEditor', filePath, entry.name);
     }
 }
 
@@ -1520,12 +1516,4 @@ function formatSize(size: number): string {
             </template>
         </div>
     </div>
-    <FileEditorModal
-        :show="showEditor"
-        :session-id="props.sessionId"
-        :file-path="editorPath"
-        :file-name="editorFile?.name || ''"
-        @close="showEditor = false"
-        @save="refresh"
-    />
-</template>
+    </template>
