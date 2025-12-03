@@ -217,6 +217,40 @@ fn get_sftp_buffer_size(app: Option<&AppHandle>) -> usize {
     512 * 1024
 }
 
+// Generate unique temporary file name to avoid conflicts
+fn generate_unique_temp_name(original_name: &str, remote_path: &str) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Get current timestamp in milliseconds
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+
+    // Create a short hash from remote path to ensure uniqueness across different directories
+    let path_hash = {
+        let mut hasher = Sha256::new();
+        hasher.update(remote_path.as_bytes());
+        let hash = hasher.finalize();
+        hex::encode(&hash[..8]) // Use first 8 characters of hash
+    };
+
+    // Extract file extension if present
+    let (name_without_ext, extension) = if let Some(dot_pos) = original_name.rfind('.') {
+        let (name, ext) = original_name.split_at(dot_pos);
+        (name, ext)
+    } else {
+        (original_name, "")
+    };
+
+    // Generate unique filename: original_name_timestamp_hash.ext
+    if extension.is_empty() {
+        format!("{}_{}_{}", name_without_ext, timestamp, path_hash)
+    } else {
+        format!("{}_{}_{}{}", name_without_ext, timestamp, path_hash, extension)
+    }
+}
+
 fn establish_connection(config: &SshConnConfig) -> Result<ManagedSession, String> {
     let mut sess = Session::new().map_err(|e| e.to_string())?;
     let mut jump_session_holder = None;
@@ -1210,8 +1244,10 @@ pub async fn download_temp_and_open(
         client.clone()
     };
 
+    // Generate unique temporary file name to avoid conflicts
+    let unique_name = generate_unique_temp_name(&remote_name, &remote_path);
     let temp_dir = std::env::temp_dir();
-    let local_path = temp_dir.join(&remote_name);
+    let local_path = temp_dir.join(&unique_name);
     let local_path_str = local_path.to_str().ok_or("Invalid path")?.to_string();
 
     {
@@ -1850,8 +1886,10 @@ pub async fn edit_remote_file(
         .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
 
+    // Generate unique temporary file name to avoid conflicts
+    let unique_name = generate_unique_temp_name(&remote_name, &remote_path);
     let temp_dir = std::env::temp_dir();
-    let local_path = temp_dir.join(&remote_name);
+    let local_path = temp_dir.join(&unique_name);
     let local_path_str = local_path.to_str().ok_or("Invalid path")?.to_string();
 
     // Download first
