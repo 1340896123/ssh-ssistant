@@ -622,12 +622,32 @@ pub async fn read_remote_file(
 
     let mut file = block_on(|| sftp.open(remote_path)).map_err(|e| e.to_string())?;
     let mut buf = Vec::new();
+    use std::io::ErrorKind;
     use std::io::Read as _;
-    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    use std::thread;
+    use std::time::Duration;
 
-    let limit = max_bytes.unwrap_or(16384) as usize;
-    if buf.len() > limit {
-        buf.truncate(limit);
+    // Read in chunks to handle WouldBlock
+    let mut temp_buf = vec![0u8; 32 * 1024]; // 32KB chunks
+    loop {
+        match file.read(&mut temp_buf) {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                buf.extend_from_slice(&temp_buf[..n]);
+                // Check limit if set
+                if let Some(max) = max_bytes {
+                    if buf.len() as u64 > max {
+                        buf.truncate(max as usize);
+                        break;
+                    }
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+        }
     }
 
     String::from_utf8(buf).map_err(|e| e.to_string())
@@ -684,8 +704,26 @@ pub async fn write_remote_file(
         .map_err(|e| e.to_string())?
     };
 
-    file.write_all(content.as_bytes())
-        .map_err(|e| e.to_string())?;
+    use std::io::ErrorKind;
+    use std::io::Write as _;
+    use std::thread;
+    use std::time::Duration;
+
+    let bytes = content.as_bytes();
+    let mut pos = 0;
+
+    while pos < bytes.len() {
+        match file.write(&bytes[pos..]) {
+            Ok(0) => return Err("Write returned 0 bytes".to_string()),
+            Ok(n) => pos += n,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+
     Ok(())
 }
 
