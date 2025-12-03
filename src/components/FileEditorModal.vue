@@ -354,6 +354,22 @@ watch(
   }
 );
 
+// Check if a file has unsaved changes
+function hasUnsavedChanges(filePath: string): boolean {
+  // Check current file
+  if (props.filePath === filePath) {
+    return isDirty.value;
+  }
+  // Check cache
+  const cached = getCachedContent(filePath);
+  return cached ? cached.isDirty : false;
+}
+
+// Trigger close flow (for parent component to call)
+function triggerClose() {
+  handleClose();
+}
+
 onMounted(async () => {
   // Initialize editor when component mounts if it's supposed to be shown
   if (props.show) {
@@ -368,6 +384,11 @@ onUnmounted(() => {
   if (editor.value) {
     editor.value.dispose();
   }
+});
+
+defineExpose({
+  hasUnsavedChanges,
+  triggerClose
 });
 </script>
 
