@@ -48,23 +48,25 @@ interface ContextPath {
 }
 
 const contextPaths = ref<ContextPath[]>([]);
+const input = ref('');
+const isLoading = ref(false);
+const isDragOverInput = ref(false);
+const messagesContainer = ref<HTMLElement | null>(null);
+const toolStates = ref<Record<string, boolean>>({}); // Keep toolStates as an empty object by default
+const toolRealTimeOutputs = ref<Record<string, string[]>>({});
+let abortController = ref<AbortController | null>(null);
 
 const initialMessage: Message = { role: 'assistant', content: 'Hello! I am your SSH AI Assistant. I can help you execute commands and manage your server. How can I help you today?' };
 
 const messages = ref<Message[]>([
   { ...initialMessage }
 ]);
-const input = ref('');
-const isLoading = ref(false);
-const isDragOverInput = ref(false);
-const messagesContainer = ref<HTMLElement | null>(null);
-const toolStates = ref<Record<string, boolean>>({});
-let abortController = ref<AbortController | null>(null);
 
 function clearSession() {
   messages.value = [{ ...initialMessage }];
   contextPaths.value = [];
   toolStates.value = {};
+  toolRealTimeOutputs.value = {};
   scrollToBottom();
 }
 
