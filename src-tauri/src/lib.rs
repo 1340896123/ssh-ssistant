@@ -43,6 +43,8 @@ pub fn run() {
             ssh::cancel_transfer,
             ssh::download_temp_and_open,
             ssh::edit_remote_file,
+            ssh::cleanup_file_editing,
+            ssh::cleanup_all_editing_sessions,
             ssh::exec_command,
             ssh::cancel_command_execution,
             ssh::write_to_pty,
