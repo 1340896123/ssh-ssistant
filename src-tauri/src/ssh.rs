@@ -165,7 +165,7 @@ pub struct SshClient {
 pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>, // ID -> CancelFlag
-    pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Session ID -> CancelFlag
+    pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Command ID -> CancelFlag
 }
 
 impl AppState {
@@ -1838,13 +1838,13 @@ pub async fn download_file_with_progress(
 #[tauri::command]
 pub async fn cancel_command_execution(
     state: State<'_, AppState>,
-    id: String,
+    command_id: String,
 ) -> Result<(), String> {
     let cancellations = state
         .command_cancellations
         .lock()
         .map_err(|e| e.to_string())?;
-    if let Some(cancel_flag) = cancellations.get(&id) {
+    if let Some(cancel_flag) = cancellations.get(&command_id) {
         cancel_flag.store(true, Ordering::Relaxed);
     }
     Ok(())
@@ -1857,12 +1857,16 @@ pub async fn exec_command(
     id: String,
     command: String,
     tool_call_id: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, String> { // Still return just output for compatibility
     let client = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         let client = clients.get(&id).ok_or("Session not found")?;
         client.clone()
     };
+
+    // Generate unique command ID for cancellation
+    // Use tool_call_id if provided, otherwise generate a new UUID
+    let command_id = tool_call_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
 
     // Create cancellation flag for this command
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -1871,17 +1875,46 @@ pub async fn exec_command(
             .command_cancellations
             .lock()
             .map_err(|e| e.to_string())?;
-        cancellations.insert(id.clone(), cancel_flag.clone());
+        cancellations.insert(command_id.clone(), cancel_flag.clone());
     }
+
+    // RAII cleanup function to ensure cancellation flag is always removed
+    let cleanup = || {
+        let _ = state
+            .command_cancellations
+            .lock()
+            .map_err(|e| e.to_string())
+            .and_then(|mut cancellations| {
+                cancellations.remove(&command_id);
+                Ok(())
+            });
+    };
 
     // 使用后台会话执行命令，避免阻塞SFTP操作
     let bg_session = client
         .ssh_pool
         .get_background_session()
         .map_err(|e| format!("Failed to get background session: {}", e))?;
-    let sess = bg_session.lock().map_err(|e| e.to_string())?;
-    let mut channel = block_on(|| sess.channel_session()).map_err(|e| e.to_string())?;
-    block_on(|| channel.exec(&command)).map_err(|e| e.to_string())?;
+
+    // 创建channel并立即释放session锁
+    let mut channel = match bg_session.lock() {
+        Ok(sess) => match block_on(|| sess.channel_session()) {
+            Ok(channel) => channel,
+            Err(e) => {
+                cleanup();
+                return Err(e.to_string());
+            }
+        },
+        Err(e) => {
+            cleanup();
+            return Err(e.to_string());
+        }
+    };
+
+    if let Err(e) = block_on(|| channel.exec(&command)) {
+        cleanup();
+        return Err(e.to_string());
+    }
 
     let mut s = String::new();
     let mut buf = [0u8; 1024];
@@ -1890,14 +1923,7 @@ pub async fn exec_command(
         if cancel_flag.load(Ordering::Relaxed) {
             // Try to close the channel to stop the command
             let _ = channel.close();
-
-            // Remove the cancellation flag
-            let mut cancellations = state
-                .command_cancellations
-                .lock()
-                .map_err(|e| e.to_string())?;
-            cancellations.remove(&id);
-
+            cleanup();
             return Err("Command execution cancelled by user".to_string());
         }
 
@@ -1907,26 +1933,20 @@ pub async fn exec_command(
                 let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
                 s.push_str(&chunk);
 
-                // Send real-time output event if tool_call_id is provided
-                if let Some(ref tool_id) = tool_call_id {
-                    let _ = app_handle.emit(
-                        &format!("command-output-{}-{}", id, tool_id),
-                        CommandOutputEvent {
-                            data: chunk.clone(),
-                        },
-                    );
-                }
-            }
+                                // Send real-time output event if tool_call_id is provided                               
+                                if let Some(ref tool_id) = tool_call_id {                                                
+                                    let _ = app_handle.emit(                                                             
+                                        &format!("command-output-{}-{}", id, tool_id),                           
+                                        CommandOutputEvent {                                                             
+                                            data: chunk.clone(),                                                         
+                                        },                                                                               
+                                    );                                                                                   
+                                }            }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
             }
             Err(e) => {
-                // Remove the cancellation flag on error
-                let mut cancellations = state
-                    .command_cancellations
-                    .lock()
-                    .map_err(|e| e.to_string())?;
-                cancellations.remove(&id);
+                cleanup();
                 return Err(e.to_string());
             }
         }
@@ -1934,12 +1954,10 @@ pub async fn exec_command(
 
     block_on(|| channel.wait_close()).ok();
 
-    // Remove the cancellation flag on successful completion
-    let mut cancellations = state
-        .command_cancellations
-        .lock()
-        .map_err(|e| e.to_string())?;
-    cancellations.remove(&id);
+    cleanup();
+
+    // Emit command ID for cancellation support
+    let _ = app_handle.emit("command-started", command_id.clone());
 
     Ok(s)
 }
