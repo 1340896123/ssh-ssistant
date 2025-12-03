@@ -83,10 +83,10 @@ function getLanguage(filename: string): string {
 // Save current content to cache before switching files
 function saveCurrentContentToCache() {
   if (!editor.value || !props.filePath) return;
-  
+
   const currentContent = editor.value.getValue();
   const cacheKey = `${props.sessionId}:${props.filePath}`;
-  
+
   fileContentCache.value.set(cacheKey, {
     content: currentContent,
     originalContent: originalContent.value,
@@ -140,8 +140,7 @@ async function loadFile() {
 
   console.log('Loading file:', props.filePath);
 
-  // Save current content to cache before loading new file
-  saveCurrentContentToCache();
+  // REMOVED: saveCurrentContentToCache(); - This was causing the bug!
 
   isLoading.value = true;
   try {
@@ -176,7 +175,7 @@ async function loadFile() {
 
     // Wait a bit more for editor to be ready
     await nextTick();
-    
+
     if (editor.value) {
       const model = editor.value.getModel();
       if (model) {
@@ -191,6 +190,8 @@ async function loadFile() {
         editor.value.setModel(newModel);
         console.log('New model created and set');
       }
+      // Force layout update to ensure content is visible
+      editor.value.layout();
     } else {
       console.error('Editor still not available after initialization');
     }
@@ -269,7 +270,12 @@ async function initEditor() {
     editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       saveFile();
     });
-    
+
+    // Force layout
+    setTimeout(() => {
+      editor.value?.layout();
+    }, 100);
+
     console.log('Editor initialized successfully');
   } catch (e) {
     console.error('Failed to initialize editor:', e);
@@ -284,7 +290,7 @@ watch(
       // Wait for DOM to be ready
       await nextTick();
       console.log('FileEditorModal show changed to true, initializing...');
-      
+
       if (!editor.value) {
         await initEditor();
       }
