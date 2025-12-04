@@ -336,41 +336,44 @@ onMounted(async () => {
   // 配置 Monaco Editor 的 Web Worker
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, label: string) {
-      if (label === 'json') {
-        return './json.worker.js';
+      if (label === "json") {
+        return "./json.worker.js";
       }
-      if (label === 'css' || label === 'scss' || label === 'less') {
-        return './css.worker.js';
+      if (label === "css" || label === "scss" || label === "less") {
+        return "./css.worker.js";
       }
-      if (label === 'html' || label === 'handlebars' || label === 'razor') {
-        return './html.worker.js';
+      if (label === "html" || label === "handlebars" || label === "razor") {
+        return "./html.worker.js";
       }
-      if (label === 'typescript' || label === 'javascript') {
-        return './ts.worker.js';
+      if (label === "typescript" || label === "javascript") {
+        return "./ts.worker.js";
       }
-      return './editor.worker.js';
-    }
+      return "./editor.worker.js";
+    },
   };
 
   // 确保设置在组件挂载前完成加载
   await settingsStore.loadSettings();
-  window.addEventListener('mousemove', handleMouseMove);
-  window.addEventListener('mouseup', handleMouseUp);
-  window.addEventListener('keydown', handleGlobalKeydown);
+  window.addEventListener("mousemove", handleMouseMove);
+  window.addEventListener("mouseup", handleMouseUp);
+  window.addEventListener("keydown", handleGlobalKeydown);
 
   clockTimer = window.setInterval(() => {
     now.value = Date.now();
   }, 1000);
 
+  // Fixed refresh interval - update every second
   statusTimer = window.setInterval(() => {
     refreshActiveSessionStatus();
-  }, 5000);
+  }, 1000); // 1 second refresh interval
 });
 
 onUnmounted(() => {
-  window.removeEventListener('mousemove', handleMouseMove);
-  window.removeEventListener('mouseup', handleMouseUp);
-  window.removeEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener("mousemove", handleMouseMove);
+  window.removeEventListener("mouseup", handleMouseUp);
+  window.removeEventListener("keydown", handleGlobalKeydown);
+
+  // User activity listeners no longer needed - using fixed interval
 
   if (clockTimer !== null) {
     clearInterval(clockTimer);
