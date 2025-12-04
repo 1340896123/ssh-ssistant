@@ -582,6 +582,108 @@ function openEditConnectionModal(conn: Connection) {
                   Disk: N/A
                 </div>
 
+                <!-- CPU Usage -->
+                <div v-if="sessionStatus[session.id].cpu"
+                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200 py-1 -my-1 px-2 -mx-2">
+                  <div class="flex items-center space-x-1">
+                    <span>CPU:</span>
+                    <span :class="{ 
+                      'text-red-400': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 90,
+                      'text-yellow-400': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 70,
+                      'text-green-400': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) <= 70 
+                    }">
+                      {{ sessionStatus[session.id].cpu?.usage || 'N/A' }}
+                    </span>
+                  </div>
+                  <!-- CPU Tooltip with top 5 processes -->
+                  <div class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[100]">
+                    <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto">
+                      <div class="text-gray-300 font-medium mb-2 pb-1 border-b border-gray-600">
+                        Top 5 CPU Processes
+                      </div>
+                      <div class="space-y-2">
+                        <div v-for="process in sessionStatus[session.id].cpu?.topProcesses.slice(0, 5)" :key="process.pid" 
+                          class="border-b border-gray-700/50 pb-2 last:border-b-0">
+                          <div class="flex items-center justify-between mb-1">
+                            <span class="text-blue-400 font-mono text-xs truncate flex-1 mr-2" :title="process.command">
+                              {{ process.command }}
+                            </span>
+                            <span class="text-orange-400 font-mono text-xs">
+                              {{ process.cpu }}
+                            </span>
+                          </div>
+                          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                            <div class="text-gray-500">PID:</div>
+                            <div class="text-gray-300 font-mono">{{ process.pid }}</div>
+                            <div class="text-gray-500">Memory:</div>
+                            <div class="text-gray-300 font-mono text-right">{{ process.memory }}</div>
+                            <div class="text-gray-500">Mem Usage:</div>
+                            <div class="text-gray-300 font-mono text-right">{{ process.memoryPercent }}</div>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- Tooltip arrow -->
+                      <div class="absolute top-full right-4 -mt-1">
+                        <div class="w-2 h-2 bg-gray-800 border-r border-b border-gray-600 transform rotate-45"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="text-gray-500">
+                  CPU: N/A
+                </div>
+
+                <!-- Memory Usage -->
+                <div v-if="sessionStatus[session.id].memory"
+                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200 py-1 -my-1 px-2 -mx-2">
+                  <div class="flex items-center space-x-1">
+                    <span>Mem:</span>
+                    <span :class="{ 
+                      'text-red-400': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 90,
+                      'text-yellow-400': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 70,
+                      'text-green-400': sessionStatus[session.id].memory && (!sessionStatus[session.id].memory!.usage.includes('%') || parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') <= 70)
+                    }">
+                      {{ sessionStatus[session.id].memory?.usage || 'N/A' }}
+                    </span>
+                  </div>
+                  <!-- Memory Tooltip with top 5 processes -->
+                  <div class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[100]">
+                    <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto">
+                      <div class="text-gray-300 font-medium mb-2 pb-1 border-b border-gray-600">
+                        Top 5 Memory Processes
+                      </div>
+                      <div class="space-y-2">
+                        <div v-for="process in sessionStatus[session.id].memory?.topProcesses.slice(0, 5)" :key="process.pid" 
+                          class="border-b border-gray-700/50 pb-2 last:border-b-0">
+                          <div class="flex items-center justify-between mb-1">
+                            <span class="text-blue-400 font-mono text-xs truncate flex-1 mr-2" :title="process.command">
+                              {{ process.command }}
+                            </span>
+                            <span class="text-purple-400 font-mono text-xs">
+                              {{ process.memory }}
+                            </span>
+                          </div>
+                          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                            <div class="text-gray-500">PID:</div>
+                            <div class="text-gray-300 font-mono">{{ process.pid }}</div>
+                            <div class="text-gray-500">CPU:</div>
+                            <div class="text-gray-300 font-mono text-right">{{ process.cpu }}</div>
+                            <div class="text-gray-500">Mem Usage:</div>
+                            <div class="text-gray-300 font-mono text-right">{{ process.memoryPercent }}</div>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- Tooltip arrow -->
+                      <div class="absolute top-full right-4 -mt-1">
+                        <div class="w-2 h-2 bg-gray-800 border-r border-b border-gray-600 transform rotate-45"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="text-gray-500">
+                  Mem: N/A
+                </div>
+
                 <!-- IP -->
                 <div class="text-gray-400 truncate" :title="sessionStatus[session.id].ip">
                   IP: {{ sessionStatus[session.id].ip }}
