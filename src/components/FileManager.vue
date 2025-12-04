@@ -1122,8 +1122,16 @@ async function startCreate(isDir: boolean) {
     }
 
     // For flat view, tempPath should match the path comparison logic in VirtualFileList
-    // Use pathUtils to join, but ensure we handle the root case correctly
-    const tempPath = pathUtils.value.join(parentPath, tempName);
+    // Use manual concatenation to ensure empty name results in a trailing slash (or unique path)
+    // avoiding pathUtils.normalize stripping it.
+    let tempPath: string;
+    if (parentPath === '.') {
+        tempPath = tempName;
+    } else if (parentPath.endsWith('/')) {
+        tempPath = parentPath + tempName;
+    } else {
+        tempPath = parentPath + '/' + tempName;
+    }
 
     const tempEntry: FileEntry = {
         name: tempName,
