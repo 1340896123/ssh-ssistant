@@ -91,11 +91,30 @@ interface MountDetails {
   mount: string;
 }
 
+interface ProcessInfo {
+  pid: string;
+  command: string;
+  cpu: string;
+  memory: string;
+  memoryPercent: string;
+}
+
 interface SessionStats {
   uptime: string;
   disk: DiskInfo | null;
   mounts: MountDetails[];
   ip: string;
+  cpu: {
+    usage: string;
+    topProcesses: ProcessInfo[];
+  } | null;
+  memory: {
+    usage: string;
+    total: string;
+    used: string;
+    available: string;
+    topProcesses: ProcessInfo[];
+  } | null;
 }
 
 const sessionStatus = ref<Record<string, SessionStats>>({});
