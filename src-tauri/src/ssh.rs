@@ -648,18 +648,23 @@ pub async fn connect(
             sess_lock.channel_session()
         }) {
             Ok(channel) => channel,
-            Err(_e) => {
+            Err(e) => {
+                eprintln!("Failed to create channel: {}", e);
                 let _ = app.emit(&format!("term-exit:{}", shell_id), ());
                 return;
             }
         };
 
-        if let Err(_) = channel.request_pty("xterm", None, Some((80, 24, 0, 0))) {
+        // Apply retry! to request_pty as it might return WouldBlock
+        if let Err(e) = retry!(channel.request_pty("xterm", None, Some((80, 24, 0, 0)))) {
+            eprintln!("Failed to request PTY: {}", e);
             let _ = app.emit(&format!("term-exit:{}", shell_id), ());
             return;
         }
 
-        if let Err(_) = channel.shell() {
+        // Apply retry! to shell request as well
+        if let Err(e) = retry!(channel.shell()) {
+            eprintln!("Failed to start shell: {}", e);
             let _ = app.emit(&format!("term-exit:{}", shell_id), ());
             return;
         }
@@ -679,6 +684,7 @@ pub async fn connect(
                 }
                 Err(e) => {
                     if e.kind() != ErrorKind::WouldBlock {
+                        eprintln!("SSH Read Error: {}", e);
                         break;
                     }
                 }
@@ -691,7 +697,7 @@ pub async fn connect(
                         let _ = channel.write_all(&d);
                     }
                     ShellMsg::Resize { rows, cols } => {
-                        let _ = channel.request_pty_size(cols.into(), rows.into(), None, None);
+                        let _ = retry!(channel.request_pty_size(cols.into(), rows.into(), None, None));
                     }
                     ShellMsg::Exit => return,
                 }
