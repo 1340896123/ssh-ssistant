@@ -117,6 +117,16 @@ interface SessionStats {
   } | null;
 }
 
+interface MountInfo {
+  filesystem: string;
+  size: string;
+  used: string;
+  avail: string;
+  percent: string;
+  mount: string;
+}
+
+
 const sessionStatus = ref<Record<string, SessionStats>>({});
 let statusTimer: number | null = null;
 let clockTimer: number | null = null;
@@ -133,149 +143,150 @@ function formatDuration(totalSeconds: number): string {
 }
 
 const activeSessionDuration = computed(() => {
-  if (!activeSession.value || !activeSession.value.connectedAt) return '';
+  if (!activeSession.value || !activeSession.value.connectedAt) return "";
   const diffMs = now.value - activeSession.value.connectedAt;
-  if (diffMs <= 0) return '0s';
+  if (diffMs <= 0) return "0s";
   const diffSeconds = Math.floor(diffMs / 1000);
   return formatDuration(diffSeconds);
 });
 
 async function refreshActiveSessionStatus() {
-  if (!activeSession.value || activeSession.value.status !== 'connected') return;
+  if (!activeSession.value || activeSession.value.status !== "connected")
+    return;
+
   const id = activeSession.value.id;
+  const startTime = Date.now();
+
+  // 优化后的 Shell 命令
+  // 1. 使用 LC_ALL=C 防止数字格式化问题
+  // 2. CPU 计算使用纯 awk，不依赖 bc
+  // 3. ps 命令明确输出格式，便于解析
+  const command = `
+    export LC_ALL=C;
+    echo "UPTIME_START";
+    (uptime -p 2>/dev/null || uptime 2>/dev/null);
+    echo "UPTIME_END";
+    
+    echo "MOUNTS_START";
+    df -Ph 2>/dev/null | awk 'NR>1 {print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6}';
+    echo "MOUNTS_END";
+    
+    echo "IP_START";
+    (hostname -I 2>/dev/null || echo 'n/a');
+    echo "IP_END";
+    
+    echo "CPU_START";
+    CPU1=$(grep '^cpu ' /proc/stat 2>/dev/null);
+    sleep 0.1;
+    CPU2=$(grep '^cpu ' /proc/stat 2>/dev/null);
+    if [ -n "$CPU1" ] && [ -n "$CPU2" ]; then
+        echo "$CPU1 $CPU2" | awk '{
+            u1=$2+$4+$5; t1=$2+$4+$5+$6;
+            u2=$8+$10+$11; t2=$8+$10+$11+$12;
+            if (t2-t1 > 0) printf "%.1f", (u2-u1) * 100 / (t2-t1); else print "0"
+        }';
+    else
+        top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//' || echo "0";
+    fi;
+    echo "";
+    echo "CPU_END";
+    
+    echo "MEMORY_START";
+    awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null;
+    echo ""; 
+    echo "MEMORY_END";
+    
+    echo "PROCESSES_START";
+    ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\\n", $2, $11, $3"%", $4"%", $6/1024}';
+    echo "PROCESSES_END";
+    
+    echo "MEMORY_PROCESSES_START";
+    ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\\n", $2, $11, $3"%", $4"%", $6/1024}';
+    echo "MEMORY_PROCESSES_END";
+  `
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+
   try {
-    // Command to get Uptime, All Mount Points with detailed info, IP, CPU, Memory, and Top Processes
-    const command = `
-      echo "UPTIME_START"; 
-      (uptime -p 2>/dev/null || uptime 2>/dev/null); 
-      echo "UPTIME_END";
-      echo "MOUNTS_START"; 
-      df -h 2>/dev/null | awk 'NR>1 {print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6}'; 
-      echo "MOUNTS_END";
-      echo "IP_START"; 
-      (hostname -I 2>/dev/null || echo 'n/a');
-      echo "IP_END";
-      echo "CPU_START";
-      top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//';
-      echo "CPU_END";
-      echo "MEMORY_START";
-      free -h | grep "Mem:" | awk '{print $3 "/" $2 " (" $3/$2*100 "%)"}';
-      echo "MEMORY_END";
-      echo "PROCESSES_START";
-      ps aux --sort=-%cpu --no-headers | head -6 | awk 'NR>1 {print $2 "|" $11 "|" $3 "%|" $4 "%|" $6}';
-      echo "PROCESSES_END";
-      echo "MEMORY_PROCESSES_START";
-      ps aux --sort=-%mem --no-headers | head -6 | awk 'NR>1 {print $2 "|" $11 "|" $3 "%|" $4 "%|" $6}';
-      echo "MEMORY_PROCESSES_END";
-    `.replace(/\n/g, ' ');
+    const result = await invoke<string>("exec_command", { id, command });
 
-    const result = await invoke<string>('exec_command', { id, command });
+    // 1. 正则提取各部分数据块
+    const extractBlock = (marker: string) => {
+      const regex = new RegExp(
+        `${marker}_START\\s*([\\s\\S]*?)\\s*${marker}_END`
+      );
+      const match = result.match(regex);
+      return match ? match[1].trim() : "";
+    };
 
-    // Parse result
-    const uptimeMatch = result.match(/UPTIME_START\s*([\s\S]*?)\s*UPTIME_END/);
-    const mountsMatch = result.match(/MOUNTS_START\s*([\s\S]*?)\s*MOUNTS_END/);
-    const ipMatch = result.match(/IP_START\s*([\s\S]*?)\s*IP_END/);
-    const cpuMatch = result.match(/CPU_START\s*([\s\S]*?)\s*CPU_END/);
-    const memoryMatch = result.match(/MEMORY_START\s*([\s\S]*?)\s*MEMORY_END/);
-    const processesMatch = result.match(/PROCESSES_START\s*([\s\S]*?)\s*PROCESSES_END/);
-    const memoryProcessesMatch = result.match(/MEMORY_PROCESSES_START\s*([\s\S]*?)\s*MEMORY_PROCESSES_END/);
+    const blocks = {
+      uptime: extractBlock("UPTIME"),
+      mounts: extractBlock("MOUNTS"),
+      ip: extractBlock("IP"),
+      cpu: extractBlock("CPU"),
+      memory: extractBlock("MEMORY"),
+      procCpu: extractBlock("PROCESSES"),
+      procMem: extractBlock("MEMORY_PROCESSES"),
+    };
 
-    const uptime = uptimeMatch ? uptimeMatch[1].trim() : 'N/A';
-    const mountsRaw = mountsMatch ? mountsMatch[1].trim() : '';
-    const ip = ipMatch ? ipMatch[1].trim().split(' ')[0] : 'N/A';
-    const cpuUsage = cpuMatch ? cpuMatch[1].trim() : 'N/A';
-    const memoryUsage = memoryMatch ? memoryMatch[1].trim() : 'N/A';
-    const processesRaw = processesMatch ? processesMatch[1].trim() : '';
-    const memoryProcessesRaw = memoryProcessesMatch ? memoryProcessesMatch[1].trim() : '';
+    // 2. 解析基础信息
+    const uptime = blocks.uptime || "N/A";
+    const ip = blocks.ip.split(" ")[0] || "N/A";
 
-    // Parse mounts data
-    const mounts: MountDetails[] = [];
-    let rootDisk: DiskInfo | null = null;
-
-    if (mountsRaw) {
-      const lines = mountsRaw.split('\n').filter(line => line.trim());
-      for (const line of lines) {
-        const parts = line.split('|');
-        if (parts.length >= 6) {
-          const mountInfo: MountDetails = {
-            filesystem: parts[0],
-            size: parts[1],
-            used: parts[2],
-            avail: parts[3],
-            percent: parts[4],
-            mount: parts[5]
-          };
-          mounts.push(mountInfo);
-
-          // Set root disk as primary disk info (usually mount point "/")
-          if (parts[5] === '/' || (!rootDisk && parts[5].startsWith('/'))) {
-            rootDisk = {
-              filesystem: parts[0],
-              size: parts[1],
-              used: parts[2],
-              avail: parts[3],
-              percent: parts[4],
-              mount: parts[5]
-            };
-          }
-        }
-      }
+    // 3. 解析 CPU 使用率
+    let cpuUsage = "0%";
+    const cpuVal = parseFloat(blocks.cpu);
+    if (!isNaN(cpuVal)) {
+      cpuUsage = `${Math.min(Math.max(cpuVal, 0), 100).toFixed(1)}%`;
     }
 
-    // Parse CPU and Memory data
-    const cpuTopProcesses: ProcessInfo[] = [];
-    const memoryTopProcesses: ProcessInfo[] = [];
-    let memoryDetails: { total: string; used: string; available: string } | null = null;
+    // 4. 解析内存 (Shell脚本输出了：百分比|Total|Used|Avail)
+    const memParts = blocks.memory.split("|");
+    const memoryInfo = {
+      usage: memParts[0] || "0%",
+      total: memParts[1] ? `${memParts[1]}GB` : "N/A",
+      used: memParts[2] ? `${memParts[2]}GB` : "N/A",
+      available: memParts[3] ? `${memParts[3]}GB` : "N/A",
+    };
 
-    if (processesRaw) {
-      const lines = processesRaw.split('\n').filter(line => line.trim());
-      for (const line of lines) {
-        const parts = line.split('|');
-        if (parts.length >= 5) {
-          cpuTopProcesses.push({
-            pid: parts[0],
-            command: parts[1],
-            cpu: parts[2],
-            memory: parts[3],
-            memoryPercent: parts[4]
-          });
-        }
-      }
-    }
+    // 5. 解析挂载点
+    const mounts = parseTable<MountInfo>(
+      blocks.mounts,
+      (p) => ({
+        filesystem: p[0],
+        size: p[1],
+        used: p[2],
+        avail: p[3],
+        percent: p[4],
+        mount: p[5],
+      }),
+      6
+    );
 
-    if (memoryProcessesRaw) {
-      const lines = memoryProcessesRaw.split('\n').filter(line => line.trim());
-      for (const line of lines) {
-        const parts = line.split('|');
-        if (parts.length >= 5) {
-          memoryTopProcesses.push({
-            pid: parts[0],
-            command: parts[1],
-            cpu: parts[2],
-            memory: parts[3],
-            memoryPercent: parts[4]
-          });
-        }
-      }
-    }
+    // 找到根目录或第一个挂载点作为主磁盘显示
+    const rootDisk = mounts.find((m) => m.mount === "/") || mounts[0] || null;
 
-    // Parse memory details from free command output
-    let memoryPercentage = 'N/A';
-    if (memoryUsage && memoryUsage !== 'N/A') {
-      const match = memoryUsage.match(/([\d.]+)%/);
-      if (match) {
-        memoryPercentage = match[1] + '%';
-      }
-      const detailMatch = memoryUsage.match(/([\d.]+[KMGT]?)(?:\s*\/\s*([\d.]+[KMGT]?))?/);
-      if (detailMatch) {
-        memoryDetails = {
-          used: detailMatch[1] || 'N/A',
-          total: detailMatch[2] || 'N/A',
-          available: 'N/A'
-        };
-      }
-    }
+    // 6. 解析进程列表 (PID|Command|CPU%|Mem%|MemVal)
+    const processMapper = (p: string[]): ProcessInfo => ({
+      pid: p[0],
+      command: p[1],
+      cpu: p[2],
+      memory: p[3],
+      memoryPercent: p[4],
+    });
 
+    const cpuTopProcesses = parseTable<ProcessInfo>(
+      blocks.procCpu,
+      processMapper,
+      5
+    );
+    const memoryTopProcesses = parseTable<ProcessInfo>(
+      blocks.procMem,
+      processMapper,
+      5
+    );
+
+    // 7. 更新状态
     sessionStatus.value = {
       ...sessionStatus.value,
       [id]: {
@@ -285,20 +296,39 @@ async function refreshActiveSessionStatus() {
         ip,
         cpu: {
           usage: cpuUsage,
-          topProcesses: cpuTopProcesses
+          topProcesses: cpuTopProcesses,
         },
         memory: {
-          usage: memoryPercentage,
-          total: memoryDetails?.total || 'N/A',
-          used: memoryDetails?.used || 'N/A',
-          available: memoryDetails?.available || 'N/A',
-          topProcesses: memoryTopProcesses
-        }
+          ...memoryInfo,
+          topProcesses: memoryTopProcesses,
+        },
       },
     };
-  } catch (e) {
-    console.error(e);
-    // Keep previous status or set to null/error state if needed
+  } catch (error: any) {
+    const duration = Date.now() - startTime;
+    console.error(
+      `System monitoring failed for ${id} after ${duration}ms:`,
+      error
+    );
+
+    // 错误状态处理
+    sessionStatus.value = {
+      ...sessionStatus.value,
+      [id]: {
+        // 保留旧数据或重置为 Error，视需求而定。
+        // 这里仅更新关键报错字段，防止UI完全空白
+        ...sessionStatus.value?.[id],
+        uptime: "Connection Error",
+        cpu: { usage: "N/A", topProcesses: [] },
+        memory: {
+          usage: "N/A",
+          total: "N/A",
+          used: "N/A",
+          available: "N/A",
+          topProcesses: [],
+        },
+      },
+    };
   }
 }
 
@@ -353,16 +383,32 @@ onUnmounted(() => {
   }
 });
 
-function startResize(target: 'file' | 'ai' | 'sidebar') {
+const parseTable = <T>(
+  raw: string,
+  mapper: (parts: string[]) => T | null,
+  minColumns: number = 1
+): T[] => {
+  if (!raw) return [];
+  return raw
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.split("|"))
+    .filter((parts) => parts.length >= minColumns)
+    .map(mapper)
+    .filter((item): item is T => item !== null);
+};
+function startResize(target: "file" | "ai" | "sidebar") {
   isResizing.value = target;
-  document.body.style.cursor = 'col-resize';
-  document.body.style.userSelect = 'none';
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
 }
 
 function handleMouseMove(e: MouseEvent) {
   if (!isResizing.value) return;
 
-  if (isResizing.value === 'sidebar') {
+  if (isResizing.value === "sidebar") {
     // Calculate new sidebar width in pixels relative to the viewport
     const windowRect = document.body.getBoundingClientRect();
     const newSidebarWidth = e.clientX - windowRect.left;
