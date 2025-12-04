@@ -175,10 +175,18 @@ async function refreshActiveSessionStatus() {
     const uptimeMatch = result.match(/UPTIME_START\s*([\s\S]*?)\s*UPTIME_END/);
     const mountsMatch = result.match(/MOUNTS_START\s*([\s\S]*?)\s*MOUNTS_END/);
     const ipMatch = result.match(/IP_START\s*([\s\S]*?)\s*IP_END/);
+    const cpuMatch = result.match(/CPU_START\s*([\s\S]*?)\s*CPU_END/);
+    const memoryMatch = result.match(/MEMORY_START\s*([\s\S]*?)\s*MEMORY_END/);
+    const processesMatch = result.match(/PROCESSES_START\s*([\s\S]*?)\s*PROCESSES_END/);
+    const memoryProcessesMatch = result.match(/MEMORY_PROCESSES_START\s*([\s\S]*?)\s*MEMORY_PROCESSES_END/);
 
     const uptime = uptimeMatch ? uptimeMatch[1].trim() : 'N/A';
     const mountsRaw = mountsMatch ? mountsMatch[1].trim() : '';
     const ip = ipMatch ? ipMatch[1].trim().split(' ')[0] : 'N/A';
+    const cpuUsage = cpuMatch ? cpuMatch[1].trim() : 'N/A';
+    const memoryUsage = memoryMatch ? memoryMatch[1].trim() : 'N/A';
+    const processesRaw = processesMatch ? processesMatch[1].trim() : '';
+    const memoryProcessesRaw = memoryProcessesMatch ? memoryProcessesMatch[1].trim() : '';
 
     // Parse mounts data
     const mounts: MountDetails[] = [];
@@ -214,13 +222,78 @@ async function refreshActiveSessionStatus() {
       }
     }
 
+    // Parse CPU and Memory data
+    const cpuTopProcesses: ProcessInfo[] = [];
+    const memoryTopProcesses: ProcessInfo[] = [];
+    let memoryDetails: { total: string; used: string; available: string } | null = null;
+
+    if (processesRaw) {
+      const lines = processesRaw.split('\n').filter(line => line.trim());
+      for (const line of lines) {
+        const parts = line.split('|');
+        if (parts.length >= 5) {
+          cpuTopProcesses.push({
+            pid: parts[0],
+            command: parts[1],
+            cpu: parts[2],
+            memory: parts[3],
+            memoryPercent: parts[4]
+          });
+        }
+      }
+    }
+
+    if (memoryProcessesRaw) {
+      const lines = memoryProcessesRaw.split('\n').filter(line => line.trim());
+      for (const line of lines) {
+        const parts = line.split('|');
+        if (parts.length >= 5) {
+          memoryTopProcesses.push({
+            pid: parts[0],
+            command: parts[1],
+            cpu: parts[2],
+            memory: parts[3],
+            memoryPercent: parts[4]
+          });
+        }
+      }
+    }
+
+    // Parse memory details from free command output
+    let memoryPercentage = 'N/A';
+    if (memoryUsage && memoryUsage !== 'N/A') {
+      const match = memoryUsage.match(/([\d.]+)%/);
+      if (match) {
+        memoryPercentage = match[1] + '%';
+      }
+      const detailMatch = memoryUsage.match(/([\d.]+[KMGT]?)(?:\s*\/\s*([\d.]+[KMGT]?))?/);
+      if (detailMatch) {
+        memoryDetails = {
+          used: detailMatch[1] || 'N/A',
+          total: detailMatch[2] || 'N/A',
+          available: 'N/A'
+        };
+      }
+    }
+
     sessionStatus.value = {
       ...sessionStatus.value,
       [id]: {
         uptime,
         disk: rootDisk,
         mounts,
-        ip
+        ip,
+        cpu: {
+          usage: cpuUsage,
+          topProcesses: cpuTopProcesses
+        },
+        memory: {
+          usage: memoryPercentage,
+          total: memoryDetails?.total || 'N/A',
+          used: memoryDetails?.used || 'N/A',
+          available: memoryDetails?.available || 'N/A',
+          topProcesses: memoryTopProcesses
+        }
       },
     };
   } catch (e) {
