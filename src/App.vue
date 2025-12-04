@@ -144,7 +144,7 @@ async function refreshActiveSessionStatus() {
   if (!activeSession.value || activeSession.value.status !== 'connected') return;
   const id = activeSession.value.id;
   try {
-    // Command to get Uptime, All Mount Points with detailed info, and IP
+    // Command to get Uptime, All Mount Points with detailed info, IP, CPU, Memory, and Top Processes
     const command = `
       echo "UPTIME_START"; 
       (uptime -p 2>/dev/null || uptime 2>/dev/null); 
@@ -155,6 +155,18 @@ async function refreshActiveSessionStatus() {
       echo "IP_START"; 
       (hostname -I 2>/dev/null || echo 'n/a');
       echo "IP_END";
+      echo "CPU_START";
+      top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//';
+      echo "CPU_END";
+      echo "MEMORY_START";
+      free -h | grep "Mem:" | awk '{print $3 "/" $2 " (" $3/$2*100 "%)"}';
+      echo "MEMORY_END";
+      echo "PROCESSES_START";
+      ps aux --sort=-%cpu --no-headers | head -6 | awk 'NR>1 {print $2 "|" $11 "|" $3 "%|" $4 "%|" $6}';
+      echo "PROCESSES_END";
+      echo "MEMORY_PROCESSES_START";
+      ps aux --sort=-%mem --no-headers | head -6 | awk 'NR>1 {print $2 "|" $11 "|" $3 "%|" $4 "%|" $6}';
+      echo "MEMORY_PROCESSES_END";
     `.replace(/\n/g, ' ');
 
     const result = await invoke<string>('exec_command', { id, command });
