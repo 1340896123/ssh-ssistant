@@ -248,7 +248,7 @@ function renderTreeNode(node: TreeNode) {
 </script>
 
 <template>
-    <div ref="virtualizerContainerRef" class="h-full overflow-auto">
+    <div ref="virtualizerContainerRef" class="overflow-auto">
         <div :style="{ height: totalSize + 'px', width: '100%', position: 'relative' }">
             <div v-for="virtualItem in virtualItems" :key="virtualItem.index" :style="{
                 position: 'absolute',
