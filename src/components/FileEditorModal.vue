@@ -25,6 +25,7 @@ const isLoading = ref(false);
 const isSaving = ref(false);
 const originalContent = ref("");
 const isDirty = ref(false);
+const selectedLanguage = ref("plaintext");
 
 // Cache to store edited content for each file
 const fileContentCache = ref<Map<string, { content: string; originalContent: string; isDirty: boolean }>>(new Map());
@@ -32,7 +33,33 @@ const fileContentCache = ref<Map<string, { content: string; originalContent: str
 // Confirmation dialog state
 const showConfirmDialog = ref(false);
 
-// Language detection based on extension
+// Available languages for syntax highlighting
+const availableLanguages = [
+  { value: "plaintext", label: "Plain Text" },
+  { value: "javascript", label: "JavaScript" },
+  { value: "typescript", label: "TypeScript" },
+  { value: "python", label: "Python" },
+  { value: "rust", label: "Rust" },
+  { value: "html", label: "HTML" },
+  { value: "css", label: "CSS" },
+  { value: "json", label: "JSON" },
+  { value: "markdown", label: "Markdown" },
+  { value: "shell", label: "Shell" },
+  { value: "yaml", label: "YAML" },
+  { value: "xml", label: "XML" },
+  { value: "sql", label: "SQL" },
+  { value: "go", label: "Go" },
+  { value: "java", label: "Java" },
+  { value: "cpp", label: "C/C++" },
+  { value: "csharp", label: "C#" },
+  { value: "php", label: "PHP" },
+  { value: "dockerfile", label: "Dockerfile" },
+  { value: "ini", label: "INI" },
+  { value: "bat", label: "Batch" },
+  { value: "powershell", label: "PowerShell" }
+];
+
+// Language detection based depreciated - now used for auto-selection only
 function getLanguage(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase();
   switch (ext) {
@@ -191,16 +218,19 @@ async function loadFile() {
     // Wait a bit more for editor to be ready
     await nextTick();
 
+    // Set selected language based on file detection
+    selectedLanguage.value = getLanguage(props.fileName);
+
     if (editor.value) {
       const model = editor.value.getModel();
       if (model) {
         model.setValue(content);
-        monaco.editor.setModelLanguage(model, getLanguage(props.fileName));
+        monaco.editor.setModelLanguage(model, selectedLanguage.value);
         console.log('Content set to existing model');
       } else {
         const newModel = monaco.editor.createModel(
           content,
-          getLanguage(props.fileName)
+          selectedLanguage.value
         );
         editor.value.setModel(newModel);
         console.log('New model created and set');
@@ -346,10 +376,9 @@ watch(
   () => props.fileName,
   () => {
     if (props.show && editor.value) {
-      const model = editor.value.getModel();
-      if (model) {
-        monaco.editor.setModelLanguage(model, getLanguage(props.fileName));
-      }
+      // Auto-update language selection when file changes
+      selectedLanguage.value = getLanguage(props.fileName);
+      handleLanguageChange();
     }
   }
 );
@@ -363,6 +392,16 @@ function hasUnsavedChanges(filePath: string): boolean {
   // Check cache
   const cached = getCachedContent(filePath);
   return cached ? cached.isDirty : false;
+}
+
+// Handle language change
+function handleLanguageChange() {
+  if (editor.value) {
+    const model = editor.value.getModel();
+    if (model) {
+      monaco.editor.setModelLanguage(model, selectedLanguage.value);
+    }
+  }
 }
 
 // Trigger close flow (for parent component to call)
@@ -402,6 +441,13 @@ defineExpose({
         <span class="text-xs text-gray-500">{{ filePath }}</span>
       </div>
       <div class="flex items-center space-x-2">
+        <!-- Language Selector -->
+        <select v-model="selectedLanguage" @change="handleLanguageChange"
+          class="px-3 py-1.5 text-sm bg-gray-700 text-white border border-gray-600 rounded focus:outline-none focus:border-blue-500">
+          <option v-for="lang in availableLanguages" :key="lang.value" :value="lang.value">
+            {{ lang.label }}
+          </option>
+        </select>
         <button @click="saveFile" :disabled="isSaving || !isDirty"
           class="flex items-center px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
           <Loader2 v-if="isSaving" class="w-4 h-4 mr-2 animate-spin" />
