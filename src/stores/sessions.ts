@@ -133,14 +133,17 @@ export const useSessionStore = defineStore('sessions', {
       }
     },
     async closeSession(id: string) {
-      try {
-        await invoke('disconnect', { id });
-      } catch (e) {
-        console.error(e);
-      }
+      // 1. Optimistically update UI first
       this.sessions = this.sessions.filter(s => s.id !== id);
       if (this.activeSessionId === id) {
         this.activeSessionId = this.sessions.length > 0 ? this.sessions[0].id : null;
+      }
+
+      // 2. Perform backend disconnect in background
+      try {
+        await invoke('disconnect', { id });
+      } catch (e) {
+        console.error("Error disconnecting session:", e);
       }
     },
     async disconnectSession(id: string) {
