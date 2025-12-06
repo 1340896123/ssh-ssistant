@@ -30,8 +30,7 @@ impl Drop for ManagedSession {
         if let Some(handle) = &mut self.forwarding_handle {
             handle.shutdown_signal.store(true, Ordering::Relaxed);
             // Give the thread a moment to shutdown gracefully
-            let handle = std::mem::replace(&mut handle.thread_handle,
-                thread::spawn(|| {})); // Replace with empty thread to take ownership
+            let handle = std::mem::replace(&mut handle.thread_handle, thread::spawn(|| {})); // Replace with empty thread to take ownership
             let _ = handle.join();
         }
 
@@ -200,8 +199,8 @@ impl SessionSshPool {
             // Close forwarding thread first
             if let Some(mut handle) = main_sess.forwarding_handle.take() {
                 handle.shutdown_signal.store(true, Ordering::Relaxed);
-                let thread_handle = std::mem::replace(&mut handle.thread_handle,
-                    thread::spawn(|| {})); // Replace with empty thread
+                let thread_handle =
+                    std::mem::replace(&mut handle.thread_handle, thread::spawn(|| {})); // Replace with empty thread
                 let _ = thread_handle.join();
             }
             // Close sessions
@@ -223,8 +222,8 @@ impl SessionSshPool {
                     // Close forwarding thread first
                     if let Some(mut handle) = sess.forwarding_handle.take() {
                         handle.shutdown_signal.store(true, Ordering::Relaxed);
-                        let thread_handle = std::mem::replace(&mut handle.thread_handle,
-                            thread::spawn(|| {})); // Replace with empty thread
+                        let thread_handle =
+                            std::mem::replace(&mut handle.thread_handle, thread::spawn(|| {})); // Replace with empty thread
                         let _ = thread_handle.join();
                     }
                     // Close sessions
@@ -280,7 +279,10 @@ pub fn establish_connection_with_retry(config: &SshConnConfig) -> Result<Managed
             Ok(session) => return Ok(session),
             Err(e) => {
                 if attempt == CONNECTION_RETRY_MAX_ATTEMPTS {
-                    return Err(format!("Failed to establish connection after {} attempts: {}", CONNECTION_RETRY_MAX_ATTEMPTS, e));
+                    return Err(format!(
+                        "Failed to establish connection after {} attempts: {}",
+                        CONNECTION_RETRY_MAX_ATTEMPTS, e
+                    ));
                 }
 
                 let delay = CONNECTION_RETRY_BASE_DELAY * 2_u32.pow(attempt - 1);
@@ -453,10 +455,14 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
             });
 
             // 3. Connect to the local forwarded port
-            // Increase timeout to account for potential delays, though local connect is usually fast
             let connect_addr = format!("127.0.0.1:{}", local_port);
-            let tcp_stream = connect_with_timeout(&connect_addr, LOCAL_FORWARD_TIMEOUT)
-                .map_err(|e| format!("Failed to connect to local forwarded port {}: {}", local_port, e))?;
+            let tcp_stream =
+                connect_with_timeout(&connect_addr, LOCAL_FORWARD_TIMEOUT).map_err(|e| {
+                    format!(
+                        "Failed to connect to local forwarded port {}: {}",
+                        local_port, e
+                    )
+                })?;
 
             sess.set_tcp_stream(tcp_stream);
 

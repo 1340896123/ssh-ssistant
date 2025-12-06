@@ -92,7 +92,7 @@ pub async fn connect(
     .map_err(|e| format!("Task join error: {}", e))?
     ?;
 
-    let main_session = ssh_pool.get_main_session();
+    let _main_session = ssh_pool.get_main_session();
 
     // 启动定时清理任务
     let cleanup_pool = ssh_pool.clone();
