@@ -1,6 +1,7 @@
 mod db;
 mod models;
 mod ssh;
+mod system;
 
 use tauri::Manager;
 
@@ -57,7 +58,8 @@ pub fn run() {
             db::get_groups,
             db::create_group,
             db::update_group,
-            db::delete_group
+            db::delete_group,
+            system::get_file_icon
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
