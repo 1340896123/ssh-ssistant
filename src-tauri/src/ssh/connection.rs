@@ -242,20 +242,31 @@ impl SessionSshPool {
         }
     }
 
+    fn rebuild_main(&self) -> Result<(), String> {
+        // 在锁之外建立连接，避免阻塞其他持有锁的操作
+        let new_session = establish_connection_with_retry(&self.config)?;
+
+        {
+            let mut main_sess = self.main_session.lock().map_err(|e| e.to_string())?;
+            *main_sess = new_session;
+        }
+        Ok(())
+    }
+
     /// 重建所有连接
     pub fn rebuild_all(&self) -> Result<(), String> {
         // 重建主会话
-        {
-            let mut main_sess = self.main_session.lock().map_err(|e| e.to_string())?;
-            *main_sess = establish_connection_with_retry(&self.config)?;
-        }
+        self.rebuild_main()?;
 
-        // 重建后台会话 (stagger creation)
-        thread::sleep(Duration::from_millis(200));
+        // 清空后台会话，它们会按需懒加载
         {
             let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
             sessions.clear();
-            let initial_bg_session = establish_connection_with_retry(&self.config)?;
+        }
+
+        // 预热一个后台会话
+        if let Ok(initial_bg_session) = establish_connection_with_retry(&self.config) {
+            let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
             sessions.push(Arc::new(Mutex::new(initial_bg_session)));
         }
 
