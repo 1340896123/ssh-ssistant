@@ -1,7 +1,7 @@
 use super::client::AppState;
 use crate::ssh::{execute_ssh_operation, ssh2_retry};
 use serde::{Deserialize, Serialize};
-use std::io::{ErrorKind, Read};
+use std::io::Read;
 use std::thread;
 use std::time::Duration;
 use tauri::{command, AppHandle, State};
@@ -55,17 +55,33 @@ pub struct SessionStats {
     pub memory: Option<MemoryInfo>,
 }
 
-fn extract_block(text: &str, marker: &str) -> String {
-    let start_tag = format!("{}_START", marker);
-    let end_tag = format!("{}_END", marker);
+fn run_command(sess: &ssh2::Session, cmd: &str) -> Result<String, String> {
+    let mut channel = ssh2_retry(|| sess.channel_session()).map_err(|e| e.to_string())?;
+    ssh2_retry(|| channel.exec(cmd)).map_err(|e| e.to_string())?;
 
-    if let Some(start) = text.find(&start_tag) {
-        let content_start = start + start_tag.len();
-        if let Some(end) = text[content_start..].find(&end_tag) {
-            return text[content_start..content_start + end].trim().to_string();
+    let mut s = String::new();
+    let mut buf = [0u8; 4096];
+
+    loop {
+        match channel.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let chunk = String::from_utf8_lossy(&buf[..n]);
+                s.push_str(&chunk);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => {
+                return Err(e.to_string());
+            }
         }
     }
-    String::new()
+
+    ssh2_retry(|| channel.wait_close())
+        .map_err(|e| format!("Failed to wait for channel close: {}", e))?;
+
+    Ok(s.trim().to_string())
 }
 
 fn parse_table<T, F>(raw: &str, mapper: F, min_columns: usize) -> Vec<T>
