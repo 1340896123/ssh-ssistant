@@ -120,17 +120,19 @@ impl SessionSshPool {
 
         Ok(session)
     }
-
+ 
     /// 检查并清理断开的连接
     pub fn cleanup_disconnected(&self) {
         // 检查后台会话
         if let Ok(mut sessions) = self.background_sessions.lock() {
             sessions.retain(|session| {
                 if let Ok(sess) = session.lock() {
-                    // 增强的连接检查：先发送keepalive再ping
-                    self.send_keepalive(&sess);
-                    let result = sess.channel_session();
-                    result.is_ok()
+                    // 核心修复：使用 ssh2_retry 处理 WouldBlock 错误
+                    // 之前直接调用在非阻塞模式下会失败，导致连接被误杀
+                    match ssh2_retry(|| sess.session.keepalive_send()) {
+                        Ok(_) => true,   // 发送成功，保留连接
+                        Err(_) => false, // 真的断开了，移除连接
+                    }
                 } else {
                     false
                 }
@@ -144,49 +146,30 @@ impl SessionSshPool {
             }
         }
 
-        // 检查主会话并发送keepalive
+        // 检查主会话并发送keepalive (仅仅是发送心跳，不执行清理逻辑)
         if let Ok(main_sess) = self.main_session.lock() {
-            self.send_keepalive(&main_sess);
-        }
-    }
-
-    /// 主动发送keepalive信号保持连接活跃
-    fn send_keepalive(&self, session: &ManagedSession) {
-        // SSH2库的keepalive会在后台自动发送，这里我们做额外的主动保活
-        // 执行一个简单的命令来检测连接状态
-        if let Ok(mut channel) = session.channel_session() {
-            let _ = channel.exec("echo");
-            // 立即关闭通道，不关心输出
-            let _ = channel.close();
+            // 同样使用 retry 机制忽略伪错误
+            let _ = ssh2_retry(|| main_sess.session.keepalive_send());
         }
     }
 
     /// 心跳检测：检查所有连接的健康状态
     pub fn heartbeat_check(&self) -> Result<(), String> {
-        let mut need_rebuild = false;
+        let mut need_rebuild_main = false;
 
         // 检查主会话
         if let Ok(main_sess) = self.main_session.lock() {
             if !self.is_session_alive(&main_sess)? {
-                need_rebuild = true;
+                need_rebuild_main = true;
             }
+        }
+
+        if need_rebuild_main {
+            self.rebuild_main()?;
         }
 
         // 检查后台会话
-        if let Ok(sessions) = self.background_sessions.lock() {
-            for session in sessions.iter() {
-                if let Ok(sess) = session.lock() {
-                    if !self.is_session_alive(&sess)? {
-                        need_rebuild = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if need_rebuild {
-            self.rebuild_all()?;
-        }
+        self.cleanup_disconnected();
 
         Ok(())
     }
@@ -194,10 +177,11 @@ impl SessionSshPool {
     /// 检查单个会话是否存活
     fn is_session_alive(&self, session: &ManagedSession) -> Result<bool, String> {
         // 尝试打开一个通道来检测连接状态
-        match session.channel_session() {
+        // 核心修复：必须使用 ssh2_retry，否则非阻塞模式下这里大概率直接返回 Error(WouldBlock)
+        match ssh2_retry(|| session.channel_session()) {
             Ok(mut channel) => {
-                // 执行一个轻量级命令
-                match channel.exec("pwd") {
+                // 执行一个极轻量级命令 'true' (比 pwd 更轻)
+                match ssh2_retry(|| channel.exec("true")) {
                     Ok(_) => {
                         let _ = channel.close();
                         Ok(true)
