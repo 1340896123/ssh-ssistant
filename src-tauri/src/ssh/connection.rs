@@ -484,76 +484,55 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
     })
 }
 
-// Helper function to connect with timeout and proper error handling
+
+
+// 跨平台兼容的带超时和Keepalive的Socket连接函数
 fn connect_with_timeout(addr_str: &str, timeout: Duration) -> Result<TcpStream, String> {
-    let addr = addr_str
+    let addrs = addr_str
         .to_socket_addrs()
         .map_err(|e| format!("Invalid address '{}': {}", addr_str, e))?
-        .next()
-        .ok_or("No valid addresses found")?;
+        .collect::<Vec<_>>();
 
-    let mut stream = TcpStream::connect_timeout(&addr, timeout)
-        .map_err(|e| format!("Failed to connect to '{}': {}", addr_str, e))?;
-
-    // Set TCP keepalive to prevent connection drops
-    if cfg!(unix) {
-        use socket2::Socket;
-
-        // For Unix systems, we can use socket2 for advanced keepalive options
-        #[cfg(unix)]
-        {
-            use std::os::unix::io::AsRawFd;
-
-            // Get the raw file descriptor
-            let fd = stream.as_raw_fd();
-
-            // Convert to socket2::Socket for advanced options
-            let socket = unsafe { Socket::from_raw_fd(fd) };
-
-            // Enable TCP keepalive
-            socket.set_keepalive(true).map_err(|e| format!("Failed to set keepalive: {}", e))?;
-
-            // Set keepalive parameters (Linux/macOS)
-            #[cfg(target_os = "linux")]
-            {
-                socket.set_tcp_keepidle(Some(Duration::from_secs(60))).map_err(|e| format!("Failed to set keepidle: {}", e))?; // Start keepalive after 60s
-                socket.set_tcp_keepintvl(Some(Duration::from_secs(10))).map_err(|e| format!("Failed to set keepintvl: {}", e))?; // Send keepalive every 10s
-                socket.set_tcp_keepcnt(Some(3)).map_err(|e| format!("Failed to set keepcnt: {}", e))?; // Max 3 failed probes
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                socket.set_tcp_keepalive(Some(Duration::from_secs(60)), Some(Duration::from_secs(10)))
-                    .map_err(|e| format!("Failed to set keepalive on macOS: {}", e))?;
-            }
-
-            // We don't convert back, just let the socket be dropped
-            // The underlying file descriptor is still owned by the TcpStream
-        }
-    } else if cfg!(windows) {
-        // Windows: use the standard TcpStream set_nodelay and socket2 for keepalive
-        use socket2::Socket;
-
-        // Set TCP_NODELAY to improve latency
-        stream.set_nodelay(true).map_err(|e| format!("Failed to set nodelay: {}", e))?;
-
-        // For Windows, we can still use socket2 but need a different approach
-        #[cfg(windows)]
-        {
-            use socket2::{Domain, Type, Protocol};
-            use std::os::windows::io::AsRawSocket;
-
-            // Create a new socket with the same configuration
-            let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
-                .map_err(|e| format!("Failed to create socket: {}", e))?;
-
-            // Enable keepalive on the socket
-            socket.set_keepalive(true).map_err(|e| format!("Failed to set keepalive: {}", e))?;
-
-            // Note: We can't directly modify the existing TcpStream's socket on Windows
-            // but creating new sockets with keepalive enabled demonstrates the approach
-        }
+    if addrs.is_empty() {
+        return Err("No valid addresses found".to_string());
     }
+
+    let addr = addrs[0];
+
+    let domain = match addr {
+        SocketAddr::V4(_) => Domain::IPV4,
+        SocketAddr::V6(_) => Domain::IPV6,
+    };
+
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
+        .map_err(|e| format!("Failed to create socket: {}", e))?;
+
+    // 设置 TCP_NODELAY
+    if let Err(e) = socket.set_nodelay(true) {
+        eprintln!("Warning: Failed to set TCP_NODELAY: {}", e);
+    }
+
+    // 设置 TCP Keepalive (底层 TCP 协议保活)
+    let keepalive_conf = socket2::TcpKeepalive::new()
+        .with_time(Duration::from_secs(60))
+        .with_interval(Duration::from_secs(10));
+
+    #[cfg(not(target_os = "windows"))]
+    let keepalive_conf = keepalive_conf.with_retries(3);
+
+    if let Err(e) = socket.set_tcp_keepalive(&keepalive_conf) {
+        // 如果高级设置失败，尝试基本的启用
+        let _ = socket.set_keepalive(true);
+        eprintln!("Warning: Failed to set detailed TCP Keepalive: {}", e);
+    }
+
+    // 连接
+    if let Err(e) = socket.connect_timeout(&addr.into(), timeout) {
+        return Err(format!("Failed to connect to '{}': {}", addr_str, e));
+    }
+
+    // 转换为 std::net::TcpStream
+    let stream: TcpStream = socket.into();
 
     Ok(stream)
 }
