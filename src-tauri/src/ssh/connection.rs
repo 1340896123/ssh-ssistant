@@ -1,11 +1,12 @@
 use crate::models::Connection as SshConnConfig;
 use crate::ssh::{
-    CONNECTION_RETRY_BASE_DELAY, CONNECTION_RETRY_MAX_ATTEMPTS, DEFAULT_CONNECTION_TIMEOUT,
-    JUMP_HOST_TIMEOUT, LOCAL_FORWARD_TIMEOUT,
+    ssh2_retry, CONNECTION_RETRY_BASE_DELAY, CONNECTION_RETRY_MAX_ATTEMPTS,
+    DEFAULT_CONNECTION_TIMEOUT, JUMP_HOST_TIMEOUT, LOCAL_FORWARD_TIMEOUT,
 };
+use socket2::{Domain, Protocol, Socket, Type};
 use ssh2::Session;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
