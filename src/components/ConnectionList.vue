@@ -73,7 +73,19 @@ async function handleMenuAction(action: string) {
       if (item && 'children' in item) handleDeleteGroup(item as ConnectionGroup);
       break;
     case 'newConnection':
-      emit('edit', null); // Trigger new connection modal
+      if (item && 'children' in item) {
+        // Create new connection in this group
+        const newConn: Connection = {
+          name: '',
+          host: '',
+          port: 22,
+          username: '',
+          groupId: item.id
+        };
+        emit('edit', newConn);
+      } else {
+        emit('edit', null); // Trigger new connection modal (Root)
+      }
       break;
     case 'newGroup':
       handleCreateGroup();
@@ -105,6 +117,7 @@ function handleItemContextMenu(event: MouseEvent, item: Connection | ConnectionG
 
   if (isGroup) {
     menuItems.value = [
+      { label: t('connections.contextMenu.newConnection'), action: 'newConnection', icon: Monitor }, // Add New Connection to Group
       { label: t('connections.contextMenu.newSubGroup'), action: 'newSubGroup', icon: FolderPlus },
       { label: t('connections.contextMenu.editGroup'), action: 'editGroup', icon: Pencil },
       { label: t('connections.contextMenu.deleteGroup'), action: 'deleteGroup', icon: Trash2, danger: true }
