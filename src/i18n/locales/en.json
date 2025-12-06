@@ -103,6 +103,7 @@
       "rename": "Rename",
       "delete": "Delete",
       "copyPath": "Copy Path",
+      "copyCurrentPath": "Copy Current Path",
       "changePermissions": "Change Permissions",
       "copyName": "Copy Name"
     },

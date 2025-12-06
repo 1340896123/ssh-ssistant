@@ -103,6 +103,7 @@
       "rename": "重命名",
       "delete": "删除",
       "copyPath": "复制路径",
+      "copyCurrentPath": "复制当前路径",
       "changePermissions": "修改权限",
       "copyName": "复制名称"
     },

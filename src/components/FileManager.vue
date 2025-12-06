@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, shallowRef, triggerRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase } from 'lucide-vue-next';
+import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
 import type { FileEntry, FileManagerViewMode } from '../types';
@@ -1455,6 +1455,11 @@ function copyPath(file: FileEntry) {
     closeContextMenu();
 }
 
+function copyCurrentPath() {
+    navigator.clipboard.writeText(currentPath.value);
+    closeContextMenu();
+}
+
 function copyName(file: FileEntry) {
     navigator.clipboard.writeText(file.name);
     closeContextMenu();
@@ -1641,6 +1646,12 @@ function formatSize(size: number): string {
                     class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center text-purple-400">
                     <Briefcase class="w-4 h-4 mr-2" />
                     Set as AI Workspace
+                </button>
+                <div class="border-t border-gray-700 my-1"></div>
+                <button @click.stop="copyCurrentPath()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <Copy class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.contextMenu.copyCurrentPath') }}
                 </button>
             </template>
 
