@@ -312,7 +312,7 @@ function getItemKey(item: Connection | ConnectionGroup) {
 </script>
 
 <template>
-  <div ref="containerRef" class="flex flex-col h-full relative">
+  <div ref="containerRef" class="flex flex-col h-full relative" @contextmenu.prevent="handleContextMenu">
     <div v-if="isDragOver"
       class="absolute inset-0 bg-blue-500/10 border-2 border-blue-500 z-50 rounded pointer-events-none flex items-center justify-center">
       <div class="bg-gray-800 text-blue-400 px-4 py-2 rounded shadow-lg font-medium">
@@ -321,7 +321,7 @@ function getItemKey(item: Connection | ConnectionGroup) {
     </div>
     <!-- Root Node -->
     <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none"
-      @click="isRootExpanded = !isRootExpanded">
+      @click="isRootExpanded = !isRootExpanded" @contextmenu.stop.prevent="handleContextMenu">
       <div class="flex items-center space-x-2 overflow-hidden flex-1">
         <button class="p-0.5 hover:bg-gray-600 rounded text-gray-400">
           <ChevronDown v-if="isRootExpanded" class="w-3 h-3" />
