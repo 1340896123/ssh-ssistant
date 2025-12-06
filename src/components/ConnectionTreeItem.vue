@@ -96,7 +96,7 @@ function onDragOver(event: DragEvent) {
     // Allow drop on both groups and connections
     event.preventDefault();
     event.dataTransfer!.dropEffect = 'move';
-    
+
     // Always allow drop to provide visual feedback
     isDragOver.value = true;
     console.log('Drag over:', props.item.name, 'isGroup:', isGroup.value);
@@ -107,7 +107,7 @@ function onDragLeave(event: DragEvent) {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const x = event.clientX;
     const y = event.clientY;
-    
+
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
         isDragOver.value = false;
     }
@@ -118,7 +118,7 @@ function onDrop(event: DragEvent) {
     event.preventDefault();
     event.stopPropagation();
     isDragOver.value = false;
-    
+
     const targetId = isGroup.value ? props.item.id : null;
     console.log('Emitting drop-item with targetId:', targetId);
     emit('drop-item', event, targetId);
