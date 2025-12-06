@@ -45,9 +45,9 @@ pub fn get_file_icon(extension: String) -> std::result::Result<String, String> {
 
             // Create a bitmap from the icon
             let hdc = GetDC(None);
-            let hdc_mem = CreateCompatibleDC(hdc);
+            let hdc_mem = CreateCompatibleDC(Some(hdc));
             let h_bitmap = CreateCompatibleBitmap(hdc, 16, 16); // Small icon is 16x16
-            let old_obj = SelectObject(hdc_mem, h_bitmap);
+            let old_obj = SelectObject(hdc_mem, h_bitmap.into());
 
             // Draw the icon into the bitmap
             DrawIconEx(
@@ -58,7 +58,7 @@ pub fn get_file_icon(extension: String) -> std::result::Result<String, String> {
                 16,
                 16,
                 0,
-                HBRUSH::default(),
+                Some(HBRUSH::default()),
                 DI_NORMAL,
             );
 
@@ -66,7 +66,7 @@ pub fn get_file_icon(extension: String) -> std::result::Result<String, String> {
 
             let mut bitmap: BITMAP = std::mem::zeroed();
             GetObjectW(
-                h_bitmap,
+                h_bitmap.into(),
                 std::mem::size_of::<BITMAP>() as i32,
                 Some(&mut bitmap as *mut _ as *mut _),
             );
@@ -96,8 +96,8 @@ pub fn get_file_icon(extension: String) -> std::result::Result<String, String> {
             );
 
             // Cleanup GDI objects
-            DeleteObject(h_bitmap);
-            DeleteDC(hdc_mem);
+            let _ = DeleteObject(h_bitmap.into());
+            let _ = DeleteDC(hdc_mem);
             ReleaseDC(None, hdc);
             DestroyIcon(shfi.hIcon);
 
