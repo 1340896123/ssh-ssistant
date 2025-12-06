@@ -75,9 +75,9 @@ pub async fn connect(
                     sftp_buffer_size: 512,
                 },
                 ssh_pool: crate::models::SshPoolSettings {
-                    max_background_sessions: 3,
+                    max_background_sessions: 10,
                     enable_auto_cleanup: true,
-                    cleanup_interval_minutes: 5,
+                    cleanup_interval_minutes: 10,
                 },
             });
         settings.ssh_pool.max_background_sessions as usize
