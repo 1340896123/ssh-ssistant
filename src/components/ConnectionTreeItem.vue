@@ -10,7 +10,7 @@ const props = defineProps<{
     level: number;
 }>();
 
-const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group', 'drag-start', 'drop-item']);
+const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group', 'drag-start', 'drop-item', 'context-menu']);
 
 const { t } = useI18n();
 const isExpanded = ref(false);
@@ -57,6 +57,10 @@ function handleCreateSubGroup() {
     if (isGroup.value) {
         emit('create-group', props.item.id);
     }
+}
+
+function handleContextMenu(event: MouseEvent) {
+    emit('context-menu', event, props.item);
 }
 
 function getItemType(item: Connection | ConnectionGroup): 'connection' | 'group' {
@@ -123,18 +127,11 @@ function onDrop(event: DragEvent) {
 </script>
 
 <template>
-    <div :draggable="true" 
-         @dragstart.stop="onDragStart" 
-         @dragend="onDragEnd"
-         :class="{ 'opacity-50': isDragging }">
+    <div :draggable="true" @dragstart.stop="onDragStart" @dragend="onDragEnd" :class="{ 'opacity-50': isDragging }">
         <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none transition-colors duration-200"
-            :class="{ 'bg-blue-500/20 border border-blue-500': isDragOver, 'border-2 border-dashed border-blue-400': isDragOver && isGroup }" 
-            :style="{ paddingLeft }"
-            @click="toggleExpand" 
-            @dblclick="handleConnect" 
-            @dragover="onDragOver" 
-            @dragleave="onDragLeave"
-            @drop="onDrop">
+            :class="{ 'bg-blue-500/20 border border-blue-500': isDragOver, 'border-2 border-dashed border-blue-400': isDragOver && isGroup }"
+            :style="{ paddingLeft }" @click="toggleExpand" @dblclick="handleConnect" @dragover="onDragOver"
+            @dragleave="onDragLeave" @drop="onDrop" @contextmenu.stop.prevent="handleContextMenu">
             <div class="flex items-center space-x-2 overflow-hidden flex-1">
                 <template v-if="isGroup">
                     <button class="p-0.5 hover:bg-gray-600 rounded text-gray-400">
@@ -173,8 +170,8 @@ function onDrop(event: DragEvent) {
                     :level="level + 1" @connect="$emit('connect', $event)" @edit="$emit('edit', $event)"
                     @delete="$emit('delete', $event)" @create-group="$emit('create-group', $event)"
                     @edit-group="$emit('edit-group', $event)" @delete-group="$emit('delete-group', $event)"
-                    @drag-start="(e, i) => $emit('drag-start', e, i)"
-                    @drop-item="(e, id) => $emit('drop-item', e, id)" />
+                    @drag-start="(e, i) => $emit('drag-start', e, i)" @drop-item="(e, id) => $emit('drop-item', e, id)"
+                    @context-menu="(e, i) => $emit('context-menu', e, i)" />
             </div>
             <div v-if="!(item as ConnectionGroup).children?.length" class="text-xs text-gray-500 py-1"
                 :style="{ paddingLeft: `${(level + 1) * 16 + 24}px` }">

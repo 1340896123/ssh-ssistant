@@ -2,23 +2,123 @@
 import { useConnectionStore } from '../stores/connections';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
-import { onMounted, computed, ref } from 'vue';
-import { FolderPlus, ChevronRight, ChevronDown, FolderOpen, Folder } from 'lucide-vue-next';
+import { onMounted, computed, ref, onUnmounted } from 'vue';
+import {
+  FolderPlus, ChevronRight, ChevronDown, FolderOpen, Folder,
+  Monitor, Pencil, Trash2, Copy
+} from 'lucide-vue-next';
 import ConnectionTreeItem from './ConnectionTreeItem.vue';
 import type { Connection, ConnectionGroup } from '../types';
-// import draggable from 'vuedraggable'; // Removed
 import { listen } from '@tauri-apps/api/event';
 import { readTextFile } from '@tauri-apps/plugin-fs';
-import { onUnmounted } from 'vue';
 import { ask } from '@tauri-apps/plugin-dialog';
-
 import { useNotificationStore } from '../stores/notifications';
+import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 
 const connectionStore = useConnectionStore();
 const sessionStore = useSessionStore();
 const notificationStore = useNotificationStore();
 const { t } = useI18n();
 const emit = defineEmits(['edit']);
+
+// Context Menu State
+const menuVisible = ref(false);
+const menuX = ref(0);
+const menuY = ref(0);
+const menuItems = ref<MenuItem[]>([]);
+const contextItem = ref<Connection | ConnectionGroup | null>(null);
+
+function closeMenu() {
+  menuVisible.value = false;
+  contextItem.value = null;
+}
+
+async function handleMenuAction(action: string) {
+  if (!contextItem.value && action !== 'newConnection' && action !== 'newGroup') {
+    if (action === 'newConnection' || action === 'newGroup') {
+      // Pass
+    } else {
+      return;
+    }
+  }
+
+  const item = contextItem.value;
+
+  switch (action) {
+    case 'connect':
+      if (item && !('children' in item)) connect(item as Connection);
+      break;
+    case 'edit':
+      if (item && !('children' in item)) handleEdit(item as Connection);
+      break;
+    case 'copy':
+      if (item && !('children' in item)) {
+        const conn = item as Connection;
+        const { id, ...rest } = conn;
+        const newName = `${conn.name} (Copy)`;
+        await connectionStore.addConnection({ ...rest, name: newName });
+        notificationStore.success(t('connections.copied', { name: newName }) || `Copied to ${newName}`);
+      }
+      break;
+    case 'delete':
+      if (item && !('children' in item)) handleDelete(item as Connection);
+      break;
+    case 'newSubGroup':
+      if (item && 'children' in item) handleCreateGroup(item.id);
+      break;
+    case 'editGroup':
+      if (item && 'children' in item) handleEditGroup(item as ConnectionGroup);
+      break;
+    case 'deleteGroup':
+      if (item && 'children' in item) handleDeleteGroup(item as ConnectionGroup);
+      break;
+    case 'newConnection':
+      emit('edit', null); // Trigger new connection modal
+      break;
+    case 'newGroup':
+      handleCreateGroup();
+      break;
+  }
+}
+
+function handleContextMenu(event: MouseEvent) {
+  // Background context menu
+  event.preventDefault();
+  menuX.value = event.clientX;
+  menuY.value = event.clientY;
+  contextItem.value = null;
+  menuItems.value = [
+    { label: t('connections.contextMenu.newConnection'), action: 'newConnection', icon: Monitor },
+    { label: t('connections.contextMenu.newGroup'), action: 'newGroup', icon: FolderPlus }
+  ];
+  menuVisible.value = true;
+}
+
+function handleItemContextMenu(event: MouseEvent, item: Connection | ConnectionGroup) {
+  event.preventDefault();
+  event.stopPropagation();
+  menuX.value = event.clientX;
+  menuY.value = event.clientY;
+  contextItem.value = item;
+
+  const isGroup = 'children' in item;
+
+  if (isGroup) {
+    menuItems.value = [
+      { label: t('connections.contextMenu.newSubGroup'), action: 'newSubGroup', icon: FolderPlus },
+      { label: t('connections.contextMenu.editGroup'), action: 'editGroup', icon: Pencil },
+      { label: t('connections.contextMenu.deleteGroup'), action: 'deleteGroup', icon: Trash2, danger: true }
+    ];
+  } else {
+    menuItems.value = [
+      { label: t('connections.contextMenu.connect'), action: 'connect', icon: Monitor },
+      { label: t('connections.contextMenu.edit'), action: 'edit', icon: Pencil },
+      { label: t('connections.contextMenu.copy'), action: 'copy', icon: Copy },
+      { label: t('connections.contextMenu.delete'), action: 'delete', icon: Trash2, danger: true }
+    ];
+  }
+  menuVisible.value = true;
+}
 
 const isRootExpanded = ref(true);
 const containerRef = ref<HTMLElement | null>(null);
@@ -228,20 +328,26 @@ function getItemKey(item: Connection | ConnectionGroup) {
     </div>
 
     <!-- Root Children -->
-    <div v-if="isRootExpanded" class="flex-1 overflow-y-auto" @dragover="onDragOver" @drop="onDrop($event, null)">
+    <div v-if="isRootExpanded" class="flex-1 overflow-y-auto" @dragover="onDragOver" @drop="onDrop($event, null)"
+      @contextmenu="handleContextMenu">
       <!-- Root Drop Zone Indicator -->
-      <div v-if="isDragOver" class="mx-2 mb-2 p-3 border-2 border-dashed border-blue-500 rounded bg-blue-500/10 text-blue-400 text-sm text-center">
+      <div v-if="isDragOver"
+        class="mx-2 mb-2 p-3 border-2 border-dashed border-blue-500 rounded bg-blue-500/10 text-blue-400 text-sm text-center">
         拖放到此处以移动到根目录
       </div>
       <div class="space-y-0.5 min-h-[50px]">
         <ConnectionTreeItem v-for="item in treeData" :key="getItemKey(item)" :item="item" :level="1" @connect="connect"
           @edit="handleEdit" @delete="handleDelete" @create-group="handleCreateGroup" @edit-group="handleEditGroup"
-          @delete-group="handleDeleteGroup" @drag-start="onDragStart" @drop-item="onDrop" />
+          @delete-group="handleDeleteGroup" @drag-start="onDragStart" @drop-item="onDrop"
+          @context-menu="handleItemContextMenu" />
       </div>
       <div v-if="treeData.length === 0" class="text-center text-gray-500 text-sm py-4 ml-4">
         (Empty)
       </div>
     </div>
+
+    <ContextMenu v-if="menuVisible" :x="menuX" :y="menuY" :items="menuItems" @close="closeMenu"
+      @action="handleMenuAction" />
   </div>
 </template>
 
