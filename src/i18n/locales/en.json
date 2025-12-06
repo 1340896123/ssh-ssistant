@@ -25,7 +25,19 @@
     "cancel": "Cancel",
     "save": "Save",
     "deleteConfirm": "Are you sure you want to delete connection '{name}'?",
-    "deleteGroupConfirm": "Are you sure you want to delete group '{name}' and all its contents?"
+    "deleteGroupConfirm": "Are you sure you want to delete group '{name}' and all its contents?",
+    "copied": "Copied to {name}",
+    "contextMenu": {
+      "connect": "Connect",
+      "edit": "Edit",
+      "delete": "Delete",
+      "newSubGroup": "New Subgroup",
+      "editGroup": "Edit Group",
+      "deleteGroup": "Delete Group",
+      "copy": "Copy Connection",
+      "newConnection": "New Connection",
+      "newGroup": "New Group"
+    }
   },
   "settings": {
     "title": "Settings",

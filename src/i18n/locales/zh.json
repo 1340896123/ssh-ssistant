@@ -25,7 +25,19 @@
     "cancel": "取消",
     "save": "保存",
     "deleteConfirm": "确定要删除连接 '{name}' 吗？",
-    "deleteGroupConfirm": "确定要删除组 '{name}' 及其所有内容吗？"
+    "deleteGroupConfirm": "确定要删除组 '{name}' 及其所有内容吗？",
+    "copied": "已复制到 {name}",
+    "contextMenu": {
+      "connect": "连接",
+      "edit": "编辑",
+      "delete": "删除",
+      "newSubGroup": "新建子分组",
+      "editGroup": "编辑分组",
+      "deleteGroup": "删除分组",
+      "copy": "复制连接",
+      "newConnection": "新建连接",
+      "newGroup": "新建分组"
+    }
   },
   "settings": {
     "title": "设置",
