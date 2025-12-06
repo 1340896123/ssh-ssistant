@@ -135,96 +135,81 @@ pub async fn get_remote_system_status(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    // The shell command script
-    let command_script = r#"
-    export LC_ALL=C;
-    echo "UPTIME_START";
-    (uptime -p 2>/dev/null || uptime 2>/dev/null);
-    echo "UPTIME_END";
-    
-    echo "MOUNTS_START";
-    df -Ph 2>/dev/null | awk 'NR>1 {print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6}';
-    echo "MOUNTS_END";
-    
-    echo "IP_START";
-    (hostname -I 2>/dev/null || echo 'n/a');
-    echo "IP_END";
-    
-    echo "CPU_START";
-    CPU1=$(grep '^cpu ' /proc/stat 2>/dev/null);
-    sleep 0.1;
-    CPU2=$(grep '^cpu ' /proc/stat 2>/dev/null);
-    if [ -n "$CPU1" ] && [ -n "$CPU2" ]; then
-        echo "$CPU1 $CPU2" | awk '{
-            u1=$2+$4+$5; t1=$2+$4+$5+$6;
-            u2=$8+$10+$11; t2=$8+$10+$11+$12;
-            if (t2-t1 > 0) printf "%.1f", (u2-u1) * 100 / (t2-t1); else print "0"
-        }';
-    else
-        top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//' || echo "0";
-    fi;
-    echo "";
-    echo "CPU_END";
-    
-    echo "MEMORY_START";
-    awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null;
-    echo ""; 
-    echo "MEMORY_END";
-    
-    echo "PROCESSES_START";
-    ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\\n", $2, $11, $3"%", $4"%", $6/1024}';
-    echo "PROCESSES_END";
-    
-    echo "MEMORY_PROCESSES_START";
-    ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\\n", $2, $11, $3"%", $4"%", $6/1024}';
-    echo "MEMORY_PROCESSES_END";
-    "#.replace("\n", " ").trim().to_string();
+    // Execute commands in steps
+    let (uptime_str, mounts_str, ip_str, cpu_str, memory_str, proc_cpu_str, proc_mem_str) =
+        execute_ssh_operation(move || {
+            let bg_session = client
+                .ssh_pool
+                .get_background_session()
+                .map_err(|e| format!("Failed to get background session: {}", e))?;
 
-    let output = execute_ssh_operation(move || {
-        let bg_session = client
-            .ssh_pool
-            .get_background_session()
-            .map_err(|e| format!("Failed to get background session: {}", e))?;
+            let sess = bg_session.lock().unwrap();
 
-        let sess = bg_session.lock().unwrap();
-        let mut channel = ssh2_retry(|| sess.channel_session()).map_err(|e| e.to_string())?;
+            // 1. Uptime
+            let uptime = run_command(
+                &sess,
+                "export LC_ALL=C; (uptime -p 2>/dev/null || uptime 2>/dev/null)",
+            )?;
 
-        ssh2_retry(|| channel.exec(&command_script)).map_err(|e| e.to_string())?;
+            // 2. Mounts
+            let mounts = run_command(
+                &sess,
+                "export LC_ALL=C; df -Ph 2>/dev/null | awk 'NR>1 {print $1 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5 \"|\" $6}'",
+            )?;
 
-        let mut s = String::new();
-        let mut buf = [0u8; 4096];
+            // 3. IP
+            let ip = run_command(
+                &sess,
+                "export LC_ALL=C; (hostname -I 2>/dev/null || echo 'n/a')",
+            )?;
 
-        loop {
-            match channel.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                    s.push_str(&chunk);
+            // 4. CPU
+            // Method: read /proc/stat -> sleep -> read /proc/stat -> calculate in Rust
+            // Fallback: top -bn1
+            let cpu_stat1 = run_command(&sess, "cat /proc/stat | grep '^cpu '").ok();
+            
+            let cpu = if let Some(stat1) = cpu_stat1 {
+                thread::sleep(Duration::from_millis(500));
+                if let Ok(stat2) = run_command(&sess, "cat /proc/stat | grep '^cpu '") {
+                     match (parse_cpu_stats(&stat1), parse_cpu_stats(&stat2)) {
+                        (Some((t1, w1)), Some((t2, w2))) if t2 > t1 => {
+                            let total_delta = t2 - t1;
+                            let work_delta = w2 - w1;
+                            let usage = (work_delta as f64 / total_delta as f64) * 100.0;
+                            format!("{:.1}", usage)
+                        }
+                        _ => "0".to_string(),
+                    }
+                } else {
+                    "0".to_string()
                 }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Err(e) => {
-                    return Err(e.to_string());
-                }
-            }
-        }
-        ssh2_retry(|| channel.wait_close())
-            .map_err(|e| format!("Failed to wait for channel close: {}", e))?;
+            } else {
+                 // Fallback to top if /proc/stat is unavailable (e.g. non-Linux or restricted)
+                 let top_cmd = "top -bn1 2>/dev/null | grep \"Cpu(s)\" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//'";
+                 run_command(&sess, top_cmd).unwrap_or_else(|_| "0".to_string())
+            };
 
-        Ok(s)
-    })
-    .await?;
+            // 5. Memory
+            let mem_cmd = r#"export LC_ALL=C; awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null"#;
+            let memory = run_command(&sess, mem_cmd)?;
 
-    // Parse the output
-    let uptime = extract_block(&output, "UPTIME");
-    let mounts_str = extract_block(&output, "MOUNTS");
-    let ip_str = extract_block(&output, "IP");
-    let cpu_str = extract_block(&output, "CPU");
-    let memory_str = extract_block(&output, "MEMORY");
-    let proc_cpu_str = extract_block(&output, "PROCESSES");
-    let proc_mem_str = extract_block(&output, "MEMORY_PROCESSES");
+            // 6. Processes (CPU sorted)
+            let proc_cpu_cmd = r#"export LC_ALL=C; ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
+            let proc_cpu = run_command(&sess, proc_cpu_cmd)?;
 
+            // 7. Processes (Memory sorted)
+            let proc_mem_cmd = r#"export LC_ALL=C; ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
+            let proc_mem = run_command(&sess, proc_mem_cmd)?;
+
+            Ok((
+                uptime, mounts, ip, cpu, memory, proc_cpu, proc_mem,
+            ))
+        })
+        .await?;
+
+    // --- Parsing ---
+
+    // IP
     let ip = ip_str
         .split_whitespace()
         .next()
@@ -296,10 +281,10 @@ pub async fn get_remote_system_status(
     });
 
     Ok(SessionStats {
-        uptime: if uptime.is_empty() {
+        uptime: if uptime_str.is_empty() {
             "N/A".to_string()
         } else {
-            uptime
+            uptime_str
         },
         disk: root_disk,
         mounts,
