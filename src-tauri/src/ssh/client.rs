@@ -1,7 +1,7 @@
-use crate::models::Connection as SshConnConfig;
 use super::connection::SessionSshPool;
-use crate::ssh::{ShellMsg, execute_ssh_operation};
 use super::terminal::start_shell_thread;
+use crate::models::Connection as SshConnConfig;
+use crate::ssh::{execute_ssh_operation, ShellMsg};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -85,12 +85,10 @@ pub async fn connect(
 
     // Create SSH connection pool in a blocking task to avoid blocking the async runtime
     let config_clone = config.clone();
-    let ssh_pool = tokio::task::spawn_blocking(move || {
-        SessionSshPool::new(config_clone, max_bg_sessions)
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?
-    ?;
+    let ssh_pool =
+        tokio::task::spawn_blocking(move || SessionSshPool::new(config_clone, max_bg_sessions))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))??;
 
     let _main_session = ssh_pool.get_main_session();
 
