@@ -309,15 +309,18 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
                 )
                 .map_err(|e| format!("Jump auth failed: {}", e))?;
 
-            // Enable non-blocking mode for the jump session to allow the forwarding loop to yield
+            // 核心修复：跳板机也需要 Keepalive！
+            jump_sess.set_keepalive(true, 15);
+
+            // Enable non-blocking mode for the jump session
             jump_sess.set_blocking(false);
 
             // Local Port Forwarding Pattern
-            // 1. Bind a local port first to ensure it's ready
             let listener = TcpListener::bind("127.0.0.1:0")
                 .map_err(|e| format!("Failed to bind local port: {}", e))?;
 
-            listener.set_nonblocking(true)
+            listener
+                .set_nonblocking(true)
                 .map_err(|e| format!("Failed to set listener non-blocking: {}", e))?;
 
             let local_port = listener
@@ -451,27 +454,28 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
             jump_session_holder = Some(jump_sess);
             listener_holder = Some(listener);
         } else {
-            // Direct connection (empty jump host string)
+            // Direct connection
             let addr_str = format!("{}:{}", config.host, config.port);
             let tcp = connect_with_timeout(&addr_str, DEFAULT_CONNECTION_TIMEOUT)
                 .map_err(|e| format!("Connection failed: {}", e))?;
             sess.set_tcp_stream(tcp);
         }
     } else {
-        // Direct connection (no jump host config)
+        // Direct connection
         let addr_str = format!("{}:{}", config.host, config.port);
         let tcp = connect_with_timeout(&addr_str, DEFAULT_CONNECTION_TIMEOUT)
             .map_err(|e| format!("Connection failed: {}", e))?;
         sess.set_tcp_stream(tcp);
     };
 
-    sess.handshake().map_err(|e| format!("Handshake failed: {}", e))?;
+    sess.handshake()
+        .map_err(|e| format!("Handshake failed: {}", e))?;
 
     sess.userauth_password(&config.username, config.password.as_deref().unwrap_or(""))
         .map_err(|e| e.to_string())?;
 
-    // Enable keepalive to avoid idle disconnects
-    sess.set_keepalive(true, 30);
+    // Enable keepalive for the main session
+    sess.set_keepalive(true, 15);
 
     // Set non-blocking mode for concurrency
     sess.set_blocking(false);
