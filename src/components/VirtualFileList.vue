@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, h } from 'vue';
+import { computed, ref, h, reactive } from 'vue';
 import { useVirtualizer } from '@tanstack/vue-virtual';
 import type { FileEntry, FileManagerViewMode, ColumnKey } from '../types';
+import { useFileIcon } from '../composables/useFileIcon';
 
 interface TreeNode {
     entry: FileEntry;
@@ -59,12 +60,41 @@ const virtualItems = computed(() => virtualizer.value.getVirtualItems());
 
 const totalSize = computed(() => virtualizer.value.getTotalSize());
 
+const { getFileIcon } = useFileIcon();
+const iconMap = reactive(new Map<string, string>());
+
+async function loadIcon(item: FileEntry) {
+    if (!item.isDir && item.name !== '..') {
+        const ext = item.name.split('.').pop()?.toLowerCase();
+        if (ext && !iconMap.has(ext)) {
+             const icon = await getFileIcon(item.name, item.isDir);
+             if (icon) {
+                 iconMap.set(ext, icon);
+             }
+        }
+    }
+}
+
+function getIconForFile(name: string) {
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (ext && iconMap.has(ext)) {
+        return iconMap.get(ext);
+    }
+    return undefined;
+}
+
+
 function renderFileItem(item: FileEntry, index: number) {
+    // Load icon eagerly if needed
+    loadIcon(item);
+
     const isSelected = props.selectedFiles.has(item.name);
     const isParentDir = item.name === '..';
     
     const expectedPath = props.currentPath === '.' ? item.name : `${props.currentPath}/${item.name}`;
     const shouldShowInput = props.renamingPath !== null && props.currentPath && props.renamingPath === expectedPath;
+
+    const base64Icon = getIconForFile(item.name);
 
     return h('div', {
         key: item.name,
@@ -99,9 +129,12 @@ function renderFileItem(item: FileEntry, index: number) {
                 }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' })
                 ])
-                : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
-                    h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
-                ]),
+                : (base64Icon 
+                    ? h('img', { src: base64Icon, class: 'w-4 h-4 mr-2 flex-shrink-0' })
+                    : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
+                        h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
+                    ])
+                ),
             shouldShowInput
                 ? h('input', {
                     value: props.renameInput,
@@ -148,9 +181,13 @@ function renderFileItem(item: FileEntry, index: number) {
 }
 
 function renderTreeNode(node: TreeNode) {
+    loadIcon(node.entry);
+
     const isSelected = props.selectedTreePaths.has(node.path);
     const isExpanded = props.expandedPaths?.has(node.path);
     const isParentDir = node.entry.name === '..';
+
+    const base64Icon = getIconForFile(node.entry.name);
 
     return h('div', {
         key: node.path,
@@ -198,9 +235,12 @@ function renderTreeNode(node: TreeNode) {
                 }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' })
                 ])
-                : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
-                    h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
-                ]),
+                : (base64Icon
+                    ? h('img', { src: base64Icon, class: 'w-4 h-4 mr-2 flex-shrink-0' })
+                    : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
+                        h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
+                    ])
+                ),
             (props.renamingPath && props.renamingPath === node.path)
                 ? h('input', {
                     value: props.renameInput,
