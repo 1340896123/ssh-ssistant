@@ -100,14 +100,28 @@ pub async fn connect(
     let monitor_signal = shutdown_signal.clone();
 
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5分钟
+        let mut cleanup_interval = tokio::time::interval(Duration::from_secs(30)); // 清理间隔：30秒
+        let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(60)); // 心跳间隔：60秒
         loop {
-            interval.tick().await;
-            // 关键修复：检查停止信号
-            if monitor_signal.load(Ordering::Relaxed) {
-                break;
+            tokio::select! {
+                _ = cleanup_interval.tick() => {
+                    // 关键修复：检查停止信号
+                    if monitor_signal.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    cleanup_pool.cleanup_disconnected();
+                }
+                _ = heartbeat_interval.tick() => {
+                    // 关键修复：检查停止信号
+                    if monitor_signal.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    // 执行心跳检测
+                    if let Err(e) = cleanup_pool.heartbeat_check() {
+                        eprintln!("Heartbeat check failed: {}", e);
+                    }
+                }
             }
-            cleanup_pool.cleanup_disconnected();
         }
     });
 

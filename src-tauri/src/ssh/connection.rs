@@ -126,7 +126,8 @@ impl SessionSshPool {
         if let Ok(mut sessions) = self.background_sessions.lock() {
             sessions.retain(|session| {
                 if let Ok(sess) = session.lock() {
-                    // 简单检查：尝试ping
+                    // 增强的连接检查：先发送keepalive再ping
+                    self.send_keepalive(&sess);
                     let result = sess.channel_session();
                     result.is_ok()
                 } else {
@@ -140,6 +141,70 @@ impl SessionSshPool {
                     sessions.push(Arc::new(Mutex::new(new_session)));
                 }
             }
+        }
+
+        // 检查主会话并发送keepalive
+        if let Ok(main_sess) = self.main_session.lock() {
+            self.send_keepalive(&main_sess);
+        }
+    }
+
+    /// 主动发送keepalive信号保持连接活跃
+    fn send_keepalive(&self, session: &ManagedSession) {
+        // SSH2库的keepalive会在后台自动发送，这里我们做额外的主动保活
+        // 执行一个简单的命令来检测连接状态
+        if let Ok(mut channel) = session.channel_session() {
+            let _ = channel.exec("echo");
+            // 立即关闭通道，不关心输出
+            let _ = channel.close();
+        }
+    }
+
+    /// 心跳检测：检查所有连接的健康状态
+    pub fn heartbeat_check(&self) -> Result<(), String> {
+        let mut need_rebuild = false;
+
+        // 检查主会话
+        if let Ok(main_sess) = self.main_session.lock() {
+            if !self.is_session_alive(&main_sess)? {
+                need_rebuild = true;
+            }
+        }
+
+        // 检查后台会话
+        if let Ok(sessions) = self.background_sessions.lock() {
+            for session in sessions.iter() {
+                if let Ok(sess) = session.lock() {
+                    if !self.is_session_alive(&sess)? {
+                        need_rebuild = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if need_rebuild {
+            self.rebuild_all()?;
+        }
+
+        Ok(())
+    }
+
+    /// 检查单个会话是否存活
+    fn is_session_alive(&self, session: &ManagedSession) -> Result<bool, String> {
+        // 尝试打开一个通道来检测连接状态
+        match session.channel_session() {
+            Ok(mut channel) => {
+                // 执行一个轻量级命令
+                match channel.exec("pwd") {
+                    Ok(_) => {
+                        let _ = channel.close();
+                        Ok(true)
+                    }
+                    Err(_) => Ok(false),
+                }
+            }
+            Err(_) => Ok(false),
         }
     }
 
