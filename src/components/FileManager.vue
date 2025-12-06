@@ -355,7 +355,7 @@ async function loadFiles(path: string) {
     try {
         console.log('Loading files for path:', path);
         const loadedFiles = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
-        
+
         // Add parent directory entry ".." when not in root
         const filesWithParent = path !== '.' ? [{
             name: '..',
@@ -366,7 +366,7 @@ async function loadFiles(path: string) {
             uid: 0,
             owner: '-'
         }, ...loadedFiles] : loadedFiles;
-        
+
         files.value = filesWithParent;
         triggerRef(files);
         currentPath.value = path;
@@ -412,7 +412,7 @@ async function loadFiles(path: string) {
             for (const entry of files.value) {
                 // Skip the ".." entry as it's already added above
                 if (entry.name === '..') continue;
-                
+
                 const fullPath = pathUtils.value.join(path, entry.name);
                 treeNodes.value.set(fullPath, {
                     entry,
@@ -511,7 +511,7 @@ async function openTreeFile(node: TreeNode) {
         await toggleDirectory(node);
         return;
     }
-    
+
     // Edit remote file - emit event to open in terminal tab area
     emit('openFileEditor', node.path, node.entry.name);
 }
@@ -676,7 +676,7 @@ function goUp() {
     if (currentPath.value === '/' || currentPath.value === '.') {
         return;
     }
-    
+
     const parentPath = pathUtils.value.dirname(currentPath.value);
     console.log('Going up from', currentPath.value, 'to', parentPath);
     loadFiles(parentPath);
@@ -694,12 +694,12 @@ function handlePathSubmit() {
             targetPath = '/';
             pathInput.value = '/';
         }
-        
+
         // Ensure it starts with /
         if (!targetPath.startsWith('/')) {
             targetPath = '/' + targetPath;
         }
-        
+
         if (targetPath !== currentPath.value) {
             loadFiles(targetPath);
         }
@@ -1322,19 +1322,19 @@ async function startCreate(isDir: boolean) {
 
     // Close any open context menu
     closeContextMenu();
-    
+
     // Start renaming immediately
     renamingPath.value = tempPath;
     renameInput.value = '';
     renamingType.value = isDir ? 'create_folder' : 'create_file';
-    
+
     // Focus the input field after next tick
     await nextTick();
 }
 
 async function confirmRename() {
     if (renamingPath.value === null || isConfirmingRename.value) return;
-    
+
     isConfirmingRename.value = true;
 
     const newName = renameInput.value;
@@ -1363,16 +1363,16 @@ async function confirmRename() {
             // Create
             let parentPath = currentPath.value;
             let remotePath: string;
-            
+
             // For tree view, get the correct parent path
             if (viewMode.value === 'tree' && renamingPath.value) {
                 const parts = renamingPath.value.split('/');
                 parts.pop(); // Remove empty name
                 parentPath = parts.join('/') || '/'; // Ensure parentPath is not empty, default to root
             }
-            
+
             remotePath = pathUtils.value.join(parentPath, newName);
-            
+
             if (renamingType.value === 'create_folder') {
                 await invoke('create_directory', { id: props.sessionId, path: remotePath });
             } else {
@@ -1386,7 +1386,7 @@ async function confirmRename() {
         if (e && typeof e === 'object' && 'toString' in e && e.toString().includes('SFTP(4)')) {
             errorMessage = `${renamingType.value === 'rename' ? 'Rename' : 'Create'} failed: Permission denied or invalid path`;
         }
-        
+
         notificationStore.error(errorMessage);
         // If create failed, we should probably remove the temp entry
         if (renamingType.value !== 'rename') {
@@ -1683,4 +1683,4 @@ function formatSize(size: number): string {
             </template>
         </div>
     </div>
-    </template>
+</template>
