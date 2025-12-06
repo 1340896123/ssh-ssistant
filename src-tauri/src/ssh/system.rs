@@ -100,6 +100,30 @@ where
         .collect()
 }
 
+fn parse_cpu_stats(line: &str) -> Option<(u64, u64)> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() < 5 || parts[0] != "cpu" {
+        return None;
+    }
+    // parts[0] is "cpu"
+    // user: 1, nice: 2, system: 3, idle: 4, iowait: 5, irq: 6, softirq: 7, steal: 8
+    let parse = |i| parts.get(i).and_then(|s: &&str| s.parse::<u64>().ok()).unwrap_or(0);
+
+    let user = parse(1);
+    let nice = parse(2);
+    let system = parse(3);
+    let idle = parse(4);
+    let iowait = parse(5);
+    let irq = parse(6);
+    let softirq = parse(7);
+    let steal = parse(8);
+
+    let total = user + nice + system + idle + iowait + irq + softirq + steal;
+    let work = user + nice + system + irq + softirq + steal;
+
+    Some((total, work))
+}
+
 #[command]
 pub async fn get_remote_system_status(
     _app_handle: AppHandle,
@@ -209,7 +233,7 @@ pub async fn get_remote_system_status(
 
     // CPU
     let cpu_val = cpu_str.parse::<f64>().unwrap_or(0.0);
-    let cpu_usage = format!("{:.1}%", cpu_val.clamp(0.0, 100.0));
+    let cpu_usage = format!("{:.1}%", cpu_val);
 
     // Memory
     let mem_parts: Vec<&str> = memory_str.split('|').collect();
