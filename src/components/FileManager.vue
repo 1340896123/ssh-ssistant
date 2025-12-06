@@ -144,6 +144,154 @@ const resizeStartWidth = ref(0);
 const isOpeningFile = ref(false);
 const unlistenDrop = ref<UnlistenFn | null>(null);
 
+// Path suggestions
+const suggestions = ref<string[]>([]);
+const showSuggestions = ref(false);
+const activeSuggestionIndex = ref(-1);
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function handlePathInput() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+        fetchSuggestions(pathInput.value);
+    }, 300);
+}
+
+async function fetchSuggestions(input: string) {
+    if (!input) {
+        suggestions.value = [];
+        showSuggestions.value = false;
+        return;
+    }
+
+    let parentPath: string;
+    let filterPrefix: string;
+
+    // Normalize separators to / for consistency in logic, though pathUtils handles it
+    const normalizedInput = input.replace(/\\/g, '/');
+
+    if (normalizedInput.endsWith('/')) {
+        parentPath = normalizedInput;
+        filterPrefix = '';
+    } else {
+        // Use pathUtils to get dirname, but we need to be careful with partial paths
+        // If input is "/var/lo", dirname is "/var"
+        const lastSlashIndex = normalizedInput.lastIndexOf('/');
+        if (lastSlashIndex === -1) {
+            parentPath = '.'; // Or root?
+            filterPrefix = normalizedInput;
+        } else if (lastSlashIndex === 0) {
+            parentPath = '/';
+            filterPrefix = normalizedInput.substring(1);
+        } else {
+            parentPath = normalizedInput.substring(0, lastSlashIndex);
+            filterPrefix = normalizedInput.substring(lastSlashIndex + 1);
+        }
+    }
+
+    try {
+        // If parentPath is empty, default to / or .
+        const searchPath = parentPath || '/';
+        const entries = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path: searchPath });
+
+        suggestions.value = entries
+            .filter(e => e.isDir && e.name.startsWith(filterPrefix))
+            .map(e => {
+                const fullPath = searchPath.endsWith('/')
+                    ? `${searchPath}${e.name}`
+                    : `${searchPath}/${e.name}`;
+                return fullPath;
+            });
+
+        showSuggestions.value = suggestions.value.length > 0;
+        activeSuggestionIndex.value = -1;
+    } catch (e) {
+        // console.error("Failed to fetch suggestions", e);
+        suggestions.value = [];
+        showSuggestions.value = false;
+    }
+}
+
+function selectSuggestion(path: string) {
+    pathInput.value = path;
+    showSuggestions.value = false;
+    // Focus back to input if needed, but we probably want to let user continue typing or press enter
+    // Maybe add a trailing slash if it's a directory (which it is)
+    if (!pathInput.value.endsWith('/')) {
+        pathInput.value += '/';
+    }
+    // Trigger fetch again for the new path
+    fetchSuggestions(pathInput.value);
+}
+
+function handlePathInputKeydown(e: KeyboardEvent) {
+    if (showSuggestions.value && suggestions.value.length > 0) {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeSuggestionIndex.value = (activeSuggestionIndex.value + 1) % suggestions.value.length;
+            // Scroll into view if needed
+            nextTick(() => {
+                const list = document.getElementById('path-suggestions-list');
+                const item = list?.children[activeSuggestionIndex.value] as HTMLElement;
+                if (item && list) {
+                    if (item.offsetTop + item.offsetHeight > list.scrollTop + list.offsetHeight) {
+                        list.scrollTop = item.offsetTop + item.offsetHeight - list.offsetHeight;
+                    } else if (item.offsetTop < list.scrollTop) {
+                        list.scrollTop = item.offsetTop;
+                    }
+                }
+            });
+            return;
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeSuggestionIndex.value = (activeSuggestionIndex.value - 1 + suggestions.value.length) % suggestions.value.length;
+            nextTick(() => {
+                const list = document.getElementById('path-suggestions-list');
+                const item = list?.children[activeSuggestionIndex.value] as HTMLElement;
+                if (item && list) {
+                    if (item.offsetTop < list.scrollTop) {
+                        list.scrollTop = item.offsetTop;
+                    } else if (item.offsetTop + item.offsetHeight > list.scrollTop + list.offsetHeight) {
+                        list.scrollTop = item.offsetTop + item.offsetHeight - list.offsetHeight;
+                    }
+                }
+            });
+            return;
+        } else if (e.key === 'Enter') {
+            if (activeSuggestionIndex.value !== -1) {
+                e.preventDefault();
+                selectSuggestion(suggestions.value[activeSuggestionIndex.value]);
+                return;
+            }
+        } else if (e.key === 'Escape') {
+            showSuggestions.value = false;
+            return;
+        } else if (e.key === 'Tab') {
+            if (activeSuggestionIndex.value !== -1) {
+                e.preventDefault();
+                selectSuggestion(suggestions.value[activeSuggestionIndex.value]);
+            } else if (suggestions.value.length > 0) {
+                // Auto-complete first suggestion if tab pressed
+                e.preventDefault();
+                selectSuggestion(suggestions.value[0]);
+            }
+            return;
+        }
+    }
+
+    if (e.key === 'Enter') {
+        handlePathSubmit();
+        showSuggestions.value = false;
+    }
+}
+
+function handlePathInputBlur() {
+    // Delay hiding to allow click event on suggestion to fire
+    setTimeout(() => {
+        showSuggestions.value = false;
+    }, 200);
+}
+
 
 const visibleTreeNodes = computed<TreeNode[]>(() => {
     const result: TreeNode[] = [];
@@ -1341,9 +1489,20 @@ function formatSize(size: number): string {
                     <ArrowUp class="w-4 h-4" />
                 </button>
                 <div class="flex-1 relative">
-                    <input v-model="pathInput" @keydown.enter="handlePathSubmit"
+                    <input v-model="pathInput" @input="handlePathInput" @keydown="handlePathInputKeydown"
+                        @blur="handlePathInputBlur"
                         class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm font-mono text-gray-300 focus:outline-none focus:border-blue-500"
                         :placeholder="t('fileManager.toolbar.pathPlaceholder')" />
+
+                    <!-- Suggestions List -->
+                    <div v-if="showSuggestions && suggestions.length > 0" id="path-suggestions-list"
+                        class="absolute top-full left-0 w-full bg-gray-800 border border-gray-700 rounded shadow-lg z-50 max-h-60 overflow-y-auto mt-1">
+                        <div v-for="(path, index) in suggestions" :key="path" @click="selectSuggestion(path)"
+                            class="px-2 py-1 text-sm cursor-pointer hover:bg-gray-700 font-mono truncate"
+                            :class="{ 'bg-gray-700 text-blue-400': index === activeSuggestionIndex, 'text-gray-300': index !== activeSuggestionIndex }">
+                            {{ path }}
+                        </div>
+                    </div>
                 </div>
                 <button @click="refresh" class="p-1 hover:bg-gray-700 rounded text-gray-300"
                     :title="t('fileManager.toolbar.refresh')">
