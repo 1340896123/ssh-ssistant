@@ -1,4 +1,4 @@
-use super::client::AppState;
+use super::client::{AppState, ClientType};
 use crate::ssh::{execute_ssh_operation, ssh2_retry};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -55,7 +55,8 @@ pub struct SessionStats {
     pub memory: Option<MemoryInfo>,
 }
 
-fn run_command(sess: &ssh2::Session, cmd: &str) -> Result<String, String> {
+// Helper to run command on SSH session
+fn run_ssh_command(sess: &ssh2::Session, cmd: &str) -> Result<String, String> {
     let mut channel = ssh2_retry(|| sess.channel_session()).map_err(|e| e.to_string())?;
     ssh2_retry(|| channel.exec(cmd)).map_err(|e| e.to_string())?;
 
@@ -82,6 +83,28 @@ fn run_command(sess: &ssh2::Session, cmd: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to wait for channel close: {}", e))?;
 
     Ok(s.trim().to_string())
+}
+
+// Helper to run command on WSL
+fn run_wsl_command(distro: &str, cmd: &str) -> Result<String, String> {
+     let output = std::process::Command::new("wsl")
+        .arg("-d")
+        .arg(distro)
+        .arg("bash")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    // We treat stderr as potential non-fatal or just mix it, but for stats we usually want clean output.
+    // However, some commands might output to stderr on non-error (unlikely for these standard tools).
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        // If failed, return empty or error message?
+        // Return empty string to allow fallback handling or partial stats
+        Ok("".to_string()) 
+    }
 }
 
 fn parse_table<T, F>(raw: &str, mapper: F, min_columns: usize) -> Vec<T>
@@ -136,76 +159,118 @@ pub async fn get_remote_system_status(
     };
 
     // Execute commands in steps
-    let (uptime_str, mounts_str, ip_str, cpu_str, memory_str, proc_cpu_str, proc_mem_str) =
-        execute_ssh_operation(move || {
-            let bg_session = client
-                .ssh_pool
-                .get_background_session()
-                .map_err(|e| format!("Failed to get background session: {}", e))?;
+    let (uptime_str, mounts_str, ip_str, cpu_str, memory_str, proc_cpu_str, proc_mem_str) = match &client.client_type {
+        ClientType::Ssh(pool) => {
+            let pool = pool.clone();
+            execute_ssh_operation(move || {
+                let bg_session = pool
+                    .get_background_session()
+                    .map_err(|e| format!("Failed to get background session: {}", e))?;
 
-            let sess = bg_session.lock().unwrap();
+                let sess = bg_session.lock().unwrap();
 
-            // 1. Uptime
-            let uptime = run_command(
-                &sess,
-                "export LC_ALL=C; (uptime -p 2>/dev/null || uptime 2>/dev/null)",
-            )?;
+                // 1. Uptime
+                let uptime = run_ssh_command(
+                    &sess,
+                    "export LC_ALL=C; (uptime -p 2>/dev/null || uptime 2>/dev/null)",
+                )?;
 
-            // 2. Mounts
-            let mounts = run_command(
-                &sess,
-                "export LC_ALL=C; df -Ph 2>/dev/null | awk 'NR>1 {print $1 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5 \"|\" $6}'",
-            )?;
+                // 2. Mounts
+                let mounts = run_ssh_command(
+                    &sess,
+                    "export LC_ALL=C; df -Ph 2>/dev/null | awk 'NR>1 {print $1 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5 \"|\" $6}'",
+                )?;
 
-            // 3. IP
-            let ip = run_command(
-                &sess,
-                "export LC_ALL=C; (hostname -I 2>/dev/null || echo 'n/a')",
-            )?;
+                // 3. IP
+                let ip = run_ssh_command(
+                    &sess,
+                    "export LC_ALL=C; (hostname -I 2>/dev/null || echo 'n/a')",
+                )?;
 
-            // 4. CPU
-            // Method: read /proc/stat -> sleep -> read /proc/stat -> calculate in Rust
-            // Fallback: top -bn1
-            let cpu_stat1 = run_command(&sess, "cat /proc/stat | grep '^cpu '").ok();
-            
-            let cpu = if let Some(stat1) = cpu_stat1 {
-                thread::sleep(Duration::from_millis(500));
-                if let Ok(stat2) = run_command(&sess, "cat /proc/stat | grep '^cpu '") {
-                     match (parse_cpu_stats(&stat1), parse_cpu_stats(&stat2)) {
-                        (Some((t1, w1)), Some((t2, w2))) if t2 > t1 => {
-                            let total_delta = t2 - t1;
-                            let work_delta = w2 - w1;
-                            let usage = (work_delta as f64 / total_delta as f64) * 100.0;
-                            format!("{:.1}", usage)
+                // 4. CPU
+                let cpu_stat1 = run_ssh_command(&sess, "cat /proc/stat | grep '^cpu '").ok();
+                
+                let cpu = if let Some(stat1) = cpu_stat1 {
+                    thread::sleep(Duration::from_millis(500));
+                    if let Ok(stat2) = run_ssh_command(&sess, "cat /proc/stat | grep '^cpu '") {
+                         match (parse_cpu_stats(&stat1), parse_cpu_stats(&stat2)) {
+                            (Some((t1, w1)), Some((t2, w2))) if t2 > t1 => {
+                                let total_delta = t2 - t1;
+                                let work_delta = w2 - w1;
+                                let usage = (work_delta as f64 / total_delta as f64) * 100.0;
+                                format!("{:.1}", usage)
+                            }
+                            _ => "0".to_string(),
                         }
-                        _ => "0".to_string(),
+                    } else {
+                        "0".to_string()
                     }
                 } else {
-                    "0".to_string()
-                }
-            } else {
-                 // Fallback to top if /proc/stat is unavailable (e.g. non-Linux or restricted)
-                 let top_cmd = "top -bn1 2>/dev/null | grep \"Cpu(s)\" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//'";
-                 run_command(&sess, top_cmd).unwrap_or_else(|_| "0".to_string())
-            };
+                     let top_cmd = "top -bn1 2>/dev/null | grep \"Cpu(s)\" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//'";
+                     run_ssh_command(&sess, top_cmd).unwrap_or_else(|_| "0".to_string())
+                };
 
-            // 5. Memory
-            let mem_cmd = r#"export LC_ALL=C; awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null"#;
-            let memory = run_command(&sess, mem_cmd)?;
+                // 5. Memory
+                let mem_cmd = r#"export LC_ALL=C; awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null"#;
+                let memory = run_ssh_command(&sess, mem_cmd)?;
 
-            // 6. Processes (CPU sorted)
-            let proc_cpu_cmd = r#"export LC_ALL=C; ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
-            let proc_cpu = run_command(&sess, proc_cpu_cmd)?;
+                // 6. Processes (CPU sorted)
+                let proc_cpu_cmd = r#"export LC_ALL=C; ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
+                let proc_cpu = run_ssh_command(&sess, proc_cpu_cmd)?;
 
-            // 7. Processes (Memory sorted)
-            let proc_mem_cmd = r#"export LC_ALL=C; ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
-            let proc_mem = run_command(&sess, proc_mem_cmd)?;
+                // 7. Processes (Memory sorted)
+                let proc_mem_cmd = r#"export LC_ALL=C; ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
+                let proc_mem = run_ssh_command(&sess, proc_mem_cmd)?;
 
-            Ok((
-                uptime, mounts, ip, cpu, memory, proc_cpu, proc_mem,
-            ))
-        })
-        .await?;
+                Ok((uptime, mounts, ip, cpu, memory, proc_cpu, proc_mem))
+            }).await?
+        }
+        ClientType::Wsl(distro) => {
+            let distro = distro.clone();
+            tokio::task::spawn_blocking(move || {
+                // 1. Uptime
+                let uptime = run_wsl_command(&distro, "export LC_ALL=C; (uptime -p 2>/dev/null || uptime 2>/dev/null)")?;
+                
+                // 2. Mounts
+                let mounts = run_wsl_command(&distro, "export LC_ALL=C; df -Ph 2>/dev/null | awk 'NR>1 {print $1 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5 \"|\" $6}'")?;
+                
+                // 3. IP
+                let ip = run_wsl_command(&distro, "export LC_ALL=C; (hostname -I 2>/dev/null || echo 'n/a')")?;
+                
+                // 4. CPU
+                let cpu_stat1 = run_wsl_command(&distro, "cat /proc/stat | grep '^cpu '").ok();
+                let cpu = if let Some(stat1) = cpu_stat1 {
+                    if stat1.is_empty() { "0".to_string() } else {
+                        thread::sleep(Duration::from_millis(500));
+                         if let Ok(stat2) = run_wsl_command(&distro, "cat /proc/stat | grep '^cpu '") {
+                            match (parse_cpu_stats(&stat1), parse_cpu_stats(&stat2)) {
+                                (Some((t1, w1)), Some((t2, w2))) if t2 > t1 => {
+                                    let total_delta = t2 - t1;
+                                    let work_delta = w2 - w1;
+                                    let usage = (work_delta as f64 / total_delta as f64) * 100.0;
+                                    format!("{:.1}", usage)
+                                }
+                                _ => "0".to_string(),
+                            }
+                        } else { "0".to_string() }
+                    }
+                } else { "0".to_string() };
+                
+                // 5. Memory
+                let mem_cmd = r#"export LC_ALL=C; awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null"#;
+                let memory = run_wsl_command(&distro, mem_cmd)?;
+                
+                // 6. Processes
+                let proc_cpu_cmd = r#"export LC_ALL=C; ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
+                let proc_cpu = run_wsl_command(&distro, proc_cpu_cmd)?;
+                
+                let proc_mem_cmd = r#"export LC_ALL=C; ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
+                let proc_mem = run_wsl_command(&distro, proc_mem_cmd)?;
+                
+                Ok::<_, String>((uptime, mounts, ip, cpu, memory, proc_cpu, proc_mem))
+            }).await.map_err(|e| format!("Task join error: {}", e))??
+        }
+    };
 
     // --- Parsing ---
 

@@ -19,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             db::init_db(app.handle())?;
+            ssh::wsl::import_wsl_to_db(app.handle()).ok(); // Best effort import
             app.manage(ssh::AppState::new());
             Ok(())
         })

@@ -19,6 +19,7 @@ pub mod file_ops;
 pub mod system;
 pub mod terminal;
 pub mod utils;
+pub mod wsl;
 
 // Re-export main types and functions for backward compatibility
 pub use client::{AppState, SshClient};
