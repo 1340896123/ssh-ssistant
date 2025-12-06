@@ -352,97 +352,97 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
             let shutdown_signal_clone = shutdown_signal.clone();
 
             let thread_handle = thread::spawn(move || {
-                while !shutdown_signal_clone.load(Ordering::Relaxed) {
+                // 优化：只接受一个连接。因为这是一对一的映射。
+                let start = std::time::Instant::now();
+                let mut accepted = false;
+
+                while !shutdown_signal_clone.load(Ordering::Relaxed) && !accepted {
+                    if start.elapsed().as_secs() > 10 {
+                        break;
+                    }
+
                     match listener_clone.accept() {
                         Ok((mut local_stream, _)) => {
+                            accepted = true;
                             let jump_sess_inner = jump_sess_clone.clone();
                             let host = target_host.clone();
                             let port = target_port;
                             let shutdown_inner = shutdown_signal_clone.clone();
 
-                            // Handle connection in a new thread
-                            thread::spawn(move || {
-                                // Try to open the direct-tcpip channel
-                                // Since jump_sess is non-blocking, we need to handle WouldBlock during open
-                                let mut channel = loop {
-                                    match jump_sess_inner.channel_direct_tcpip(&host, port, None) {
-                                        Ok(c) => break c,
-                                        Err(e) if e.code() == ssh2::ErrorCode::Session(-37) => {
-                                            // EAGAIN
-                                            if shutdown_inner.load(Ordering::Relaxed) { return; }
-                                            thread::sleep(Duration::from_millis(10));
-                                            continue;
-                                        }
-                                        Err(e) => {
-                                            eprintln!("Failed to establish SSH tunnel: {}", e);
+                            // Open direct-tcpip channel
+                            let mut channel = loop {
+                                match jump_sess_inner.channel_direct_tcpip(&host, port, None) {
+                                    Ok(c) => break c,
+                                    Err(e) if e.code() == ssh2::ErrorCode::Session(-37) => {
+                                        // EAGAIN
+                                        if shutdown_inner.load(Ordering::Relaxed) {
                                             return;
                                         }
+                                        thread::sleep(Duration::from_millis(10));
+                                        continue;
                                     }
-                                };
-
-                                // Set local stream to non-blocking
-                                if let Err(_) = local_stream.set_nonblocking(true) {
-                                    return;
-                                }
-
-                                let mut buf = [0u8; 16384]; // 16KB buffer
-
-                                while !shutdown_inner.load(Ordering::Relaxed) {
-                                    let mut has_data = false;
-
-                                    // Read from Local -> Write to Remote
-                                    match local_stream.read(&mut buf) {
-                                        Ok(0) => break, // EOF
-                                        Ok(n) => {
-                                            has_data = true;
-                                            // Write to channel (handle WouldBlock)
-                                            let mut pos = 0;
-                                            while pos < n {
-                                                match channel.write(&buf[pos..n]) {
-                                                    Ok(written) => pos += written,
-                                                    Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                                                        thread::sleep(Duration::from_millis(1));
-                                                    }
-                                                    Err(_) => return, // Pipe broken
-                                                }
-                                            }
-                                        }
-                                        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                                            // Continue to check remote
-                                        }
-                                        Err(_) => break,
-                                    }
-
-                                    // Read from Remote -> Write to Local
-                                    match channel.read(&mut buf) {
-                                        Ok(0) => break, // EOF
-                                        Ok(n) => {
-                                            has_data = true;
-                                            let mut pos = 0;
-                                            while pos < n {
-                                                match local_stream.write(&buf[pos..n]) {
-                                                    Ok(written) => pos += written,
-                                                    Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                                                        thread::sleep(Duration::from_millis(1));
-                                                    }
-                                                    Err(_) => return,
-                                                }
-                                            }
-                                        }
-                                        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                                            // Continue
-                                        }
-                                        Err(_) => break,
-                                    }
-
-                                    if !has_data {
-                                        thread::sleep(Duration::from_millis(5));
+                                    Err(e) => {
+                                        eprintln!("Failed to establish SSH tunnel: {}", e);
+                                        return;
                                     }
                                 }
-                            });
+                            };
+
+                            if let Err(_) = local_stream.set_nonblocking(true) {
+                                return;
+                            }
+
+                            let mut buf = [0u8; 32768]; // 32KB buffer
+
+                            while !shutdown_inner.load(Ordering::Relaxed) {
+                                let mut has_data = false;
+
+                                // Read from Local -> Write to Remote
+                                match local_stream.read(&mut buf) {
+                                    Ok(0) => break, // EOF
+                                    Ok(n) => {
+                                        has_data = true;
+                                        let mut pos = 0;
+                                        while pos < n {
+                                            match channel.write(&buf[pos..n]) {
+                                                Ok(written) => pos += written,
+                                                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                                                    thread::sleep(Duration::from_millis(1));
+                                                }
+                                                Err(_) => return, // Pipe broken
+                                            }
+                                        }
+                                    }
+                                    Err(ref e) if e.kind() == ErrorKind::WouldBlock => {}
+                                    Err(_) => break,
+                                }
+
+                                // Read from Remote -> Write to Local
+                                match channel.read(&mut buf) {
+                                    Ok(0) => break, // EOF
+                                    Ok(n) => {
+                                        has_data = true;
+                                        let mut pos = 0;
+                                        while pos < n {
+                                            match local_stream.write(&buf[pos..n]) {
+                                                Ok(written) => pos += written,
+                                                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                                                    thread::sleep(Duration::from_millis(1));
+                                                }
+                                                Err(_) => return,
+                                            }
+                                        }
+                                    }
+                                    Err(ref e) if e.kind() == ErrorKind::WouldBlock => {}
+                                    Err(_) => break,
+                                }
+
+                                if !has_data {
+                                    thread::sleep(Duration::from_millis(2));
+                                }
+                            }
                         }
                         Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                            // No connection yet
                             thread::sleep(Duration::from_millis(100));
                         }
                         Err(_) => {
