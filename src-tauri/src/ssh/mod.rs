@@ -13,13 +13,16 @@ pub enum ShellMsg {
 }
 
 pub mod client;
+pub mod command;
 pub mod connection;
 pub mod file_ops;
+pub mod system;
 pub mod terminal;
-pub mod command;
 pub mod utils;
 
 // Re-export main types and functions for backward compatibility
-pub use client::{SshClient, AppState};
-pub use connection::{ManagedSession, SessionSshPool, ForwardingThreadHandle};
-pub use utils::{ssh2_retry, execute_ssh_operation, get_sftp_buffer_size, compute_local_file_hash, get_dir_size};
+pub use client::{AppState, SshClient};
+pub use connection::{ForwardingThreadHandle, ManagedSession, SessionSshPool};
+pub use utils::{
+    compute_local_file_hash, execute_ssh_operation, get_dir_size, get_sftp_buffer_size, ssh2_retry,
+};

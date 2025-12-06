@@ -59,7 +59,8 @@ pub fn run() {
             db::create_group,
             db::update_group,
             db::delete_group,
-            system::get_file_icon
+            system::get_file_icon,
+            ssh::system::get_remote_system_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
