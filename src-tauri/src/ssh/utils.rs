@@ -1,4 +1,3 @@
-use crate::ssh::CommandOutputEvent;
 use hex;
 use sha2::{Digest, Sha256};
 use ssh2::Session;

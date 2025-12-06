@@ -12,11 +12,6 @@ pub enum ShellMsg {
     Exit,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct CommandOutputEvent {
-    pub data: String,
-}
-
 pub mod client;
 pub mod connection;
 pub mod file_ops;
