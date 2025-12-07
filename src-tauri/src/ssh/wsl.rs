@@ -58,6 +58,8 @@ pub fn get_distributions() -> Result<Vec<String>, String> {
 
 pub fn import_wsl_to_db(app: &AppHandle) -> Result<(), String> {
     let distros = get_distributions()?;
+    // Even if empty, we might want to ensure the group exists or clean up?
+    // For now, if no distros, we just return.
     if distros.is_empty() {
         return Ok(());
     }
@@ -119,7 +121,7 @@ pub fn import_wsl_to_db(app: &AppHandle) -> Result<(), String> {
             name: distro.clone(),
             host: host_str,
             port: 0,                      // Not used for WSL
-            username: "root".to_string(), // Default usually
+            username: "root".to_string(), // Default usually, though WSL default user varies.
             password: None,
             jump_host: None,
             jump_port: None,
