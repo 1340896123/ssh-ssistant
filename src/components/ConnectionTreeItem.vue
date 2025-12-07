@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2, Plus } from 'lucide-vue-next';
+import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2, Plus, Terminal } from 'lucide-vue-next';
 import type { Connection, ConnectionGroup } from '../types';
 import { useI18n } from '../composables/useI18n';
 // import draggable from 'vuedraggable'; // Removed
@@ -124,6 +124,11 @@ function onDrop(event: DragEvent) {
     emit('drop-item', event, targetId);
 }
 
+const isWsl = computed(() => {
+    if (isGroup.value) return false;
+    return (props.item as Connection).host.startsWith('wsl://');
+});
+
 </script>
 
 <template>
@@ -143,7 +148,8 @@ function onDrop(event: DragEvent) {
                 </template>
                 <template v-else>
                     <span class="w-4"></span> <!-- Spacer for alignment -->
-                    <Monitor class="w-4 h-4 text-blue-400" />
+                    <Terminal v-if="isWsl" class="w-4 h-4 text-purple-400" />
+                    <Monitor v-else class="w-4 h-4 text-blue-400" />
                 </template>
                 <span class="text-sm text-gray-200 truncate" :title="item.name">{{ item.name }}</span>
             </div>
