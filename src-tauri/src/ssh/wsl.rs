@@ -69,8 +69,16 @@ pub fn import_wsl_to_db(app: &AppHandle) -> Result<(), String> {
     let groups = db::get_groups(app.clone())?;
     let mut wsl_group_id = None;
 
+    // Check for "WSL" or legacy "WSL (Auto Detected)"
     for group in &groups {
-        if group.name == "WSL (Auto Detected)" {
+        if group.name == "WSL" {
+            wsl_group_id = group.id;
+            break;
+        } else if group.name == "WSL (Auto Detected)" {
+            // Rename legacy group to "WSL"
+            let mut new_group = group.clone();
+            new_group.name = "WSL".to_string();
+            db::update_group(app.clone(), new_group)?;
             wsl_group_id = group.id;
             break;
         }
@@ -82,14 +90,14 @@ pub fn import_wsl_to_db(app: &AppHandle) -> Result<(), String> {
             app.clone(),
             ConnectionGroup {
                 id: None,
-                name: "WSL (Auto Detected)".to_string(),
+                name: "WSL".to_string(),
                 parent_id: None,
             },
         )?;
         // Retrieve it back to get ID
         let updated_groups = db::get_groups(app.clone())?;
         for group in updated_groups {
-            if group.name == "WSL (Auto Detected)" {
+            if group.name == "WSL" {
                 wsl_group_id = group.id;
                 break;
             }
