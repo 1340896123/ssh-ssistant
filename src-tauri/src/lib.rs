@@ -45,6 +45,8 @@ pub fn run() {
             ssh::file_ops::upload_file,
             ssh::file_ops::upload_file_with_progress,
             ssh::file_ops::download_file_with_progress,
+            ssh::file_ops::get_transfers,
+            ssh::file_ops::remove_transfer,
             ssh::terminal::write_to_pty,
             ssh::terminal::write_binary_to_pty,
             ssh::terminal::resize_pty,

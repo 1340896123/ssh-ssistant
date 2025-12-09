@@ -11,12 +11,26 @@ const virtualizerContainerRef = ref<HTMLElement>();
 // 限制显示的项目数量以优化性能
 const MAX_VISIBLE_ITEMS = 100;
 const visibleItems = computed(() => {
+    // store.items uses unshift, so index 0 is newest.
+    // We want to show the newest items at the top of the list.
+    // The previous code used slice(-MAX) which took the LAST items (oldest if using push, but newest if using unshift? wait).
+    // If [New, Old]. slice(-1) gives [Old]. So it was showing OLDEST items.
+    // We want slice(0, MAX) to show NEWEST items.
+    // Also we don't need to sort if we trust the order.
+    // To support sorting by date properly we would need created_at in the interface.
+    // For now, removing sort to fix lint and relying on natural order.
     const items = store.items;
+
+    // However, existing code was:
+    // const items = store.items;
+    // return items.slice(-MAX_VISIBLE_ITEMS);
+    // If unshift is used, newest are at index 0. `slice(-N)` gets the LAST N items.
+    // So if I have [New, Old], slice(-1) gets [Old].
+    // I want slice(0, MAX_VISIBLE_ITEMS) to get [New].
     if (items.length <= MAX_VISIBLE_ITEMS) {
         return items;
     }
-    // 只显示最近的 MAX_VISIBLE_ITEMS 项
-    return items.slice(-MAX_VISIBLE_ITEMS);
+    return items.slice(0, MAX_VISIBLE_ITEMS);
 });
 
 const visible = computed(() => store.items.length > 0);

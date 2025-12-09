@@ -25,9 +25,16 @@ pub struct SshClient {
     pub os_info: Option<String>,                       // Remote OS information
 }
 
+use crate::models::Transfer;
+
+pub struct TransferState {
+    pub data: Mutex<Transfer>,
+    pub cancel_flag: Arc<AtomicBool>,
+}
+
 pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
-    pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>, // ID -> CancelFlag
+    pub transfers: Mutex<HashMap<String, Arc<TransferState>>>, // ID -> TransferState
     pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Command ID -> CancelFlag
 }
 
@@ -216,13 +223,19 @@ pub async fn cancel_transfer(
     state: State<'_, AppState>,
     transfer_id: String,
 ) -> Result<(), String> {
-    if let Some(flag) = state
+    if let Some(transfer_state) = state
         .transfers
         .lock()
         .map_err(|e| e.to_string())?
         .get(&transfer_id)
     {
-        flag.store(true, Ordering::Relaxed);
+        transfer_state.cancel_flag.store(true, Ordering::Relaxed);
+
+        // Update status immediately if possible
+        let mut data = transfer_state.data.lock().map_err(|e| e.to_string())?;
+        if data.status == "running" || data.status == "pending" {
+            data.status = "cancelled".to_string();
+        }
     }
     Ok(())
 }

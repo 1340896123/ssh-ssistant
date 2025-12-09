@@ -80,3 +80,18 @@ pub struct AppSettings {
     pub file_manager: FileManagerSettings,
     pub ssh_pool: SshPoolSettings,
 }
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Transfer {
+    pub id: String,
+    pub session_id: String,
+    pub name: String,
+    pub local_path: String,
+    pub remote_path: String,
+    pub transfer_type: String, // "upload" | "download"
+    pub status: String, // "pending" | "running" | "paused" | "completed" | "error" | "cancelled"
+    pub total_size: u64,
+    pub transferred: u64,
+    pub created_at: i64,
+    pub error: Option<String>,
+}
