@@ -15,7 +15,7 @@ import { useSettingsStore } from "./stores/settings";
 import { useNotificationStore } from "./stores/notifications";
 import { useI18n } from "./composables/useI18n";
 import type { Connection } from "./types";
-import { Settings } from "lucide-vue-next";
+import { Settings, PanelLeftClose, PanelLeftOpen } from "lucide-vue-next";
 
 const sessionStore = useSessionStore();
 const connectionStore = useConnectionStore();
@@ -25,6 +25,7 @@ const { t } = useI18n();
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
 const editingConnection = ref<Connection | null>(null);
+const isSidebarCollapsed = ref(false);
 
 // AI Context Refs
 const terminalTabAreaRefs = ref<any[]>([]);
@@ -333,13 +334,18 @@ function openEditConnectionModal(conn: Connection) {
 <template>
   <div class="h-screen w-screen bg-gray-900 text-white flex overflow-hidden font-sans">
     <!-- Sidebar -->
-    <aside class="bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0"
+    <aside v-show="!isSidebarCollapsed" class="bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0"
       :style="{ width: sidebarWidth + 'px' }">
       <div class="p-4 border-b border-gray-700 flex justify-between items-center">
         <h1 class="text-lg font-bold">{{ t("app.title") }}</h1>
-        <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" :title="t('app.settings')">
-          <Settings class="w-5 h-5" />
-        </button>
+        <div class="flex items-center space-x-2">
+          <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" :title="t('app.settings')">
+            <Settings class="w-5 h-5" />
+          </button>
+          <button @click="isSidebarCollapsed = true" class="text-gray-400 hover:text-white" :title="t('app.collapseSidebar') || 'Collapse Sidebar'">
+            <PanelLeftClose class="w-5 h-5" />
+          </button>
+        </div>
       </div>
       <div class="flex-1 overflow-y-auto p-2">
         <ConnectionList @edit="openEditConnectionModal" />
@@ -353,13 +359,18 @@ function openEditConnectionModal(conn: Connection) {
     </aside>
 
     <!-- Sidebar Resizer -->
-    <div class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+    <div v-show="!isSidebarCollapsed" class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
       @mousedown.prevent="startResize('sidebar')"></div>
 
     <!-- Main Content -->
     <main class="flex-1 flex flex-col bg-gray-900 min-w-0">
       <!-- Tabs -->
       <div class="h-10 bg-gray-800 border-b border-gray-700 flex flex-shrink-0">
+        <button v-if="isSidebarCollapsed" @click="isSidebarCollapsed = false"
+          class="px-3 hover:bg-gray-700 border-r border-gray-700 flex items-center justify-center text-gray-400 hover:text-white"
+          :title="t('app.expandSidebar') || 'Expand Sidebar'">
+          <PanelLeftOpen class="w-4 h-4" />
+        </button>
         <SessionTabs />
       </div>
 
