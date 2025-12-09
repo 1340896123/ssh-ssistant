@@ -634,6 +634,7 @@ pub async fn download_file(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    transfer_id: String,
     remote_path: String,
     local_path: String,
 ) -> Result<String, String> {
@@ -642,7 +643,6 @@ pub async fn download_file(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    let transfer_id = Uuid::new_v4().to_string();
     let cancel_flag = Arc::new(AtomicBool::new(false));
 
     let now = SystemTime::now()
@@ -900,6 +900,7 @@ pub async fn upload_file(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    transfer_id: String,
     local_path: String,
     remote_path: String,
 ) -> Result<String, String> {
@@ -908,7 +909,6 @@ pub async fn upload_file(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    let transfer_id = Uuid::new_v4().to_string();
     let cancel_flag = Arc::new(AtomicBool::new(false));
 
     let now = SystemTime::now()
@@ -1163,11 +1163,12 @@ pub async fn download_file_with_progress(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    transfer_id: String,
     remote_path: String,
     local_path: String,
     _resume: bool,
 ) -> Result<String, String> {
-    download_file(app, state, id, remote_path, local_path).await
+    download_file(app, state, id, transfer_id, remote_path, local_path).await
 }
 
 #[tauri::command]
@@ -1175,11 +1176,12 @@ pub async fn upload_file_with_progress(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    transfer_id: String,
     local_path: String,
     remote_path: String,
     _resume: bool,
 ) -> Result<String, String> {
-    upload_file(app, state, id, local_path, remote_path).await
+    upload_file(app, state, id, transfer_id, local_path, remote_path).await
 }
 
 #[tauri::command]
