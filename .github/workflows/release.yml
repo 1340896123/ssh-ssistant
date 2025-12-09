@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-13' # Intel runner for Intel builds
+          - platform: 'macos-latest' # Intel runner for Intel builds
             args: ''
           # - platform: 'macos-14' # ARM runner for ARM builds
           #   args: ''
