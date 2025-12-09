@@ -47,7 +47,8 @@ export const useTransferStore = defineStore('transfers', () => {
         await syncWithBackend();
 
         if (unlisten) return;
-        unlisten = await listen('transfer-progress', (event: any) => {
+
+        const unlistenProgress = await listen('transfer-progress', (event: any) => {
             const payload = event.payload as { id: string, transferred: number, total: number };
             const item = items.value.find(i => i.id === payload.id);
             if (item) {
@@ -63,6 +64,20 @@ export const useTransferStore = defineStore('transfers', () => {
                 updateDirectoryProgress(item.id, payload.transferred, payload.total);
             }
         });
+
+        const unlistenError = await listen('transfer-error', (event: any) => {
+            const payload = event.payload as { id: string, error: string };
+            const item = items.value.find(i => i.id === payload.id);
+            if (item) {
+                item.status = 'error';
+                item.error = payload.error;
+            }
+        });
+
+        unlisten = () => {
+            unlistenProgress();
+            unlistenError();
+        };
     }
 
     async function syncWithBackend() {

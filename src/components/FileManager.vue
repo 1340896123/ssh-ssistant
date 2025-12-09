@@ -608,7 +608,7 @@ async function handleTauriFileDrop(paths: string[]) {
         }
     }
 
-    loadFiles(currentPath.value);
+    // loadFiles(currentPath.value); // Removed to prevent lock contention
 }
 
 onMounted(async () => {
@@ -779,7 +779,7 @@ async function handleUpload() {
                 sessionId: props.sessionId
             });
 
-            loadFiles(currentPath.value);
+            // loadFiles(currentPath.value);
         }
     } catch (e) {
         console.error(e);
@@ -838,7 +838,7 @@ async function handleUploadDirectory() {
             }
 
             await processDirectory(selected, remotePath);
-            loadFiles(currentPath.value);
+            // loadFiles(currentPath.value);
         }
     } catch (e) {
         console.error(e);

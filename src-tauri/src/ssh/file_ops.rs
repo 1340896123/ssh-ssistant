@@ -23,6 +23,12 @@ struct ProgressPayload {
     total: u64,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct ErrorPayload {
+    id: String,
+    error: String,
+}
+
 fn to_wsl_path(distro: &str, path: &str) -> PathBuf {
     let clean_path = path.replace("/", "\\");
     let trimmed = clean_path.trim_start_matches('\\');
@@ -700,9 +706,11 @@ pub async fn download_file(
 
             tokio::spawn(async move {
                 let ts_inner = ts.clone();
+                let app_inner = app.clone();
+                let t_id_inner = t_id.clone();
                 let res = execute_ssh_operation(move || {
                     let _session_id = id_ssh_clone;
-                    let current_transfer_id = t_id;
+                    let current_transfer_id = t_id_inner;
 
                     // Update status to running
                     {
@@ -728,7 +736,7 @@ pub async fn download_file(
                         data.total_size = total_size;
                     }
 
-                    let buffer_size = get_sftp_buffer_size(Some(&app));
+                    let buffer_size = get_sftp_buffer_size(Some(&app_inner));
                     let mut buffer = vec![0u8; buffer_size];
                     let mut transferred = 0u64;
 
@@ -756,7 +764,7 @@ pub async fn download_file(
 
                                 // Emit event every 100ms
                                 if last_emit.elapsed().as_millis() > 100 {
-                                    let _ = app.emit(
+                                    let _ = app_inner.emit(
                                         "transfer-progress",
                                         ProgressPayload {
                                             id: current_transfer_id.clone(),
@@ -780,7 +788,7 @@ pub async fn download_file(
                         data.status = "completed".to_string();
                         data.transferred = total_size; // Ensure 100%
                     }
-                    let _ = app.emit(
+                    let _ = app_inner.emit(
                         "transfer-progress",
                         ProgressPayload {
                             id: current_transfer_id.clone(),
@@ -797,7 +805,11 @@ pub async fn download_file(
                     let mut data = ts.data.lock().unwrap();
                     if data.status != "cancelled" {
                         data.status = "error".to_string();
-                        data.error = Some(e);
+                        data.error = Some(e.clone());
+                        let _ = app.emit("transfer-error", ErrorPayload {
+                            id: t_id,
+                            error: e,
+                        });
                     }
                 }
             });
@@ -965,9 +977,11 @@ pub async fn upload_file(
 
             tokio::spawn(async move {
                 let ts_inner = ts.clone();
+                let app_inner = app_clone.clone();
+                let t_id_inner = t_id.clone();
                 let res = execute_ssh_operation(move || {
                     let _id = id_ssh_clone;
-                    let current_transfer_id = t_id;
+                    let current_transfer_id = t_id_inner;
 
                     // Update status
                     {
@@ -991,10 +1005,16 @@ pub async fn upload_file(
                         data.total_size = total_size;
                     }
 
+                    if let Some(parent) = Path::new(&remote_path_clone).parent() {
+                        if !parent.as_os_str().is_empty() {
+                            let _ = create_remote_dir_recursive(&sftp, parent);
+                        }
+                    }
+
                     let mut remote = ssh2_retry(|| sftp.create(Path::new(&remote_path_clone)))
                         .map_err(|e| e.to_string())?;
 
-                    let buffer_size = get_sftp_buffer_size(Some(&app_clone));
+                    let buffer_size = get_sftp_buffer_size(Some(&app_inner));
                     let mut buffer = vec![0u8; buffer_size];
                     let mut transferred = 0u64;
                     let mut last_emit = std::time::Instant::now();
@@ -1024,7 +1044,7 @@ pub async fn upload_file(
                                     }
 
                                     if last_emit.elapsed().as_millis() > 100 {
-                                        let _ = app_clone.emit(
+                                        let _ = app_inner.emit(
                                             "transfer-progress",
                                             ProgressPayload {
                                                 id: current_transfer_id.clone(),
@@ -1049,7 +1069,7 @@ pub async fn upload_file(
                         data.status = "completed".to_string();
                         data.transferred = total_size;
                     }
-                    let _ = app_clone.emit(
+                    let _ = app_inner.emit(
                         "transfer-progress",
                         ProgressPayload {
                             id: current_transfer_id.clone(),
@@ -1065,7 +1085,11 @@ pub async fn upload_file(
                     let mut data = ts.data.lock().unwrap();
                     if data.status != "cancelled" {
                         data.status = "error".to_string();
-                        data.error = Some(e);
+                        data.error = Some(e.clone());
+                        let _ = app_clone.emit("transfer-error", ErrorPayload {
+                            id: t_id,
+                            error: e,
+                        });
                     }
                 }
             });
@@ -1284,4 +1308,18 @@ pub async fn search_remote_files(
             .map_err(|e| format!("Task join error: {}", e))?
         }
     }
+}
+
+fn create_remote_dir_recursive(sftp: &ssh2::Sftp, path: &Path) -> Result<(), ssh2::Error> {
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    // Try to stat the directory. If it fails, try to create parent then create it.
+    if sftp.stat(path).is_err() {
+        if let Some(parent) = path.parent() {
+            create_remote_dir_recursive(sftp, parent)?;
+        }
+        sftp.mkdir(path, 0o755)?;
+    }
+    Ok(())
 }

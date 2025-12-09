@@ -1,0 +1,106 @@
+# 修复文件传输静默失败与锁竞争bug
+
+## 问题描述
+用户反馈文件上传/下载无法正常工作，且传输过程中应用界面（文件列表）卡死。具体表现为：
+1.  **静默失败**: 传输失败时（如权限不足、路径错误），进度条卡住，无任何错误提示。
+2.  **界面卡死**: 传输开始后，文件列表刷新一直在转圈，无法进行其他操作。
+
+## 原因分析
+1.  **错误处理缺失**: 后端 `src-tauri/src/ssh/file_ops.rs` 中，`download_file` 和 `upload_file` 的异步传输任务在捕获错误后，仅更新了内部状态，未向前端发送事件。前端 `src/stores/transfers.ts` 无法感知错误。
+2.  **SSH 会话锁竞争**: 文件传输持有了 SSH 会话的全局锁 (`Mutex`)，且在整个传输过程中不释放。导致并发的 `list_files` 请求被阻塞。
+3.  **上传路径检查缺失**: `upload_file` 直接调用 `sftp.create`。如果远程父目录不存在，会导致直接失败（且因为原因1而静默）。
+4.  **前端频繁刷新**: `FileManager.vue` 在添加传输任务后立即调用 `loadFiles`，加剧了锁竞争。
+
+## 修复方案
+
+### 1. 后端修复 (`src-tauri/src/ssh/file_ops.rs`)
+*   **发送错误事件**: 定义 `ErrorPayload`，并在传输任务的错误处理分支中通过 `app.emit("transfer-error", ...)` 发送错误详情。
+*   **上传前检查目录**: 在 `upload_file` 中，在调用 `sftp.create` 之前，检查父目录是否存在，若不存在则递归创建。
+
+### 2. 前端修复 (`src/stores/transfers.ts`)
+*   **监听错误事件**: 在 `initListeners` 中添加对 `transfer-error` 的监听，接收后端错误并更新 UI 状态。
+
+### 3. 前端优化 (`src/components/FileManager.vue`)
+*   **减少自动刷新**: 在触发上传/下载后，**移除**立即调用的 `loadFiles`。避免在传输刚开始（持有锁）时触发文件列表刷新，减少界面卡顿。用户可在传输完成后手动刷新，或依赖后续的自动刷新机制。
+
+## 变更详情
+
+### `src-tauri/src/ssh/file_ops.rs`
+
+#### 结构体定义
+```rust
+#[derive(Clone, serde::Serialize)]
+struct ErrorPayload {
+    id: String,
+    error: String,
+}
+```
+
+#### `download_file` 修改
+在 `tokio::spawn` 内部：
+```rust
+if let Err(e) = res {
+    let mut data = ts.data.lock().unwrap();
+    if data.status != "cancelled" {
+        data.status = "error".to_string();
+        data.error = Some(e.clone()); // Clone string
+        // 发送错误事件
+        let _ = app.emit("transfer-error", ErrorPayload {
+            id: t_id,
+            error: e,
+        });
+    }
+}
+```
+
+#### `upload_file` 修改
+1.  **目录检查与创建**:
+    在 `sftp.create` 之前添加：
+    ```rust
+    // 递归创建父目录
+    if let Some(parent) = Path::new(&remote_path_clone).parent() {
+        if parent.as_os_str().len() > 0 {
+             // 简单的递归创建逻辑，忽略已存在错误
+             create_remote_dir_recursive(&sftp, parent).ok();
+        }
+    }
+    ```
+2.  **错误发送**: 同 `download_file`。
+
+#### `create_remote_dir_recursive` 辅助函数
+```rust
+fn create_remote_dir_recursive(sftp: &ssh2::Sftp, path: &Path) -> Result<(), ssh2::Error> {
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    // 尝试 stat，如果失败则尝试创建父目录后创建自己
+    if sftp.stat(path).is_err() {
+        if let Some(parent) = path.parent() {
+            create_remote_dir_recursive(sftp, parent)?;
+        }
+        sftp.mkdir(path, 0o755)?;
+    }
+    Ok(())
+}
+```
+
+### `src/stores/transfers.ts`
+
+#### `initListeners` 修改
+```typescript
+unlisten = await listen('transfer-progress', ...);
+// 新增
+await listen('transfer-error', (event: any) => {
+    const payload = event.payload as { id: string, error: string };
+    const item = items.value.find(i => i.id === payload.id);
+    if (item) {
+        item.status = 'error';
+        item.error = payload.error;
+    }
+});
+```
+
+### `src/components/FileManager.vue`
+
+#### `handleTauriFileDrop`, `handleUpload`, `handleUploadDirectory`
+*   删除 `loadFiles(currentPath.value);` 的调用。
