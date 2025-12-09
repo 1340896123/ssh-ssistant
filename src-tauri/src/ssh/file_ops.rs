@@ -728,7 +728,8 @@ pub async fn download_file(
                         .map_err(|e| e.to_string())?;
                     let mut local =
                         std::fs::File::create(&local_path_clone).map_err(|e| e.to_string())?;
-                    let file_stat = remote.stat().map_err(|e| e.to_string())?;
+                    // Use ssh2_retry to handle non-blocking Session(-37) for stat as well
+                    let file_stat = ssh2_retry(|| remote.stat()).map_err(|e| e.to_string())?;
                     let total_size = file_stat.size.unwrap_or(0);
 
                     {
