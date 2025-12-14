@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use tauri::AppHandle;
 
 pub struct ForwardingThreadHandle {
     thread_handle: std::thread::JoinHandle<()>,
@@ -119,7 +120,7 @@ impl SessionSshPool {
 
         Ok(session)
     }
- 
+
     /// 检查并清理断开的连接
     pub fn cleanup_disconnected(&self) {
         // 检查后台会话
@@ -488,8 +489,55 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
     sess.handshake()
         .map_err(|e| format!("Handshake failed: {}", e))?;
 
-    sess.userauth_password(&config.username, config.password.as_deref().unwrap_or(""))
-        .map_err(|e| e.to_string())?;
+    // Implement TOFU (Trust On First Use) Host Key Verification
+    verify_host_key(&sess, &config.host, config.port)?;
+
+    if config.auth_type.as_deref() == Some("key") {
+        if let Some(key_content) = &config.key_content {
+            // Write key to a temporary file because ssh2 requires a file path for userauth_pubkey_file
+            // We use std::env::temp_dir() and a random filename
+            use ssh_key::PrivateKey;
+
+            // Write private key to temp file
+            let uuid = uuid::Uuid::new_v4();
+            let temp_dir = std::env::temp_dir();
+            let key_path = temp_dir.join(format!("ssh_key_{}", uuid));
+            let pub_key_path = temp_dir.join(format!("ssh_key_{}.pub", uuid));
+
+            std::fs::write(&key_path, key_content)
+                .map_err(|e| format!("Failed to write temporary key file: {}", e))?;
+
+            // Derive and write public key
+            let public_key_content = PrivateKey::from_openssh(key_content)
+                .and_then(|pk| pk.public_key().to_openssh())
+                .map_err(|e| format!("Failed to parse private key or derive public key: {}", e))?;
+
+            std::fs::write(&pub_key_path, &public_key_content)
+                .map_err(|e| format!("Failed to write temporary public key file: {}", e))?;
+
+            let passphrase = config.key_passphrase.as_deref();
+
+            // Try to authenticate with the explicit public key path
+            let auth_res = sess.userauth_pubkey_file(
+                &config.username,
+                Some(&pub_key_path),
+                &key_path,
+                passphrase,
+            );
+
+            // Wipe and delete the temp files immediately
+            let _ = std::fs::remove_file(&key_path);
+            let _ = std::fs::remove_file(&pub_key_path);
+
+            auth_res.map_err(|e| format!("Key authentication failed: {}", e))?;
+        } else {
+            return Err("Auth type is 'key' but no key content provided".to_string());
+        }
+    } else {
+        // Default to password
+        sess.userauth_password(&config.username, config.password.as_deref().unwrap_or(""))
+            .map_err(|e| format!("Password authentication failed: {}", e))?;
+    }
 
     // Enable keepalive for the main session
     sess.set_keepalive(true, 15);
@@ -505,7 +553,83 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
     })
 }
 
+fn verify_host_key(session: &Session, host: &str, port: u16) -> Result<(), String> {
+    use ssh2::{CheckResult, HashType, KnownHostFileKind};
 
+    let mut known_hosts = session
+        .known_hosts()
+        .map_err(|e| format!("Failed to init known hosts: {}", e))?;
+
+    // Try to find the known_hosts file
+    let ssh_dir = dirs::home_dir()
+        .ok_or("Could not find home directory")?
+        .join(".ssh");
+
+    if !ssh_dir.exists() {
+        std::fs::create_dir_all(&ssh_dir)
+            .map_err(|e| format!("Failed to create .ssh directory: {}", e))?;
+    }
+
+    let known_hosts_path = ssh_dir.join("known_hosts");
+    if !known_hosts_path.exists() {
+        std::fs::File::create(&known_hosts_path)
+            .map_err(|e| format!("Failed to create known_hosts file: {}", e))?;
+    }
+
+    // Load existing known_hosts
+    known_hosts
+        .read_file(&known_hosts_path, KnownHostFileKind::OpenSSH)
+        .map_err(|e| format!("Failed to read known_hosts file: {}", e))?;
+
+    let (key, key_type) = session.host_key().ok_or("Failed to get remote host key")?;
+
+    match known_hosts.check_port(host, port, key) {
+        CheckResult::Match => Ok(()),
+        CheckResult::NotFound => {
+            // TOFU: Trust On First Use - Auto Accept
+            println!(
+                "Host key not found for {}:{}. Auto-accepting...",
+                host, port
+            );
+
+            // Add to in-memory known hosts
+            known_hosts
+                .add(host, key, "", key_type.into())
+                .map_err(|e| format!("Failed to add host key: {}", e))?;
+
+            // Write back to file
+            known_hosts
+                .write_file(&known_hosts_path, KnownHostFileKind::OpenSSH)
+                .map_err(|e| format!("Failed to write known_hosts file: {}", e))?;
+
+            Ok(())
+        }
+        CheckResult::Mismatch => {
+            // Strictly reject mismatch
+            // Get formatted fingerprint for error message
+            let fingerprint = session
+                .host_key_hash(HashType::Sha1)
+                .map(|h| {
+                    h.iter()
+                        .map(|b| format!("{:02x}", b))
+                        .collect::<Vec<String>>()
+                        .join(":")
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+
+            Err(format!(
+                "Host key verification failed! The remote host identification has changed. \
+                This could mean that someone is eavesdropping on you (Man-in-the-Middle attack), \
+                or that the host key has legitimately changed. \
+                Host: {}:{} \
+                Fingerprint: {} \
+                Please verify the host key.",
+                host, port, fingerprint
+            ))
+        }
+        CheckResult::Failure => Err("Host key verification failed with internal error".to_string()),
+    }
+}
 
 // 跨平台兼容的带超时和Keepalive的Socket连接函数
 fn connect_with_timeout(addr_str: &str, timeout: Duration) -> Result<TcpStream, String> {
@@ -552,8 +676,122 @@ fn connect_with_timeout(addr_str: &str, timeout: Duration) -> Result<TcpStream, 
         return Err(format!("Failed to connect to '{}': {}", addr_str, e));
     }
 
-    // 转换为 std::net::TcpStream
-    let stream: TcpStream = socket.into();
+    Ok(socket.into())
+}
 
-    Ok(stream)
+// Helper to install public key
+// Helper to install public key
+pub fn install_public_key(session: &ssh2::Session, public_key: &str) -> Result<(), String> {
+    // 1. Init SFTP
+    let sftp = ssh2_retry(|| session.sftp()).map_err(|e| format!("SFTP init failed: {}", e))?;
+
+    // 2. Ensure .ssh directory exists
+    // We ignore error because it might simply exist
+    // 0o700 is rwx------
+    let _ = ssh2_retry(|| sftp.mkdir(std::path::Path::new(".ssh"), 0o700));
+
+    // 3. Append to authorized_keys
+    use ssh2::OpenFlags;
+
+    // We strictly use forward slashes for remote paths to ensure compatibility with Linux servers
+    let auth_keys_path = std::path::Path::new(".ssh/authorized_keys");
+
+    let mut file = ssh2_retry(|| {
+        sftp.open_mode(
+            auth_keys_path,
+            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::APPEND,
+            0o600,
+            ssh2::OpenType::File,
+        )
+    })
+    .map_err(|e| format!("Failed to open .ssh/authorized_keys: {}", e))?;
+
+    // Append newline to ensure separation
+    let content = format!("\n{}\n", public_key.trim());
+
+    // Handle non-blocking IO writing
+    let bytes = content.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        match file.write(&bytes[pos..]) {
+            Ok(0) => return Err("Write returned 0 bytes".to_string()),
+            Ok(n) => pos += n,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            Err(e) => return Err(format!("Failed to write key: {}", e)),
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn install_ssh_key(
+    app: AppHandle,
+    connection_id: i64,
+    key_id: i64,
+) -> Result<(), String> {
+    // 1. Get Connection and Key
+    let connections = crate::db::get_connections(app.clone())?;
+    let conn = connections
+        .into_iter()
+        .find(|c| c.id == Some(connection_id))
+        .ok_or("Connection not found")?;
+
+    let key = crate::db::get_ssh_key_by_id(&app, key_id)?.ok_or("SSH Key not found")?;
+
+    // 2. Connect with Password (must have password)
+    // If connection has no password, prompt? Backend command assumes password is in `conn`.
+    if conn.password.is_none() {
+        return Err("Connection must have a password to install SSH key".to_string());
+    }
+
+    // Force password auth for installation session
+    let mut install_config = conn.clone();
+    install_config.auth_type = Some("password".to_string());
+
+    // Establish temporary connection
+    let session_pool = tokio::task::spawn_blocking(move || {
+        crate::ssh::connection::establish_connection_with_retry(&install_config)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // 3. Derive Public Key
+    // We stored private key content. We need to parse it and get public key.
+    // We can use ssh_key crate again.
+    let public_key = {
+        use ssh_key::PrivateKey;
+        let priv_key = PrivateKey::from_openssh(&key.content)
+            .map_err(|e| format!("Invalid private key in DB: {}", e))?;
+
+        priv_key
+            .public_key()
+            .to_openssh()
+            .map_err(|e| format!("Failed to derive public key: {}", e))?
+    };
+
+    // 4. Install
+    // session_pool.session is the ssh2::Session
+    // We need to run blocking operations on it.
+    let sess = session_pool.session.clone();
+    tokio::task::spawn_blocking(move || install_public_key(&sess, &public_key))
+        .await
+        .map_err(|e| e.to_string())??;
+
+    // 5. Cleanup session (drop pool)
+    // 5. Cleanup session (drop pool handled by Drop trait)
+    // session_pool.close_all();
+
+    // 6. Update Connection to use Key
+    // We update the auth_type and ssh_key_id
+    let mut updated_conn = conn;
+    updated_conn.auth_type = Some("key".to_string());
+    updated_conn.ssh_key_id = Some(key_id);
+
+    crate::db::update_connection(app, updated_conn)?;
+
+    Ok(())
 }

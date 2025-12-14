@@ -3,10 +3,12 @@ import { ref, watch } from 'vue';
 import type { Connection } from '../types';
 import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-vue-next';
 import { useConnectionStore } from '../stores/connections';
+import { useSshKeyStore } from '../stores/sshKeys';
 
 const props = defineProps<{ show: boolean, connectionToEdit?: Connection | null }>();
 const emit = defineEmits(['close', 'save']);
 const connectionStore = useConnectionStore();
+const sshKeyStore = useSshKeyStore();
 
 const form = ref<Connection>({
   name: '',
@@ -14,6 +16,8 @@ const form = ref<Connection>({
   port: 22,
   username: '',
   password: '',
+  authType: 'password',
+  sshKeyId: null,
   jumpHost: '',
   jumpPort: 22,
   jumpUsername: '',
@@ -26,18 +30,26 @@ const showJumpPassword = ref(false);
 const isTesting = ref(false);
 const testResult = ref<{ success: boolean; message: string } | null>(null);
 
+// Install Key State
+const showInstallKeyModal = ref(false);
+const isInstallingKey = ref(false);
+const keyToInstall = ref<number | null>(null);
+const installKeyResult = ref<{ success: boolean; message: string } | null>(null);
+
 watch(() => props.show, (newVal) => {
   if (newVal) {
     showPassword.value = false;
     showJumpPassword.value = false;
     isTesting.value = false;
     testResult.value = null;
+    sshKeyStore.loadKeys(); // Load keys when modal opens
     if (props.connectionToEdit) {
       form.value = { ...props.connectionToEdit };
       // Ensure optional fields are handled if undefined
       if (!form.value.jumpPort) form.value.jumpPort = 22;
       // Provide default OS type for backward compatibility
       if (!form.value.osType) form.value.osType = 'Linux';
+      if (!form.value.authType) form.value.authType = 'password';
     } else {
       // Reset for new connection
       form.value = {
@@ -46,6 +58,8 @@ watch(() => props.show, (newVal) => {
         port: 22,
         username: '',
         password: '',
+        authType: 'password',
+        sshKeyId: null,
         jumpHost: '',
         jumpPort: 22,
         jumpUsername: '',
@@ -60,6 +74,11 @@ watch(() => props.show, (newVal) => {
 async function testConnection() {
   if (!form.value.host || !form.value.username) {
     testResult.value = { success: false, message: 'Host and Username are required' };
+    return;
+  }
+
+  if (form.value.authType === 'key' && !form.value.sshKeyId) {
+    testResult.value = { success: false, message: 'SSH Key is required for key authentication' };
     return;
   }
 
@@ -90,6 +109,31 @@ async function testConnection() {
     testResult.value = { success: false, message: e.toString() };
   } finally {
     isTesting.value = false;
+  }
+}
+
+async function installKey() {
+  if (!keyToInstall.value || !props.connectionToEdit?.id) return;
+  isInstallingKey.value = true;
+  installKeyResult.value = null;
+
+  try {
+    await sshKeyStore.installKey(props.connectionToEdit.id, keyToInstall.value);
+    installKeyResult.value = { success: true, message: 'Key installed successfully!' };
+
+    // Switch auth type and update form
+    form.value.authType = 'key';
+    form.value.sshKeyId = keyToInstall.value;
+
+    setTimeout(() => {
+      showInstallKeyModal.value = false;
+      installKeyResult.value = null;
+    }, 1500);
+
+  } catch (e: any) {
+    installKeyResult.value = { success: false, message: e.toString() };
+  } finally {
+    isInstallingKey.value = false;
   }
 }
 
@@ -146,7 +190,68 @@ function save() {
             class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
             placeholder="root" />
         </div>
+
         <div>
+          <label class="block text-xs text-gray-400 uppercase mb-1">Authentication Method</label>
+          <div class="flex items-center justify-between">
+            <div class="flex space-x-4">
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="radio" v-model="form.authType" value="password"
+                  class="text-blue-600 focus:ring-blue-500 bg-gray-700 border-gray-600" />
+                <span class="text-sm">Password</span>
+              </label>
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="radio" v-model="form.authType" value="key"
+                  class="text-blue-600 focus:ring-blue-500 bg-gray-700 border-gray-600" />
+                <span class="text-sm">Private Key</span>
+              </label>
+            </div>
+            <!-- Setup Key Auth Button -->
+            <button v-if="connectionToEdit && connectionToEdit.id && form.authType === 'password'"
+              @click="showInstallKeyModal = true" class="text-xs text-blue-400 hover:text-blue-300 underline">
+              Setup Key Auth
+            </button>
+          </div>
+        </div>
+
+        <!-- Install Key Modal/Overlay -->
+        <div v-if="showInstallKeyModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
+          <div class="bg-gray-800 p-6 rounded shadow-xl w-[400px] border border-gray-600">
+            <h3 class="text-lg font-bold text-white mb-4">Install SSH Key</h3>
+            <p class="text-sm text-gray-400 mb-4">
+              This will install the public key to the server's <code>authorized_keys</code> and switch the connection to
+              use Key authentication.
+            </p>
+
+            <div class="mb-4">
+              <label class="block text-xs text-gray-400 uppercase mb-1">Select Key to Install</label>
+              <select v-model="keyToInstall"
+                class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none">
+                <option :value="null" disabled>Select a key</option>
+                <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
+                  {{ key.name }}
+                </option>
+              </select>
+            </div>
+
+            <div v-if="installKeyResult" class="mb-4 text-sm"
+              :class="installKeyResult.success ? 'text-green-400' : 'text-red-400'">
+              {{ installKeyResult.message }}
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button @click="showInstallKeyModal = false" :disabled="isInstallingKey"
+                class="px-3 py-1.5 text-sm text-gray-300 hover:text-white">Cancel</button>
+              <button @click="installKey" :disabled="isInstallingKey || !keyToInstall"
+                class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded flex items-center gap-2">
+                <Loader2 v-if="isInstallingKey" class="w-3 h-3 animate-spin" />
+                Install & Switch
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="form.authType === 'password'">
           <label class="block text-xs text-gray-400 uppercase mb-1">Password</label>
           <div class="relative">
             <input v-model="form.password" :type="showPassword ? 'text' : 'password'"
@@ -156,6 +261,20 @@ function save() {
               <Eye v-if="!showPassword" class="w-5 h-5" />
               <EyeOff v-else class="w-5 h-5" />
             </button>
+          </div>
+        </div>
+
+        <div v-else>
+          <label class="block text-xs text-gray-400 uppercase mb-1">SSH Key</label>
+          <select v-model="form.sshKeyId"
+            class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none">
+            <option :value="null" disabled>Select a key</option>
+            <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
+              {{ key.name }}
+            </option>
+          </select>
+          <div v-if="sshKeyStore.keys.length === 0" class="text-xs text-yellow-500 mt-1">
+            No keys found. Please add a key in Settings > SSH Keys.
           </div>
         </div>
 
@@ -230,8 +349,7 @@ function save() {
       </div>
 
       <div class="mt-6 flex justify-between items-center">
-        <button @click="testConnection"
-          :disabled="isTesting"
+        <button @click="testConnection" :disabled="isTesting"
           class="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
           <Loader2 v-if="isTesting" class="w-4 h-4 animate-spin" />
           <span>Test Connection</span>

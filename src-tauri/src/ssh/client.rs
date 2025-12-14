@@ -49,9 +49,31 @@ impl AppState {
 }
 
 #[tauri::command]
-pub async fn test_connection(config: SshConnConfig) -> Result<String, String> {
+pub async fn test_connection(app: AppHandle, config: SshConnConfig) -> Result<String, String> {
+    let mut populated_config = config.clone();
+
+    if populated_config.auth_type.as_deref() == Some("key") {
+        if let Some(key_id) = populated_config.ssh_key_id {
+            match crate::db::get_ssh_key_by_id(&app, key_id) {
+                Ok(Some(key)) => {
+                    populated_config.key_content = Some(key.content);
+                    populated_config.key_passphrase = key.passphrase;
+                }
+                Ok(None) => {
+                    return Err(format!("SSH Key with ID {} not found", key_id));
+                }
+                Err(e) => {
+                    return Err(format!("Failed to fetch SSH Key: {}", e));
+                }
+            }
+        } else {
+            // If key auth is selected but no ID provided, fail early
+            return Err("SSH Key ID is missing needed for key authentication".to_string());
+        }
+    }
+
     execute_ssh_operation(move || {
-        let session = super::connection::establish_connection_with_retry(&config)?;
+        let session = super::connection::establish_connection_with_retry(&populated_config)?;
         // Disconnect immediately as we only wanted to test credentials/reachability
         let _ = session.session.disconnect(None, "Connection Test", None);
         Ok("Connection successful".to_string())
@@ -112,7 +134,27 @@ pub async fn connect(
             settings.ssh_pool.max_background_sessions as usize
         };
 
-        let config_clone = config.clone();
+        // Populate key content if needed
+        let mut populated_config = config.clone();
+        if populated_config.auth_type.as_deref() == Some("key") {
+            if let Some(key_id) = populated_config.ssh_key_id {
+                match crate::db::get_ssh_key_by_id(&app, key_id) {
+                    Ok(Some(key)) => {
+                        populated_config.key_content = Some(key.content);
+                        populated_config.key_passphrase = key.passphrase;
+                    }
+                    Ok(None) => {
+                        println!("Warning: SSH Key with ID {} not found", key_id);
+                    }
+                    Err(e) => {
+                        println!("Error fetching SSH Key: {}", e);
+                        return Err(format!("Failed to fetch SSH Key: {}", e));
+                    }
+                }
+            }
+        }
+
+        let config_clone = populated_config.clone();
         let ssh_pool =
             tokio::task::spawn_blocking(move || SessionSshPool::new(config_clone, max_bg_sessions))
                 .await
@@ -122,19 +164,20 @@ pub async fn connect(
         let cleanup_pool = ssh_pool.clone();
         let monitor_signal = shutdown_signal.clone();
 
+        // ... (Cleanup task setup same as before)
         tokio::spawn(async move {
             let mut cleanup_interval = tokio::time::interval(Duration::from_secs(30));
             let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(60));
             loop {
                 tokio::select! {
-                    _ = cleanup_interval.tick() => {
+                     _ = cleanup_interval.tick() => {
                         if monitor_signal.load(Ordering::Relaxed) { break; }
                         cleanup_pool.cleanup_disconnected();
                     }
                     _ = heartbeat_interval.tick() => {
                         if monitor_signal.load(Ordering::Relaxed) { break; }
                         if let Err(e) = cleanup_pool.heartbeat_check() {
-                            eprintln!("Heartbeat check failed: {}", e);
+                             eprintln!("Heartbeat check failed: {}", e);
                         }
                     }
                 }

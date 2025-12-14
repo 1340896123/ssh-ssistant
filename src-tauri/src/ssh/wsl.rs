@@ -129,6 +129,10 @@ pub fn import_wsl_to_db(app: &AppHandle) -> Result<(), String> {
             jump_password: None,
             group_id: wsl_group_id,
             os_type: Some("Linux".to_string()),
+            auth_type: None,
+            ssh_key_id: None,
+            key_content: None,
+            key_passphrase: None,
         };
 
         db::create_connection(app.clone(), new_conn)?;

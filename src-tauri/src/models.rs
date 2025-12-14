@@ -2,6 +2,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct SshKey {
+    pub id: Option<i64>,
+    pub name: String,
+    pub content: String,
+    pub passphrase: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Connection {
     pub id: Option<i64>,
     pub name: String,
@@ -9,6 +19,8 @@ pub struct Connection {
     pub port: u16,
     pub username: String,
     pub password: Option<String>,
+    pub auth_type: Option<String>, // "password" or "key", default "password"
+    pub ssh_key_id: Option<i64>,
     // Jump host configuration
     pub jump_host: Option<String>,
     pub jump_port: Option<u16>,
@@ -16,6 +28,10 @@ pub struct Connection {
     pub jump_password: Option<String>,
     pub group_id: Option<i64>,
     pub os_type: Option<String>, // Default "Linux" for backward compatibility
+
+    // Internal use for connection (not stored in connections table)
+    pub key_content: Option<String>,
+    pub key_passphrase: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

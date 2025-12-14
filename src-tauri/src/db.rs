@@ -1,6 +1,6 @@
 use crate::models::{
     AIConfig, AppSettings, Connection as SshConnection, ConnectionGroup, FileManagerSettings,
-    SshPoolSettings, TerminalAppearanceSettings,
+    SshKey, SshPoolSettings, TerminalAppearanceSettings,
 };
 use rusqlite::{params, Connection, Result};
 use tauri::{AppHandle, Manager};
@@ -113,7 +113,31 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN group_id INTEGER REFERENCES connection_groups(id) ON DELETE SET NULL", []);
 
     // Migration: Add os_type to connections with default 'Linux'
-    let _ = conn.execute("ALTER TABLE connections ADD COLUMN os_type TEXT NOT NULL DEFAULT 'Linux'", []);
+    let _ = conn.execute(
+        "ALTER TABLE connections ADD COLUMN os_type TEXT NOT NULL DEFAULT 'Linux'",
+        [],
+    );
+
+    // --- SSH Keys Support ---
+
+    // Create ssh_keys table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ssh_keys (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            passphrase TEXT,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    // Add auth_type and ssh_key_id to connections
+    let _ = conn.execute(
+        "ALTER TABLE connections ADD COLUMN auth_type TEXT DEFAULT 'password'",
+        [],
+    );
+    let _ = conn.execute("ALTER TABLE connections ADD COLUMN ssh_key_id INTEGER REFERENCES ssh_keys(id) ON DELETE SET NULL", []);
 
     Ok(())
 }
@@ -123,7 +147,7 @@ pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, Stri
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let mut stmt = conn.prepare("SELECT id, name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type FROM connections")
+    let mut stmt = conn.prepare("SELECT id, name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type, auth_type, ssh_key_id FROM connections")
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
@@ -141,6 +165,10 @@ pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, Stri
                 jump_password: row.get(9)?,
                 group_id: row.get(10)?,
                 os_type: row.get(11)?,
+                auth_type: row.get(12)?,
+                ssh_key_id: row.get(13)?,
+                key_content: None,
+                key_passphrase: None,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -185,8 +213,8 @@ pub fn create_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(
     let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     db_conn.execute(
-        "INSERT INTO connections (name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.os_type],
+        "INSERT INTO connections (name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type, auth_type, ssh_key_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.os_type, conn.auth_type.unwrap_or("password".to_string()), conn.ssh_key_id],
     ).map_err(|e| {
         println!("Error inserting connection: {}", e);
         e.to_string()
@@ -201,8 +229,8 @@ pub fn update_connection(app_handle: AppHandle, conn: SshConnection) -> Result<(
     let db_conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     db_conn.execute(
-        "UPDATE connections SET name=?1, host=?2, port=?3, username=?4, password=?5, jump_host=?6, jump_port=?7, jump_username=?8, jump_password=?9, group_id=?10, os_type=?11 WHERE id=?12",
-        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.os_type, conn.id],
+        "UPDATE connections SET name=?1, host=?2, port=?3, username=?4, password=?5, jump_host=?6, jump_port=?7, jump_username=?8, jump_password=?9, group_id=?10, os_type=?11, auth_type=?12, ssh_key_id=?13 WHERE id=?14",
+        params![conn.name, conn.host, conn.port, conn.username, conn.password, conn.jump_host, conn.jump_port, conn.jump_username, conn.jump_password, conn.group_id, conn.os_type, conn.auth_type.unwrap_or("password".to_string()), conn.ssh_key_id, conn.id],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -335,4 +363,122 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
     ).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+// --- SSH Key Commands ---
+
+#[tauri::command]
+pub fn get_ssh_keys(app_handle: AppHandle) -> Result<Vec<SshKey>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, content, passphrase, created_at FROM ssh_keys ORDER BY created_at ASC")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SshKey {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                content: row.get(2)?,
+                passphrase: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut keys = Vec::new();
+    for row in rows {
+        keys.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(keys)
+}
+
+#[tauri::command]
+pub fn create_ssh_key(app_handle: AppHandle, key: SshKey) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO ssh_keys (name, content, passphrase, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![key.name, key.content, key.passphrase, key.created_at],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_ssh_key(app_handle: AppHandle, id: i64) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    conn.execute("DELETE FROM ssh_keys WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn get_ssh_key_by_id(app_handle: &AppHandle, id: i64) -> Result<Option<SshKey>, String> {
+    let db_path = get_db_path(app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, content, passphrase, created_at FROM ssh_keys WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+
+    let mut rows = stmt
+        .query_map(params![id], |row| {
+            Ok(SshKey {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                content: row.get(2)?,
+                passphrase: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    if let Some(row) = rows.next() {
+        Ok(Some(row.map_err(|e| e.to_string())?))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn generate_ssh_key(
+    app_handle: AppHandle,
+    name: String,
+    algorithm: String,
+    passphrase: Option<String>,
+) -> Result<SshKey, String> {
+    let (private_key, _public_key) =
+        crate::ssh::keys::generate_key_pair(&algorithm, passphrase.as_deref())?;
+
+    let key = SshKey {
+        id: None, // Will be set by DB
+        name,
+        content: private_key,
+        passphrase,
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64,
+    };
+
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO ssh_keys (name, content, passphrase, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![key.name, key.content, key.passphrase, key.created_at],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let id = conn.last_insert_rowid();
+
+    Ok(SshKey {
+        id: Some(id),
+        ..key
+    })
 }

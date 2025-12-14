@@ -1,3 +1,11 @@
+export interface SshKey {
+  id: number;
+  name: string;
+  content: string;
+  passphrase?: string;
+  createdAt: number;
+}
+
 export interface Connection {
   id?: number;
   name: string;
@@ -5,6 +13,8 @@ export interface Connection {
   port: number;
   username: string;
   password?: string;
+  authType?: "password" | "key";
+  sshKeyId?: number | null;
   // Jump host config
   jumpHost?: string;
   jumpPort?: number;

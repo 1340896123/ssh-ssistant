@@ -16,6 +16,7 @@ pub mod client;
 pub mod command;
 pub mod connection;
 pub mod file_ops;
+pub mod keys;
 pub mod system;
 pub mod terminal;
 pub mod utils;

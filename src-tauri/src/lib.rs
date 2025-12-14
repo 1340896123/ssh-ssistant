@@ -62,6 +62,11 @@ pub fn run() {
             db::create_group,
             db::update_group,
             db::delete_group,
+            db::get_ssh_keys,
+            db::create_ssh_key,
+            db::delete_ssh_key,
+            db::generate_ssh_key,
+            ssh::connection::install_ssh_key,
             system::get_file_icon,
             ssh::system::get_remote_system_status
         ])
