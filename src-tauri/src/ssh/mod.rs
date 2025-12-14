@@ -2,7 +2,7 @@
 pub const DEFAULT_CONNECTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 pub const JUMP_HOST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const LOCAL_FORWARD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-pub const CONNECTION_RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+pub const CONNECTION_RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_millis(1000);
 pub const CONNECTION_RETRY_MAX_ATTEMPTS: u32 = 3;
 
 #[derive(Debug, Clone)]

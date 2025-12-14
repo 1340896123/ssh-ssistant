@@ -144,7 +144,7 @@ pub async fn connect(
                         populated_config.key_passphrase = key.passphrase;
                     }
                     Ok(None) => {
-                        println!("Warning: SSH Key with ID {} not found", key_id);
+                        return Err(format!("SSH Key with ID {} not found in database", key_id));
                     }
                     Err(e) => {
                         println!("Error fetching SSH Key: {}", e);

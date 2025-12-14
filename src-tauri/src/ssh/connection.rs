@@ -10,7 +10,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 pub struct ForwardingThreadHandle {
@@ -76,6 +76,7 @@ pub struct SessionSshPool {
     background_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 后台会话池
     max_background_sessions: usize,           // 最大后台会话数量
     next_bg_index: Arc<Mutex<usize>>,         // 轮询索引
+    created_at: Arc<Mutex<Instant>>,          // 主会话建立时间，用于延迟后台连接
 }
 
 impl SessionSshPool {
@@ -92,6 +93,7 @@ impl SessionSshPool {
             background_sessions: Arc::new(Mutex::new(Vec::new())),
             max_background_sessions,
             next_bg_index: Arc::new(Mutex::new(0)),
+            created_at: Arc::new(Mutex::new(Instant::now())),
         })
     }
 
@@ -106,8 +108,19 @@ impl SessionSshPool {
 
         // 如果没有后台会话或需要扩容，创建新会话
         if sessions.is_empty() || sessions.len() < self.max_background_sessions {
-            // Stagger new connections to avoid server security limits
-            thread::sleep(Duration::from_millis(100));
+            // Check if we need to wait to respect the "serialize" rule (2s gap after main session)
+            if sessions.is_empty() {
+                // Only enforce strict delay for the *first* background connection
+                let created_at = *self.created_at.lock().map_err(|e| e.to_string())?;
+                let elapsed = created_at.elapsed();
+                if elapsed < Duration::from_secs(2) {
+                    thread::sleep(Duration::from_secs(2) - elapsed);
+                }
+            } else {
+                // Stagger subsequent new connections
+                thread::sleep(Duration::from_millis(100));
+            }
+
             let new_session = establish_connection_with_retry(&self.config)?;
             sessions.push(Arc::new(Mutex::new(new_session)));
         }
@@ -249,6 +262,11 @@ impl SessionSshPool {
         {
             let mut main_sess = self.main_session.lock().map_err(|e| e.to_string())?;
             *main_sess = new_session;
+
+            // Reset creation time
+            if let Ok(mut t) = self.created_at.lock() {
+                *t = Instant::now();
+            }
         }
         Ok(())
     }
@@ -264,11 +282,14 @@ impl SessionSshPool {
             sessions.clear();
         }
 
+        // remove eager warmup
+        /*
         // 预热一个后台会话
         if let Ok(initial_bg_session) = establish_connection_with_retry(&self.config) {
             let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
             sessions.push(Arc::new(Mutex::new(initial_bg_session)));
         }
+        */
 
         Ok(())
     }
@@ -504,16 +525,34 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
             let key_path = temp_dir.join(format!("ssh_key_{}", uuid));
             let pub_key_path = temp_dir.join(format!("ssh_key_{}.pub", uuid));
 
-            std::fs::write(&key_path, key_content)
-                .map_err(|e| format!("Failed to write temporary key file: {}", e))?;
+            std::fs::write(&key_path, key_content).map_err(|e| {
+                format!(
+                    "Failed to write temporary key file (check permissions/disk space): {}",
+                    e
+                )
+            })?;
+
+            // Check for PPK format issues before parsing
+            if key_content.contains("PuTTY-User-Key-File") {
+                let _ = std::fs::remove_file(&key_path);
+                return Err("Putty (PPK) format is not supported. Please convert your private key to OpenSSH format (PEM) using PuTTYgen or ssh-keygen.".to_string());
+            }
 
             // Derive and write public key
             let public_key_content = PrivateKey::from_openssh(key_content)
                 .and_then(|pk| pk.public_key().to_openssh())
-                .map_err(|e| format!("Failed to parse private key or derive public key: {}", e))?;
+                .map_err(|e| {
+                    let _ = std::fs::remove_file(&key_path);
+                    format!(
+                        "Failed to parse private key. Ensure it is in OpenSSH format. Details: {}",
+                        e
+                    )
+                })?;
 
-            std::fs::write(&pub_key_path, &public_key_content)
-                .map_err(|e| format!("Failed to write temporary public key file: {}", e))?;
+            std::fs::write(&pub_key_path, &public_key_content).map_err(|e| {
+                let _ = std::fs::remove_file(&key_path);
+                format!("Failed to write temporary public key file: {}", e)
+            })?;
 
             let passphrase = config.key_passphrase.as_deref();
 
@@ -529,7 +568,14 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
             let _ = std::fs::remove_file(&key_path);
             let _ = std::fs::remove_file(&pub_key_path);
 
-            auth_res.map_err(|e| format!("Key authentication failed: {}", e))?;
+            auth_res.map_err(|e| {
+                let hint = if passphrase.is_some() {
+                    "Verify your passphrase is correct."
+                } else {
+                    "Ensure the public key is added to the server's ~/.ssh/authorized_keys."
+                };
+                format!("Key authentication failed: {}. Hint: {}", e, hint)
+            })?;
         } else {
             return Err("Auth type is 'key' but no key content provided".to_string());
         }
