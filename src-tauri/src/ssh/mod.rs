@@ -12,11 +12,19 @@ pub enum ShellMsg {
     Exit,
 }
 
+#[derive(Clone, serde::Serialize)]
+pub struct ProgressPayload {
+    pub id: String,
+    pub transferred: u64,
+    pub total: u64,
+}
+
 pub mod client;
 pub mod command;
 pub mod connection;
 pub mod file_ops;
 pub mod keys;
+pub mod manager;
 pub mod system;
 pub mod terminal;
 pub mod utils;
@@ -25,6 +33,5 @@ pub mod wsl;
 // Re-export main types and functions for backward compatibility
 pub use client::{AppState, SshClient};
 pub use connection::{ForwardingThreadHandle, ManagedSession, SessionSshPool};
-pub use utils::{
-    compute_local_file_hash, execute_ssh_operation, get_dir_size, get_sftp_buffer_size, ssh2_retry,
-};
+pub use manager::{SshCommand, SshManager};
+pub use utils::{execute_ssh_operation, ssh2_retry};

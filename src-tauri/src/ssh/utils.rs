@@ -2,11 +2,10 @@ use hex;
 use sha2::{Digest, Sha256};
 use ssh2::Session;
 use std::io::{ErrorKind, Read};
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{Receiver, Sender};
+
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 // Helper to retry ssh2 operations that might return EAGAIN/WouldBlock
 pub fn ssh2_retry<F, T>(mut f: F) -> Result<T, ssh2::Error>
@@ -57,8 +56,7 @@ pub fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>
         .map_err(|e| format!("Failed to create channel: {}", e))?;
     // Try sha256sum first
     let cmd = format!("sha256sum '{}'", path);
-    ssh2_retry(|| channel.exec(&cmd))
-        .map_err(|e| format!("Failed to execute command: {}", e))?;
+    ssh2_retry(|| channel.exec(&cmd)).map_err(|e| format!("Failed to execute command: {}", e))?;
 
     let mut s = String::new();
     let mut buf = [0u8; 1024];
@@ -128,15 +126,13 @@ pub fn get_remote_file_hash(sess: &Session, path: &str) -> Result<Option<String>
 }
 
 pub fn compute_local_file_hash(path: &std::path::Path, limit: u64) -> Result<String, String> {
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 8192];
     let mut read = 0u64;
 
     loop {
-        let n = file.read(&mut buf)
-            .map_err(|e| e.to_string())?;
+        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
         if n == 0 {
             break;
         }

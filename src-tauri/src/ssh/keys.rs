@@ -1,5 +1,5 @@
 use ssh_key::rand_core::OsRng;
-use ssh_key::{Algorithm, EcdsaCurve, LineEnding, PrivateKey};
+use ssh_key::{Algorithm, LineEnding, PrivateKey};
 
 pub fn generate_key_pair(
     algorithm: &str,

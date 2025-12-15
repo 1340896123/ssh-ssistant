@@ -125,7 +125,10 @@ onMounted(async () => {
 
   // Zmodem Integration
   zmodemSentry = new Zmodem.Sentry({
-    to_terminal: (octets: any) => term?.write(octets),
+    to_terminal: (octets: any) => {
+        // console.log('Zmodem sentry to_terminal', octets.byteLength || octets.length);
+        term?.write(octets);
+    },
     sender: (octets: any) => {
       // Send binary data to PTY
       // Convert octets (Array of numbers) to Uint8Array then to Array? 
@@ -204,6 +207,7 @@ onMounted(async () => {
 
   // Listen to backend data
   unlisten = await listen<number[]>(`term-data:${props.sessionId}`, (event) => {
+    // console.log('term-data event received', props.sessionId, event.payload.length);
     const data = new Uint8Array(event.payload);
     // Feed through Zmodem Sentry
     zmodemSentry.consume(data);

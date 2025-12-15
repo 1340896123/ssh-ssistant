@@ -5,8 +5,8 @@ use tauri::command;
 
 #[cfg(target_os = "windows")]
 use windows::{
-    core::*, Win32::Foundation::*, Win32::Graphics::Gdi::*, Win32::Storage::FileSystem::*,
-    Win32::UI::Shell::*, Win32::UI::WindowsAndMessaging::*,
+    core::*, Win32::Graphics::Gdi::*, Win32::Storage::FileSystem::*, Win32::UI::Shell::*,
+    Win32::UI::WindowsAndMessaging::*,
 };
 
 #[command]

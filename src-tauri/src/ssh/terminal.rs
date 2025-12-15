@@ -1,9 +1,10 @@
 use super::client::{AppState, SshClient};
-use crate::ssh::{ssh2_retry, ShellMsg};
-use std::io::{ErrorKind, Read, Write};
+use super::manager::SshCommand;
+use crate::ssh::ShellMsg;
+use std::io::{Read, Write};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-use std::time::Duration;
+
 use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
@@ -56,97 +57,61 @@ pub fn start_shell_thread(
 ) -> Result<Sender<ShellMsg>, String> {
     // Determine connection type
     match &client.client_type {
-        crate::ssh::client::ClientType::Ssh(ssh_pool) => {
-            // 在主会话上启动shell线程
-            let (tx, rx): (Sender<ShellMsg>, Receiver<ShellMsg>) = channel();
-
-            // Get main session
-            let main_session = ssh_pool.get_main_session();
-            let shell_sess = main_session.clone();
+        crate::ssh::client::ClientType::Ssh(ssh_sender) => {
+            let ssh_sender = ssh_sender.clone();
             let shell_id = id.clone();
 
+            // 1. Create callback channel for data FROM SSH to UI
+            let (callback_tx, callback_rx): (Sender<ShellMsg>, Receiver<ShellMsg>) = channel();
+
+            // 2. Spawn thread to pump data from callback to UI
+            let app_clone = app.clone();
+            let shell_id_clone = shell_id.clone();
             thread::spawn(move || {
-                // Wait for frontend to be ready
-                thread::sleep(Duration::from_millis(500));
-
-                // Macro to retry operations on EAGAIN
-                macro_rules! retry {
-                    ($e:expr) => {
-                        ssh2_retry(|| $e)
-                    };
-                }
-
-                let mut channel = match retry!({
-                    let sess_lock = shell_sess.lock().unwrap();
-                    sess_lock.channel_session()
-                }) {
-                    Ok(channel) => channel,
-                    Err(e) => {
-                        eprintln!("Failed to create channel: {}", e);
-                        let _ = app.emit(&format!("term-exit:{}", shell_id), ());
-                        return;
-                    }
-                };
-
-                // Apply retry! to request_pty as it might return WouldBlock
-                if let Err(e) = retry!(channel.request_pty("xterm", None, Some((80, 24, 0, 0)))) {
-                    eprintln!("Failed to request PTY: {}", e);
-                    let _ = app.emit(&format!("term-exit:{}", shell_id), ());
-                    return;
-                }
-
-                // Apply retry! to shell request as well
-                if let Err(e) = retry!(channel.shell()) {
-                    eprintln!("Failed to start shell: {}", e);
-                    let _ = app.emit(&format!("term-exit:{}", shell_id), ());
-                    return;
-                }
-
-                let mut buf = [0u8; 4096];
-                loop {
-                    // 1. Read from SSH
-                    let read_result = channel.read(&mut buf);
-                    match read_result {
-                        Ok(n) if n > 0 => {
-                            let data = buf[0..n].to_vec();
-                            let _ = app.emit(&format!("term-data:{}", shell_id), data);
+                while let Ok(msg) = callback_rx.recv() {
+                    match msg {
+                        ShellMsg::Data(d) => {
+                            let _ = app_clone.emit(&format!("term-data:{}", shell_id_clone), d);
                         }
-                        Ok(_) => {
-                            // EOF
+                        ShellMsg::Resize { .. } => {} // Incoming resize? Usually not relevant
+                        ShellMsg::Exit => {
+                            let _ = app_clone.emit(&format!("term-exit:{}", shell_id_clone), ());
                             break;
                         }
-                        Err(e) => {
-                            if e.kind() != ErrorKind::WouldBlock {
-                                eprintln!("SSH Read Error: {}", e);
-                                break;
-                            }
-                        }
                     }
-
-                    // 2. Process incoming messages
-                    while let Ok(msg) = rx.try_recv() {
-                        match msg {
-                            ShellMsg::Data(d) => {
-                                let _ = channel.write_all(&d);
-                            }
-                            ShellMsg::Resize { rows, cols } => {
-                                let _ = retry!(channel.request_pty_size(
-                                    cols.into(),
-                                    rows.into(),
-                                    None,
-                                    None
-                                ));
-                            }
-                            ShellMsg::Exit => return,
-                        }
-                    }
-
-                    thread::sleep(Duration::from_millis(10));
                 }
-                let _ = app.emit(&format!("term-exit:{}", shell_id), ());
             });
 
-            Ok(tx)
+            // 3. Send ShellOpen command
+            // xterm default size
+            let _ = ssh_sender.send(SshCommand::ShellOpen {
+                cols: 80,
+                rows: 24,
+                sender: callback_tx,
+            });
+
+            // 4. Create Adapter Channel for UI -> SSH
+            let (ui_tx, ui_rx): (Sender<ShellMsg>, Receiver<ShellMsg>) = channel();
+
+            // 5. Spawn adapter thread
+            thread::spawn(move || {
+                while let Ok(msg) = ui_rx.recv() {
+                    match msg {
+                        ShellMsg::Data(d) => {
+                            let _ = ssh_sender.send(SshCommand::ShellWrite(d));
+                        }
+                        ShellMsg::Resize { rows, cols } => {
+                            let _ = ssh_sender.send(SshCommand::ShellResize { rows, cols });
+                        }
+                        ShellMsg::Exit => {
+                            let _ = ssh_sender.send(SshCommand::ShellClose);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            Ok(ui_tx)
         }
         crate::ssh::client::ClientType::Wsl(distro) => {
             use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};

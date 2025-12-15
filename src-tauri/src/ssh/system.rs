@@ -1,7 +1,7 @@
 use super::client::{AppState, ClientType};
-use crate::ssh::{execute_ssh_operation, ssh2_retry};
+use crate::ssh::{execute_ssh_operation, SshCommand};
 use serde::{Deserialize, Serialize};
-use std::io::Read;
+use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 use tauri::{command, AppHandle, State};
@@ -56,33 +56,16 @@ pub struct SessionStats {
 }
 
 // Helper to run command on SSH session
-fn run_ssh_command(sess: &ssh2::Session, cmd: &str) -> Result<String, String> {
-    let mut channel = ssh2_retry(|| sess.channel_session()).map_err(|e| e.to_string())?;
-    ssh2_retry(|| channel.exec(cmd)).map_err(|e| e.to_string())?;
-
-    let mut s = String::new();
-    let mut buf = [0u8; 4096];
-
-    loop {
-        match channel.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                let chunk = String::from_utf8_lossy(&buf[..n]);
-                s.push_str(&chunk);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(10));
-            }
-            Err(e) => {
-                return Err(e.to_string());
-            }
-        }
-    }
-
-    ssh2_retry(|| channel.wait_close())
-        .map_err(|e| format!("Failed to wait for channel close: {}", e))?;
-
-    Ok(s.trim().to_string())
+// Helper to run command on SSH session
+fn run_ssh_command(sender: &Sender<SshCommand>, cmd: &str) -> Result<String, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    sender.send(SshCommand::Exec {
+        command: cmd.to_string(),
+        listener: tx,
+        cancel_flag: None,
+    }).map_err(|e| format!("Failed to send command: {}", e))?;
+    
+    rx.recv().map_err(|_| "Failed to receive response from SSH Manager".to_string())?
 }
 
 // Helper to run command on WSL
@@ -160,39 +143,33 @@ pub async fn get_remote_system_status(
 
     // Execute commands in steps
     let (uptime_str, mounts_str, ip_str, cpu_str, memory_str, proc_cpu_str, proc_mem_str) = match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-
-                let sess = bg_session.lock().unwrap();
-
                 // 1. Uptime
                 let uptime = run_ssh_command(
-                    &sess,
+                    &sender,
                     "export LC_ALL=C; (uptime -p 2>/dev/null || uptime 2>/dev/null)",
                 )?;
 
                 // 2. Mounts
                 let mounts = run_ssh_command(
-                    &sess,
+                    &sender,
                     "export LC_ALL=C; df -Ph 2>/dev/null | awk 'NR>1 {print $1 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5 \"|\" $6}'",
                 )?;
 
                 // 3. IP
                 let ip = run_ssh_command(
-                    &sess,
+                    &sender,
                     "export LC_ALL=C; (hostname -I 2>/dev/null || echo 'n/a')",
                 )?;
 
                 // 4. CPU
-                let cpu_stat1 = run_ssh_command(&sess, "cat /proc/stat | grep '^cpu '").ok();
+                let cpu_stat1 = run_ssh_command(&sender, "cat /proc/stat | grep '^cpu '").ok();
                 
                 let cpu = if let Some(stat1) = cpu_stat1 {
                     thread::sleep(Duration::from_millis(500));
-                    if let Ok(stat2) = run_ssh_command(&sess, "cat /proc/stat | grep '^cpu '") {
+                    if let Ok(stat2) = run_ssh_command(&sender, "cat /proc/stat | grep '^cpu '") {
                          match (parse_cpu_stats(&stat1), parse_cpu_stats(&stat2)) {
                             (Some((t1, w1)), Some((t2, w2))) if t2 > t1 => {
                                 let total_delta = t2 - t1;
@@ -207,20 +184,20 @@ pub async fn get_remote_system_status(
                     }
                 } else {
                      let top_cmd = "top -bn1 2>/dev/null | grep \"Cpu(s)\" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//'";
-                     run_ssh_command(&sess, top_cmd).unwrap_or_else(|_| "0".to_string())
+                     run_ssh_command(&sender, top_cmd).unwrap_or_else(|_| "0".to_string())
                 };
 
                 // 5. Memory
                 let mem_cmd = r#"export LC_ALL=C; awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null"#;
-                let memory = run_ssh_command(&sess, mem_cmd)?;
+                let memory = run_ssh_command(&sender, mem_cmd)?;
 
                 // 6. Processes (CPU sorted)
                 let proc_cpu_cmd = r#"export LC_ALL=C; ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
-                let proc_cpu = run_ssh_command(&sess, proc_cpu_cmd)?;
+                let proc_cpu = run_ssh_command(&sender, proc_cpu_cmd)?;
 
                 // 7. Processes (Memory sorted)
                 let proc_mem_cmd = r#"export LC_ALL=C; ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
-                let proc_mem = run_ssh_command(&sess, proc_mem_cmd)?;
+                let proc_mem = run_ssh_command(&sender, proc_mem_cmd)?;
 
                 Ok((uptime, mounts, ip, cpu, memory, proc_cpu, proc_mem))
             }).await?
