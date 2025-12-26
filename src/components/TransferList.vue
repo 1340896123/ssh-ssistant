@@ -1,44 +1,38 @@
 <script setup lang="ts">
 import { useTransferStore } from '../stores/transfers';
+import { useSessionStore } from '../stores/sessions';
 import { X, Pause, RefreshCw, Trash2, FileUp, FileDown, ChevronUp, ChevronDown, Folder, Play, Square } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import { useVirtualizer } from '@tanstack/vue-virtual';
 
 const store = useTransferStore();
+const sessionStore = useSessionStore();
 const isExpanded = ref(false);
 const virtualizerContainerRef = ref<HTMLElement>();
 
 // 限制显示的项目数量以优化性能
 const MAX_VISIBLE_ITEMS = 100;
-const visibleItems = computed(() => {
-    // store.items uses unshift, so index 0 is newest.
-    // We want to show the newest items at the top of the list.
-    // The previous code used slice(-MAX) which took the LAST items (oldest if using push, but newest if using unshift? wait).
-    // If [New, Old]. slice(-1) gives [Old]. So it was showing OLDEST items.
-    // We want slice(0, MAX) to show NEWEST items.
-    // Also we don't need to sort if we trust the order.
-    // To support sorting by date properly we would need created_at in the interface.
-    // For now, removing sort to fix lint and relying on natural order.
-    const items = store.items;
 
-    // However, existing code was:
-    // const items = store.items;
-    // return items.slice(-MAX_VISIBLE_ITEMS);
-    // If unshift is used, newest are at index 0. `slice(-N)` gets the LAST N items.
-    // So if I have [New, Old], slice(-1) gets [Old].
-    // I want slice(0, MAX_VISIBLE_ITEMS) to get [New].
+// Only show items for the ACTIVE SESSION
+const sessionItems = computed(() => {
+    if (!sessionStore.activeSessionId) return [];
+    return store.items.filter(i => i.sessionId === sessionStore.activeSessionId);
+});
+
+const visibleItems = computed(() => {
+    const items = sessionItems.value;
     if (items.length <= MAX_VISIBLE_ITEMS) {
         return items;
     }
     return items.slice(0, MAX_VISIBLE_ITEMS);
 });
 
-const visible = computed(() => store.items.length > 0);
+const visible = computed(() => sessionItems.value.length > 0);
 
 const summary = computed(() => {
-    const total = store.items.length;
-    const running = store.items.filter(i => i.status === 'running').length;
-    const failed = store.items.filter(i => i.status === 'error').length;
+    const total = sessionItems.value.length;
+    const running = sessionItems.value.filter(i => i.status === 'running').length;
+    const failed = sessionItems.value.filter(i => i.status === 'error').length;
     const hidden = Math.max(0, total - MAX_VISIBLE_ITEMS);
     let result = '';
     if (running > 0) result = `${running} running`;
@@ -48,11 +42,11 @@ const summary = computed(() => {
     return result;
 });
 
-// 批量操作按钮的可见性计算
-const canBatchPause = computed(() => store.items.some(i => i.status === 'running'));
-const canBatchResume = computed(() => store.items.some(i => ['paused', 'error', 'cancelled'].includes(i.status)));
-const canBatchCancel = computed(() => store.items.some(i => ['running', 'paused', 'pending'].includes(i.status)));
-const canBatchDelete = computed(() => store.items.some(i => ['completed', 'cancelled', 'error', 'paused'].includes(i.status)));
+// 批量操作按钮的可见性计算 (Scoped to session)
+const canBatchPause = computed(() => sessionItems.value.some(i => i.status === 'running'));
+const canBatchResume = computed(() => sessionItems.value.some(i => ['paused', 'error', 'cancelled'].includes(i.status)));
+const canBatchCancel = computed(() => sessionItems.value.some(i => ['running', 'paused', 'pending'].includes(i.status)));
+const canBatchDelete = computed(() => sessionItems.value.some(i => ['completed', 'cancelled', 'error', 'paused'].includes(i.status)));
 
 function formatSize(bytes: number) {
     if (bytes === 0) return '0 B';
@@ -90,20 +84,20 @@ function toggleExpand() {
             </div>
             <div class="flex space-x-2" @click.stop>
                 <!-- 批量操作按钮 -->
-                <button v-if="isExpanded && canBatchPause" @click="store.batchPause()" title="Batch Pause" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                <button v-if="isExpanded && canBatchPause" @click="store.batchPause(sessionStore.activeSessionId!)" title="Batch Pause" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
                     <Pause class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchResume" @click="store.batchResume()" title="Batch Resume" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                <button v-if="isExpanded && canBatchResume" @click="store.batchResume(sessionStore.activeSessionId!)" title="Batch Resume" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
                     <Play class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel()" title="Batch Cancel" class="p-0.5 hover:bg-gray-700 rounded text-yellow-400">
+                <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel(sessionStore.activeSessionId!)" title="Batch Cancel" class="p-0.5 hover:bg-gray-700 rounded text-yellow-400">
                     <Square class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete()" title="Batch Delete" class="p-0.5 hover:bg-gray-700 rounded text-red-400">
+                <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete(sessionStore.activeSessionId!)" title="Batch Delete" class="p-0.5 hover:bg-gray-700 rounded text-red-400">
                     <Trash2 class="w-3 h-3" />
                 </button>
                 <!-- 原有的清除已完成按钮 -->
-                <button v-if="isExpanded" @click="store.clearHistory()" title="Clear Completed" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                <button v-if="isExpanded" @click="store.clearHistory(sessionStore.activeSessionId!)" title="Clear Completed" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
                     <Trash2 class="w-3 h-3" />
                 </button>
             </div>
