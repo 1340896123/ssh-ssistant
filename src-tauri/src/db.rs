@@ -80,7 +80,7 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
 
     // Migration: Add SSH pool settings
     let _ = conn.execute(
-        r#"ALTER TABLE settings ADD COLUMN ssh_max_background_sessions INTEGER NOT NULL DEFAULT 3"#,
+        r#"ALTER TABLE settings ADD COLUMN ssh_max_background_sessions INTEGER NOT NULL DEFAULT 10"#,
         [],
     );
     let _ = conn.execute(
@@ -322,7 +322,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
                     sftp_buffer_size: row.get::<_, Option<i32>>(13)?.unwrap_or(512),
                 },
                 ssh_pool: SshPoolSettings {
-                    max_background_sessions: row.get::<_, Option<i32>>(10)?.unwrap_or(3),
+                    max_background_sessions: row.get::<_, Option<i32>>(10)?.unwrap_or(10),
                     enable_auto_cleanup: row.get::<_, Option<bool>>(11)?.unwrap_or(true),
                     cleanup_interval_minutes: row.get::<_, Option<i32>>(12)?.unwrap_or(5),
                 },
