@@ -688,7 +688,13 @@ impl SshManager {
                 return Err("Cancelled".to_string());
             }
 
-            match remote.read(&mut buf) {
+            // 获取锁，读取一小块数据，然后立即释放锁
+            let read_res = {
+                let session = session_mutex.lock().map_err(|e| e.to_string())?;
+                remote.read(&mut buf)
+            };
+
+            match read_res {
                 Ok(0) => break,
                 Ok(n) => {
                     local.write_all(&buf[..n]).map_err(|e| e.to_string())?;
@@ -770,7 +776,13 @@ impl SshManager {
 
             let mut pos = 0;
             while pos < n {
-                match remote.write(&buf[pos..n]) {
+                // 获取锁，写入一部分数据，然后释放
+                let write_res = {
+                    let session = session_mutex.lock().map_err(|e| e.to_string())?;
+                    remote.write(&buf[pos..n])
+                };
+
+                match write_res {
                     Ok(written) => {
                         pos += written;
                         transferred += written as u64;

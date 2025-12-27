@@ -102,30 +102,32 @@ impl SessionSshPool {
         self.main_session.clone()
     }
 
-    /// 获取后台会话（轮询分配）
+    /// 获取后台会话（智能分配：优先空闲，繁忙则动态补齐）
     pub fn get_background_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
         let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
 
-        // 如果没有后台会话或需要扩容，创建新会话
-        if sessions.is_empty() || sessions.len() < self.max_background_sessions {
-            // Check if we need to wait to respect the "serialize" rule (2s gap after main session)
-            if sessions.is_empty() {
-                // Only enforce strict delay for the *first* background connection
-                let created_at = *self.created_at.lock().map_err(|e| e.to_string())?;
-                let elapsed = created_at.elapsed();
-                if elapsed < Duration::from_secs(2) {
-                    thread::sleep(Duration::from_secs(2) - elapsed);
-                }
-            } else {
-                // Stagger subsequent new connections
+        // 1. 尝试寻找当前没有被其它线程锁定的“空闲”会话
+        for session in sessions.iter() {
+            if let Ok(_guard) = session.try_lock() {
+                // 能够立即拿到锁，说明它是空闲的
+                return Ok(session.clone());
+            }
+        }
+
+        // 2. 如果没有空闲会话，且还没达到上限，则创建一个新会话
+        if sessions.len() < self.max_background_sessions {
+            // Stagger new connections to avoid flooding the server
+            if !sessions.is_empty() {
                 thread::sleep(Duration::from_millis(100));
             }
 
             let new_session = establish_connection_with_retry(&self.config)?;
-            sessions.push(Arc::new(Mutex::new(new_session)));
+            let session_arc = Arc::new(Mutex::new(new_session));
+            sessions.push(session_arc.clone());
+            return Ok(session_arc);
         }
 
-        // 轮询选择会话
+        // 3. 所有会话都在忙（被锁定），且已达上限，则退而求其次，轮询阻塞等待一个
         let mut index = self.next_bg_index.lock().map_err(|e| e.to_string())?;
         let session = sessions[*index % sessions.len()].clone();
         *index = (*index + 1) % sessions.len();

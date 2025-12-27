@@ -132,7 +132,7 @@ pub async fn connect(
         // Establish connection and spawn manager thread
         let sender = tokio::task::spawn_blocking(move || {
             let session = super::connection::establish_connection_with_retry(&config_clone)?;
-            let pool = super::connection::SessionSshPool::new(config_clone.clone(), 2)
+            let pool = super::connection::SessionSshPool::new(config_clone.clone(), 3)
                 .map_err(|e| e.to_string())?;
 
             let (tx, rx) = std::sync::mpsc::channel();
