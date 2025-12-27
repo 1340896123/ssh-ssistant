@@ -36,8 +36,22 @@ function getContent(): string {
   return lines.join('\n');
 }
 
+async function switchToPath(path: string) {
+  if (currentSession.value?.status !== 'connected') return;
+
+  // Send cd command to PTY
+  await invoke('write_to_pty', {
+    id: props.sessionId,
+    data: `cd '${path}'\n`
+  });
+
+  // Clear any current input in the command box
+  commandInput.value = '';
+}
+
 defineExpose({
   getContent,
+  switchToPath,
 });
 
 const terminalContainer = ref<HTMLElement | null>(null);

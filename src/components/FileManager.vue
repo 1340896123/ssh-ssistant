@@ -102,6 +102,7 @@ function showBackgroundContextMenu(e: MouseEvent) {
 const props = defineProps<{ sessionId: string }>();
 const emit = defineEmits<{
     (e: 'openFileEditor', filePath: string, fileName: string): void;
+    (e: 'switchToTerminalPath', sessionId: string, path: string): void;
 }>();
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
@@ -1465,6 +1466,22 @@ function copyName(file: FileEntry) {
     closeContextMenu();
 }
 
+function handleSwitchToTerminalPath() {
+    let path = '';
+    if (contextMenu.value.isBackground) {
+        path = currentPath.value;
+    } else if (contextMenu.value.file) {
+        path = contextMenu.value.isTree && contextMenu.value.treePath
+            ? contextMenu.value.treePath
+            : pathUtils.value.join(currentPath.value, contextMenu.value.file.name);
+    }
+
+    if (path) {
+        emit('switchToTerminalPath', props.sessionId, path);
+    }
+    closeContextMenu();
+}
+
 function formatDate(timestamp: number) {
     return new Date(timestamp * 1000).toLocaleString();
 }
@@ -1647,11 +1664,16 @@ function formatSize(size: number): string {
                     <Briefcase class="w-4 h-4 mr-2" />
                     Set as AI Workspace
                 </button>
-                <div class="border-t border-gray-700 my-1"></div>
                 <button @click.stop="copyCurrentPath()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
                     <Copy class="w-4 h-4 mr-2 text-gray-400" />
                     {{ t('fileManager.contextMenu.copyCurrentPath') }}
+                </button>
+                <div class="border-t border-gray-700 my-1"></div>
+                <button @click.stop="handleSwitchToTerminalPath()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <TerminalIcon class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.contextMenu.switchToTerminalPath') || '在终端打开' }}
                 </button>
             </template>
 
@@ -1691,6 +1713,12 @@ function formatSize(size: number): string {
                     class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{
                         t('fileManager.contextMenu.changePermissions')
                     }}</button>
+                <div class="border-t border-gray-700 my-1"></div>
+                <button v-if="contextMenu.file?.isDir" @click.stop="handleSwitchToTerminalPath()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
+                    <TerminalIcon class="w-4 h-4 mr-2 text-gray-400" />
+                    {{ t('fileManager.contextMenu.switchToTerminalPath') || '在终端打开' }}
+                </button>
             </template>
         </div>
     </div>

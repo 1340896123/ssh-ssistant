@@ -329,6 +329,13 @@ function openEditConnectionModal(conn: Connection) {
   editingConnection.value = conn;
   showConnectionModal.value = true;
 }
+
+function switchTerminalToPath(sessionId: string, path: string) {
+  const sessionIndex = sessionStore.sessions.findIndex(s => s.id === sessionId);
+  if (sessionIndex !== -1 && terminalTabAreaRefs.value[sessionIndex]) {
+    terminalTabAreaRefs.value[sessionIndex].switchToPath(path);
+  }
+}
 </script>
 
 <template>
@@ -342,7 +349,8 @@ function openEditConnectionModal(conn: Connection) {
           <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" :title="t('app.settings')">
             <Settings class="w-5 h-5" />
           </button>
-          <button @click="isSidebarCollapsed = true" class="text-gray-400 hover:text-white" :title="t('app.collapseSidebar') || 'Collapse Sidebar'">
+          <button @click="isSidebarCollapsed = true" class="text-gray-400 hover:text-white"
+            :title="t('app.collapseSidebar') || 'Collapse Sidebar'">
             <PanelLeftClose class="w-5 h-5" />
           </button>
         </div>
@@ -359,7 +367,8 @@ function openEditConnectionModal(conn: Connection) {
     </aside>
 
     <!-- Sidebar Resizer -->
-    <div v-show="!isSidebarCollapsed" class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+    <div v-show="!isSidebarCollapsed"
+      class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
       @mousedown.prevent="startResize('sidebar')"></div>
 
     <!-- Main Content -->
@@ -384,7 +393,7 @@ function openEditConnectionModal(conn: Connection) {
               <FileManager :sessionId="session.id" @openFileEditor="
                 (filePath, fileName) =>
                   openFileEditor(session.id, filePath, fileName)
-              " />
+              " @switchToTerminalPath="switchTerminalToPath" />
             </div>
 
             <!-- Resizer 1 -->

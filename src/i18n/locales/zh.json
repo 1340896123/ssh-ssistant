@@ -105,7 +105,8 @@
       "copyPath": "复制路径",
       "copyCurrentPath": "复制当前路径",
       "changePermissions": "修改权限",
-      "copyName": "复制名称"
+      "copyName": "复制名称",
+      "switchToTerminalPath": "终端切换到当前目录"
     },
     "deleteConfirm": {
       "title": "确认删除",

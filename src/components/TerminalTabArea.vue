@@ -120,10 +120,19 @@ function handleEditorSave() {
   // This can be used for additional UI updates if needed
 }
 
+async function switchToPath(path: string) {
+  activeTab.value = 'terminal';
+  await nextTick();
+  if (terminalViewRef.value) {
+    terminalViewRef.value.switchToPath(path);
+  }
+}
+
 // Expose methods and refs for parent components
 defineExpose({
   openFileEditor,
   closeAllEditors,
+  switchToPath,
   terminalView: terminalViewRef,
   $refs: { terminalView: terminalViewRef }
 });
