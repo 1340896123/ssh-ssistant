@@ -5,7 +5,8 @@
     "settings": "设置",
     "selectConnectionToStart": "选择一个连接以开始使用",
     "sessionDuration": "会话时长",
-    "loadingStatus": "正在加载状态..."
+    "loadingStatus": "正在加载状态...",
+    "collapseSidebar": "折叠侧边栏"
   },
   "connections": {
     "edit": "编辑",

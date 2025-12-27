@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue';
+import { ref, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useSshKeyStore } from '../stores/sshKeys';
 import { useI18n } from '../composables/useI18n';

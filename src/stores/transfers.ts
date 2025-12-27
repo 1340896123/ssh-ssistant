@@ -372,27 +372,42 @@ export const useTransferStore = defineStore('transfers', () => {
         item.status = 'cancelled';
     }
 
-    function clearHistory() {
-        items.value = items.value.filter(i => ['running', 'pending', 'paused'].includes(i.status));
+    function clearHistory(sessionId?: string) {
+        items.value = items.value.filter(i => {
+            if (sessionId && i.sessionId !== sessionId) return true; // Keep items from other sessions
+            return ['running', 'pending', 'paused'].includes(i.status);
+        });
     }
 
-    async function batchPause() {
-        const runningItems = items.value.filter(i => i.status === 'running');
+    async function batchPause(sessionId?: string) {
+        const runningItems = items.value.filter(i => {
+            if (sessionId && i.sessionId !== sessionId) return false;
+            return i.status === 'running';
+        });
         await Promise.all(runningItems.map(item => pauseTransfer(item.id)));
     }
 
-    function batchResume() {
-        const pausedItems = items.value.filter(i => ['paused', 'error', 'cancelled'].includes(i.status));
+    function batchResume(sessionId?: string) {
+        const pausedItems = items.value.filter(i => {
+            if (sessionId && i.sessionId !== sessionId) return false;
+            return ['paused', 'error', 'cancelled'].includes(i.status);
+        });
         pausedItems.forEach(item => resumeTransfer(item.id));
     }
 
-    async function batchCancel() {
-        const activeItems = items.value.filter(i => ['running', 'paused', 'pending'].includes(i.status));
+    async function batchCancel(sessionId?: string) {
+        const activeItems = items.value.filter(i => {
+            if (sessionId && i.sessionId !== sessionId) return false;
+            return ['running', 'paused', 'pending'].includes(i.status);
+        });
         await Promise.all(activeItems.map(item => cancelTransfer(item.id)));
     }
 
-    async function batchDelete() {
-        const deletableItems = items.value.filter(i => ['completed', 'cancelled', 'error', 'paused'].includes(i.status));
+    async function batchDelete(sessionId?: string) {
+        const deletableItems = items.value.filter(i => {
+            if (sessionId && i.sessionId !== sessionId) return false;
+            return ['completed', 'cancelled', 'error', 'paused'].includes(i.status);
+        });
         await Promise.all(deletableItems.map(item => removeTransfer(item.id)));
     }
 

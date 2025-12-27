@@ -5,7 +5,8 @@
     "settings": "Settings",
     "selectConnectionToStart": "Select a connection to start",
     "sessionDuration": "Session duration",
-    "loadingStatus": "Loading status..."
+    "loadingStatus": "Loading status...",
+    "collapseSidebar": "Collapse Sidebar"
   },
   "connections": {
     "edit": "Edit",

@@ -1,27 +1,17 @@
 use super::client::{AppState, ClientType};
-use super::utils::{
-    compute_local_file_hash, get_dir_size, get_remote_file_hash, get_sftp_buffer_size,
-};
+use super::manager::SshCommand;
 use crate::models::FileEntry;
 use crate::models::Transfer;
 use crate::ssh::client::TransferState;
-use crate::ssh::{execute_ssh_operation, ssh2_retry};
-use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use crate::ssh::execute_ssh_operation;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 use std::time::SystemTime;
 use tauri::{AppHandle, Emitter, State};
-use uuid::Uuid;
 
-#[derive(Clone, serde::Serialize)]
-struct ProgressPayload {
-    id: String,
-    transferred: u64,
-    total: u64,
-}
+use crate::ssh::ProgressPayload;
 
 #[derive(Clone, serde::Serialize)]
 struct ErrorPayload {
@@ -48,40 +38,23 @@ pub async fn read_remote_file(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpRead {
+                        path,
+                        max_len: max_bytes.map(|n| n as usize),
+                        listener: tx,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
 
-                let mut file =
-                    ssh2_retry(|| sftp.open(Path::new(&path))).map_err(|e| e.to_string())?;
-                let mut buf = Vec::new();
+                let data = rx
+                    .recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())??;
 
-                let mut temp_buf = vec![0u8; 32 * 1024];
-                loop {
-                    match file.read(&mut temp_buf) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            buf.extend_from_slice(&temp_buf[..n]);
-                            if let Some(max) = max_bytes {
-                                if buf.len() as u64 > max {
-                                    buf.truncate(max as usize);
-                                    break;
-                                }
-                            }
-                        }
-                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(10));
-                            continue;
-                        }
-                        Err(e) => return Err(e.to_string()),
-                    }
-                }
-                String::from_utf8(buf).map_err(|e| e.to_string())
+                String::from_utf8(data).map_err(|e| format!("UTF-8 Error: {}", e))
             })
             .await
         }
@@ -119,54 +92,25 @@ pub async fn write_remote_file(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
+                let (tx, rx) = std::sync::mpsc::channel();
 
-                let open_mode = mode.unwrap_or_else(|| "overwrite".to_string());
-                let mut file = if open_mode == "append" {
-                    use ssh2::OpenFlags;
-                    ssh2_retry(|| {
-                        sftp.open_mode(
-                            Path::new(&path),
-                            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::APPEND,
-                            0o644,
-                            ssh2::OpenType::File,
-                        )
-                    })
-                    .map_err(|e| e.to_string())?
-                } else {
-                    use ssh2::OpenFlags;
-                    ssh2_retry(|| {
-                        sftp.open_mode(
-                            Path::new(&path),
-                            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
-                            0o644,
-                            ssh2::OpenType::File,
-                        )
-                    })
-                    .map_err(|e| e.to_string())?
-                };
+                // Convert content to bytes
+                let content_bytes = content.into_bytes();
 
-                let bytes = content.as_bytes();
-                let mut pos = 0;
-                while pos < bytes.len() {
-                    match file.write(&bytes[pos..]) {
-                        Ok(0) => return Err("Write returned 0 bytes".to_string()),
-                        Ok(n) => pos += n,
-                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(10));
-                            continue;
-                        }
-                        Err(e) => return Err(e.to_string()),
-                    }
-                }
-                Ok(())
+                sender
+                    .send(SshCommand::SftpWrite {
+                        path,
+                        content: content_bytes,
+                        mode,
+                        listener: tx,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
+
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
             })
             .await
         }
@@ -207,105 +151,16 @@ pub async fn list_files(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let owner_cache = client.owner_cache.clone();
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpLs { path, listener: tx })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
 
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
-                let path_path = Path::new(&path);
-                let files = ssh2_retry(|| sftp.readdir(path_path)).map_err(|e| e.to_string())?;
-
-                let mut entries = Vec::new();
-                for (path_buf, stat) in files {
-                    if let Some(name) = path_buf.file_name() {
-                        if let Some(name_str) = name.to_str() {
-                            if name_str == "." || name_str == ".." {
-                                continue;
-                            }
-                            let uid = stat.uid.unwrap_or(0);
-                            let owner = {
-                                if let Ok(mut cache) = owner_cache.lock() {
-                                    if let Some(cached) = cache.get(&uid) {
-                                        cached.clone()
-                                    } else {
-                                        let username = {
-                                            let mut name = if uid == 0 {
-                                                "root".to_string()
-                                            } else {
-                                                "-".to_string()
-                                            };
-                                            if let Ok(mut channel) = sess.channel_session() {
-                                                let cmd = format!("id -nu {}", uid);
-                                                if channel.exec(&cmd).is_ok() {
-                                                    let mut buf = [0u8; 256];
-                                                    let mut username_data = String::new();
-                                                    let start_time = std::time::Instant::now();
-                                                    let timeout = Duration::from_secs(5);
-                                                    loop {
-                                                        if start_time.elapsed() > timeout {
-                                                            break;
-                                                        }
-                                                        match channel.read(&mut buf) {
-                                                            Ok(0) => break,
-                                                            Ok(n) => username_data.push_str(
-                                                                &String::from_utf8_lossy(&buf[..n]),
-                                                            ),
-                                                            Err(e)
-                                                                if e.kind()
-                                                                    == ErrorKind::WouldBlock =>
-                                                            {
-                                                                thread::sleep(
-                                                                    Duration::from_millis(10),
-                                                                );
-                                                            }
-                                                            Err(_) => break,
-                                                        }
-                                                    }
-                                                    let _ = channel.wait_close();
-                                                    let trimmed = username_data.trim();
-                                                    if !trimmed.is_empty() {
-                                                        name = trimmed.to_string();
-                                                    }
-                                                }
-                                            }
-                                            name
-                                        };
-                                        cache.insert(uid, username.clone());
-                                        username
-                                    }
-                                } else {
-                                    if uid == 0 {
-                                        "root".to_string()
-                                    } else {
-                                        "-".to_string()
-                                    }
-                                }
-                            };
-                            entries.push(FileEntry {
-                                name: name_str.to_string(),
-                                is_dir: stat.is_dir(),
-                                size: stat.size.unwrap_or(0),
-                                mtime: stat.mtime.unwrap_or(0) as i64,
-                                permissions: stat.perm.unwrap_or(0),
-                                uid,
-                                owner,
-                            });
-                        }
-                    }
-                }
-                entries.sort_by(|a, b| {
-                    if a.is_dir == b.is_dir {
-                        a.name.cmp(&b.name)
-                    } else {
-                        b.is_dir.cmp(&a.is_dir)
-                    }
-                });
-                Ok(entries)
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
             })
             .await
         }
@@ -363,30 +218,18 @@ pub async fn create_directory(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpMkdir { path, listener: tx })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
 
-                match ssh2_retry(|| sftp.mkdir(Path::new(&path), 0o755))
-                    .map_err(|e| e.to_string()) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        let error_msg = e.to_string();
-                        if error_msg.contains("Permission denied") {
-                            Err(format!("Permission denied: Cannot create directory '{}'. Check if you have write permissions.", path))
-                        } else if error_msg.contains("No such file") {
-                            Err(format!("Parent directory does not exist: {}", path))
-                        } else {
-                            Err(format!("Failed to create directory '{}': {}", path, error_msg))
-                        }
-                    }
-                }
-            }).await
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
+            })
+            .await
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
@@ -412,30 +255,18 @@ pub async fn create_file(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpCreate { path, listener: tx })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
 
-                match ssh2_retry(|| sftp.create(Path::new(&path)))
-                    .map_err(|e| e.to_string()) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        let error_msg = e.to_string();
-                        if error_msg.contains("Permission denied") {
-                            Err(format!("Permission denied: Cannot create file '{}'. Check if you have write permissions.", path))
-                        } else if error_msg.contains("No such file") {
-                            Err(format!("Parent directory does not exist: {}", path))
-                        } else {
-                            Err(format!("Failed to create file '{}': {}", path, error_msg))
-                        }
-                    }
-                }
-            }).await
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
+            })
+            .await
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
@@ -463,19 +294,20 @@ pub async fn delete_item(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
-                if is_dir {
-                    rm_recursive(&sftp, Path::new(&path))
-                } else {
-                    ssh2_retry(|| sftp.unlink(Path::new(&path))).map_err(|e| e.to_string())
-                }
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpDelete {
+                        path,
+                        is_dir,
+                        listener: tx,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
+
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
             })
             .await
         }
@@ -495,26 +327,7 @@ pub async fn delete_item(
     }
 }
 
-// SSH recursive delete helper
-fn rm_recursive(sftp: &ssh2::Sftp, path: &Path) -> Result<(), String> {
-    // Basic implementation: read dir, unlink files, rmdir subdirs, then rmdir self
-    let files = ssh2_retry(|| sftp.readdir(path)).map_err(|e| e.to_string())?;
-    for (path_buf, stat) in files {
-        if let Some(name) = path_buf.file_name() {
-            if let Some(name_str) = name.to_str() {
-                if name_str == "." || name_str == ".." {
-                    continue;
-                }
-                if stat.is_dir() {
-                    rm_recursive(sftp, &path_buf)?;
-                } else {
-                    ssh2_retry(|| sftp.unlink(&path_buf)).map_err(|e| e.to_string())?;
-                }
-            }
-        }
-    }
-    ssh2_retry(|| sftp.rmdir(path)).map_err(|e| e.to_string())
-}
+// rm_recursive helper removed as it's now handled by SshManager
 
 #[tauri::command]
 pub async fn rename_item(
@@ -529,16 +342,20 @@ pub async fn rename_item(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
-                ssh2_retry(|| sftp.rename(Path::new(&old_path), Path::new(&new_path), None))
-                    .map_err(|e| e.to_string())
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpRename {
+                        old_path,
+                        new_path,
+                        listener: tx,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
+
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
             })
             .await
         }
@@ -568,26 +385,20 @@ pub async fn change_file_permission(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool.get_background_session().map_err(|e| e.to_string())?;
-                let sess = bg_session.lock().unwrap();
-                let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
-                ssh2_retry(|| {
-                    sftp.setstat(
-                        Path::new(&path),
-                        ssh2::FileStat {
-                            size: None,
-                            uid: None,
-                            gid: None,
-                            perm: Some(permission),
-                            atime: None,
-                            mtime: None,
-                        },
-                    )
-                })
-                .map_err(|e| e.to_string())
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpChmod {
+                        path,
+                        mode: permission,
+                        listener: tx,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
+
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
             })
             .await
         }
@@ -686,134 +497,91 @@ pub async fn download_file(
         transfers.insert(transfer_id.clone(), transfer_state.clone());
     }
 
-    let id_ssh = id.clone();
-    let id_wsl = id.clone();
     let t_id_ssh = transfer_id.clone();
     let t_id_wsl = transfer_id.clone();
     let transfer_state_ssh = transfer_state.clone();
     let transfer_state_wsl = transfer_state.clone();
 
     // Spawn the operation
-    let _handle = match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
-            let ts = transfer_state_ssh;
-            let t_id = t_id_ssh;
-            let app_clone = app.clone();
-            let remote_path_clone = remote_path.clone();
-            let local_path_clone = local_path.clone();
-            let id_ssh_clone = id_ssh.clone();
+    match &client.client_type {
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
+            let app_handle = app.clone();
+            let cancel_flag = transfer_state_ssh.cancel_flag.clone();
+            let transfer_id = t_id_ssh;
 
+            // Set status to running
+            {
+                let mut data = transfer_state_ssh.data.lock().unwrap();
+                data.status = "running".to_string();
+            }
+
+            let tid_spawn = transfer_id.clone();
             tokio::spawn(async move {
-                let ts_inner = ts.clone();
-                let app_inner = app.clone();
-                let t_id_inner = t_id.clone();
-                let res = execute_ssh_operation(move || {
-                    let _session_id = id_ssh_clone;
-                    let current_transfer_id = t_id_inner;
-
-                    // Update status to running
-                    {
-                        let mut data = ts_inner.data.lock().unwrap();
-                        data.status = "running".to_string();
-                    }
-
-                    let bg_session = pool
-                        .get_background_session()
-                        .map_err(|e| format!("Failed to get background session: {}", e))?;
-                    let sess = bg_session.lock().unwrap();
-                    let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
-
-                    let mut remote = ssh2_retry(|| sftp.open(Path::new(&remote_path_clone)))
-                        .map_err(|e| e.to_string())?;
-                    let mut local =
-                        std::fs::File::create(&local_path_clone).map_err(|e| e.to_string())?;
-                    // Use ssh2_retry to handle non-blocking Session(-37) for stat as well
-                    let file_stat = ssh2_retry(|| remote.stat()).map_err(|e| e.to_string())?;
-                    let total_size = file_stat.size.unwrap_or(0);
-
-                    {
-                        let mut data = ts_inner.data.lock().unwrap();
-                        data.total_size = total_size;
-                    }
-
-                    let buffer_size = get_sftp_buffer_size(Some(&app_inner));
-                    let mut buffer = vec![0u8; buffer_size];
-                    let mut transferred = 0u64;
-
-                    let mut last_emit = std::time::Instant::now();
-
-                    loop {
-                        if ts_inner.cancel_flag.load(Ordering::Relaxed) {
-                            {
-                                let mut data = ts_inner.data.lock().unwrap();
-                                data.status = "cancelled".to_string();
-                            }
-                            return Err("Download cancelled".to_string());
-                        }
-                        match remote.read(&mut buffer) {
-                            Ok(0) => break,
-                            Ok(n) => {
-                                local.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
-                                transferred += n as u64;
-
-                                // Update state
-                                {
-                                    let mut data = ts_inner.data.lock().unwrap();
-                                    data.transferred = transferred;
-                                }
-
-                                // Emit event every 100ms
-                                if last_emit.elapsed().as_millis() > 100 {
-                                    let _ = app_inner.emit(
-                                        "transfer-progress",
-                                        ProgressPayload {
-                                            id: current_transfer_id.clone(),
-                                            transferred,
-                                            total: total_size,
-                                        },
-                                    );
-                                    last_emit = std::time::Instant::now();
-                                }
-                            }
-                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                                thread::sleep(Duration::from_millis(10));
-                            }
-                            Err(e) => return Err(e.to_string()),
-                        }
-                    }
-
-                    // Final update
-                    {
-                        let mut data = ts_inner.data.lock().unwrap();
-                        data.status = "completed".to_string();
-                        data.transferred = total_size; // Ensure 100%
-                    }
-                    let _ = app_inner.emit(
-                        "transfer-progress",
-                        ProgressPayload {
-                            id: current_transfer_id.clone(),
-                            transferred: total_size,
-                            total: total_size,
-                        },
-                    );
-
-                    Ok(())
-                })
-                .await;
+                let (tx, rx) = std::sync::mpsc::channel();
+                let res = sender.send(SshCommand::SftpDownload {
+                    remote_path,
+                    local_path,
+                    transfer_id: tid_spawn.clone(),
+                    app_handle,
+                    listener: tx,
+                    cancel_flag,
+                });
 
                 if let Err(e) = res {
-                    let mut data = ts.data.lock().unwrap();
-                    if data.status != "cancelled" {
+                    let _ = app.emit(
+                        "transfer-error",
+                        ErrorPayload {
+                            id: tid_spawn,
+                            error: e.to_string(),
+                        },
+                    );
+                    return;
+                }
+
+                // Wait for completion
+                match rx.recv() {
+                    Ok(Ok(_)) => {
+                        // Success handled by manager emitting events?
+                        // The manager emits "completed" event progress.
+                        // But we might want to update local state here?
+                        // Manager updates UI via events.
+                        // We should ensure transfer state is updated in AppState?
+                        // The manager does NOT have access to AppState directly, only app handle.
+                        // So the manager emits events, but AppState is not updated?
+                        // Current `file_ops` updates `transfer_state.data`.
+                        // IF we moved logic to Manager, Manager doesn't update `state.transfers`.
+                        // THIS IS A GAP.
+                        // The Manager sends events to Frontend.
+                        // But Backend state `state.transfers` remains "running" or "pending"?
+
+                        // FIX: We need to listen to our own events? Or just update it here after rx.recv()?
+                        // When rx.recv() returns Ok(), it means it's done (success).
+                        let mut data = transfer_state_ssh.data.lock().unwrap();
+                        data.status = "completed".to_string();
+                        data.transferred = data.total_size;
+                    }
+                    Ok(Err(e)) => {
+                        let mut data = transfer_state_ssh.data.lock().unwrap();
                         data.status = "error".to_string();
                         data.error = Some(e.clone());
-                        let _ = app.emit("transfer-error", ErrorPayload {
-                            id: t_id,
-                            error: e,
-                        });
+                        let _ = app.emit(
+                            "transfer-error",
+                            ErrorPayload {
+                                id: tid_spawn.clone(),
+                                error: e,
+                            },
+                        );
+                    }
+                    Err(_) => {
+                        let mut data = transfer_state_ssh.data.lock().unwrap();
+                        data.status = "error".to_string();
+                        data.error = Some("Channel closed".to_string());
                     }
                 }
             });
+            // Return ID immediately
+            Ok::<String, String>(transfer_id)
         }
         ClientType::Wsl(distro) => {
             // For WSL, similar logic
@@ -959,146 +727,80 @@ pub async fn upload_file(
         transfers.insert(transfer_id.clone(), transfer_state.clone());
     }
 
-    let id_ssh = id.clone();
-    let id_wsl = id.clone();
     let t_id_ssh = transfer_id.clone();
     let t_id_wsl = transfer_id.clone();
     let transfer_state_ssh = transfer_state.clone();
     let transfer_state_wsl = transfer_state.clone();
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
-            let ts = transfer_state_ssh;
-            let t_id = t_id_ssh;
-            let app_clone = app.clone();
-            let id_ssh_clone = id_ssh.clone();
-            let local_path_clone = local_path.clone(); // It's a string, so clone
-            let remote_path_clone = remote_path.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
+            let app_handle = app.clone();
+            let cancel_flag = transfer_state_ssh.cancel_flag.clone();
+            let transfer_id = t_id_ssh;
+
+            // Set status to running
+            {
+                let mut data = transfer_state_ssh.data.lock().unwrap();
+                data.status = "running".to_string();
+            }
+
+            let tid_spawn = transfer_id.clone();
 
             tokio::spawn(async move {
-                let ts_inner = ts.clone();
-                let app_inner = app_clone.clone();
-                let t_id_inner = t_id.clone();
-                let res = execute_ssh_operation(move || {
-                    let _id = id_ssh_clone;
-                    let current_transfer_id = t_id_inner;
-
-                    // Update status
-                    {
-                        let mut data = ts_inner.data.lock().unwrap();
-                        data.status = "running".to_string();
-                    }
-
-                    let bg_session = pool
-                        .get_background_session()
-                        .map_err(|e| format!("Failed to get background session: {}", e))?;
-                    let sess = bg_session.lock().unwrap();
-                    let sftp = ssh2_retry(|| sess.sftp()).map_err(|e| e.to_string())?;
-
-                    let mut local =
-                        std::fs::File::open(&local_path_clone).map_err(|e| e.to_string())?;
-                    let metadata = local.metadata().map_err(|e| e.to_string())?;
-                    let total_size = metadata.len();
-
-                    {
-                        let mut data = ts_inner.data.lock().unwrap();
-                        data.total_size = total_size;
-                    }
-
-                    if let Some(parent) = Path::new(&remote_path_clone).parent() {
-                        if !parent.as_os_str().is_empty() {
-                            let _ = create_remote_dir_recursive(&sftp, parent);
-                        }
-                    }
-
-                    let mut remote = ssh2_retry(|| sftp.create(Path::new(&remote_path_clone)))
-                        .map_err(|e| e.to_string())?;
-
-                    let buffer_size = get_sftp_buffer_size(Some(&app_inner));
-                    let mut buffer = vec![0u8; buffer_size];
-                    let mut transferred = 0u64;
-                    let mut last_emit = std::time::Instant::now();
-
-                    loop {
-                        if ts_inner.cancel_flag.load(Ordering::Relaxed) {
-                            {
-                                let mut data = ts_inner.data.lock().unwrap();
-                                data.status = "cancelled".to_string();
-                            }
-                            return Err("Upload cancelled".to_string());
-                        }
-                        let n = local.read(&mut buffer).map_err(|e| e.to_string())?;
-                        if n == 0 {
-                            break;
-                        }
-
-                        let mut pos = 0;
-                        while pos < n {
-                            match remote.write(&buffer[pos..n]) {
-                                Ok(written) => {
-                                    pos += written;
-                                    transferred += written as u64;
-                                    {
-                                        let mut data = ts_inner.data.lock().unwrap();
-                                        data.transferred = transferred;
-                                    }
-
-                                    if last_emit.elapsed().as_millis() > 100 {
-                                        let _ = app_inner.emit(
-                                            "transfer-progress",
-                                            ProgressPayload {
-                                                id: current_transfer_id.clone(),
-                                                transferred,
-                                                total: total_size,
-                                            },
-                                        );
-                                        last_emit = std::time::Instant::now();
-                                    }
-                                }
-                                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                                    thread::sleep(Duration::from_millis(10));
-                                    continue;
-                                }
-                                Err(e) => return Err(e.to_string()),
-                            }
-                        }
-                    }
-
-                    {
-                        let mut data = ts_inner.data.lock().unwrap();
-                        data.status = "completed".to_string();
-                        data.transferred = total_size;
-                    }
-                    let _ = app_inner.emit(
-                        "transfer-progress",
-                        ProgressPayload {
-                            id: current_transfer_id.clone(),
-                            transferred: total_size,
-                            total: total_size,
-                        },
-                    );
-                    Ok(())
-                })
-                .await;
+                let (tx, rx) = std::sync::mpsc::channel();
+                let res = sender.send(SshCommand::SftpUpload {
+                    local_path,
+                    remote_path,
+                    transfer_id: tid_spawn.clone(),
+                    app_handle,
+                    listener: tx,
+                    cancel_flag,
+                });
 
                 if let Err(e) = res {
-                    let mut data = ts.data.lock().unwrap();
-                    if data.status != "cancelled" {
+                    let _ = app.emit(
+                        "transfer-error",
+                        ErrorPayload {
+                            id: tid_spawn,
+                            error: e.to_string(),
+                        },
+                    );
+                    return;
+                }
+
+                // Wait for completion
+                match rx.recv() {
+                    Ok(Ok(_)) => {
+                        let mut data = transfer_state_ssh.data.lock().unwrap();
+                        data.status = "completed".to_string();
+                        data.transferred = data.total_size;
+                    }
+                    Ok(Err(e)) => {
+                        let mut data = transfer_state_ssh.data.lock().unwrap();
                         data.status = "error".to_string();
                         data.error = Some(e.clone());
-                        let _ = app_clone.emit("transfer-error", ErrorPayload {
-                            id: t_id,
-                            error: e,
-                        });
+                        let _ = app.emit(
+                            "transfer-error",
+                            ErrorPayload {
+                                id: tid_spawn.clone(),
+                                error: e,
+                            },
+                        );
+                    }
+                    Err(_) => {
+                        let mut data = transfer_state_ssh.data.lock().unwrap();
+                        data.status = "error".to_string();
+                        data.error = Some("Channel closed".to_string());
                     }
                 }
             });
+            // Return ID immediately
+            Ok::<String, String>(transfer_id)
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
             tokio::task::spawn_blocking(move || {
-                let _id = id_wsl;
                 let current_transfer_id = t_id_wsl;
                 let ts = transfer_state_wsl;
                 {
@@ -1222,24 +924,24 @@ pub async fn search_remote_files(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let mut channel =
-                    ssh2_retry(|| sess.channel_session()).map_err(|e| e.to_string())?;
+                let (tx, rx) = std::sync::mpsc::channel();
+                let cmd = format!("find '{}' -name '*{}*'", path, query);
 
-                let cmd = format!("find \'{}\' -name \'*{}*\'", path, query);
-                ssh2_retry(|| channel.exec(&cmd)).map_err(|e| e.to_string())?;
+                sender
+                    .send(SshCommand::Exec {
+                        command: cmd,
+                        listener: tx,
+                        cancel_flag: None,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
 
-                let mut output = String::new();
-                channel
-                    .read_to_string(&mut output)
-                    .map_err(|e| e.to_string())?;
-                ssh2_retry(|| channel.wait_close()).ok();
+                let output = rx
+                    .recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
+                    .map_err(|e| format!("Find command failed: {}", e))?;
 
                 let mut entries = Vec::new();
                 for line in output.lines() {

@@ -1,10 +1,7 @@
 use super::client::{AppState, ClientType};
-use crate::ssh::{execute_ssh_operation, ssh2_retry};
-use std::io::{ErrorKind, Read};
+use crate::ssh::{execute_ssh_operation, SshCommand};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -36,50 +33,23 @@ pub async fn exec_command(
     let tool_call_id_clone = tool_call_id.clone();
 
     let result = match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             let command = command.clone();
             let cancel_flag = cancel_flag.clone();
+
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::Exec {
+                        command,
+                        listener: tx,
+                        cancel_flag,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
 
-                let sess = bg_session.lock().unwrap();
-                let mut channel =
-                    ssh2_retry(|| sess.channel_session()).map_err(|e| e.to_string())?;
-
-                ssh2_retry(|| channel.exec(&command)).map_err(|e| e.to_string())?;
-
-                let mut s = String::new();
-                let mut buf = [0u8; 4096];
-
-                loop {
-                    // Check for cancellation
-                    if let Some(ref flag) = cancel_flag {
-                        if flag.load(Ordering::Relaxed) {
-                            let _ = channel.close();
-                            return Err("Command cancelled by user".to_string());
-                        }
-                    }
-
-                    match channel.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                            s.push_str(&chunk);
-                        }
-                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(10));
-                        }
-                        Err(e) => return Err(e.to_string()),
-                    }
-                }
-
-                ssh2_retry(|| channel.wait_close())
-                    .map_err(|e| format!("Failed to wait for channel close: {}", e))?;
-
-                Ok(s)
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
             })
             .await
         }
@@ -151,30 +121,21 @@ pub async fn get_working_directory(
     };
 
     match &client.client_type {
-        ClientType::Ssh(pool) => {
-            let pool = pool.clone();
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
             execute_ssh_operation(move || {
-                let bg_session = pool
-                    .get_background_session()
-                    .map_err(|e| format!("Failed to get background session: {}", e))?;
-                let sess = bg_session.lock().unwrap();
-                let mut channel =
-                    ssh2_retry(|| sess.channel_session()).map_err(|e| e.to_string())?;
-                ssh2_retry(|| channel.exec("pwd")).map_err(|e| e.to_string())?;
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::Exec {
+                        command: "pwd".to_string(),
+                        listener: tx,
+                        cancel_flag: None,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
 
-                let mut working_dir = String::new();
-                let mut buf = [0u8; 1024];
-                loop {
-                    match channel.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => working_dir.push_str(&String::from_utf8_lossy(&buf[..n])),
-                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(10));
-                        }
-                        Err(e) => return Err(e.to_string()),
-                    }
-                }
-                ssh2_retry(|| channel.wait_close()).ok();
+                let working_dir = rx
+                    .recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())??;
 
                 Ok(working_dir.trim().to_string())
             })
