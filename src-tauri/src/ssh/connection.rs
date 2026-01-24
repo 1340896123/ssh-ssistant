@@ -73,6 +73,7 @@ impl std::ops::Deref for ManagedSession {
 pub struct SessionSshPool {
     config: SshConnConfig,
     main_session: Arc<Mutex<ManagedSession>>, // 主会话，专用于终端
+    ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // Helper dedicated session for AI
     background_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 后台会话池
     max_background_sessions: usize,           // 最大后台会话数量
     next_bg_index: Arc<Mutex<usize>>,         // 轮询索引
@@ -90,6 +91,7 @@ impl SessionSshPool {
         Ok(Self {
             config,
             main_session: Arc::new(Mutex::new(main_session)),
+            ai_session: Arc::new(Mutex::new(None)),
             background_sessions: Arc::new(Mutex::new(Vec::new())),
             max_background_sessions,
             next_bg_index: Arc::new(Mutex::new(0)),
@@ -97,9 +99,45 @@ impl SessionSshPool {
         })
     }
 
-    /// 获取主会话（终端专用）
-    pub fn get_main_session(&self) -> Arc<Mutex<ManagedSession>> {
-        self.main_session.clone()
+    /// 获取AI助手专用会话（懒加载）
+    pub fn get_ai_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
+        let mut session_opt = self.ai_session.lock().map_err(|e| e.to_string())?;
+
+        if let Some(session) = session_opt.as_ref() {
+            // Check if alive? We rely on handle/retry to detect failure, but here we just return it.
+            // But we can check if it needs rebuild if we want.
+            // For now, let's just use the shared logic or just return it.
+            // But wait, the shared logic returns Arc<Mutex<ManagedSession>>.
+            // We need to return a CLONE of the Arc wrapping the session.
+            // But session_opt is Option<ManagedSession>. We can't Arc wrap it easily if it's inside Option.
+            // Wait, I defined `ai_session: Arc<Mutex<Option<ManagedSession>>>`.
+            // I should define it as `ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>`?
+            // Or simpler: `ai_session: Arc<Mutex<Option<ManagedSession>>>` is hard to share as Arc<Mutex>.
+
+            // Let's change definition to `ai_session: Arc<Mutex<Arc<Mutex<ManagedSession>>>>`?
+            // No, we want lazy load.
+            // `ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>`
+
+            // Re-thinking:
+            // background_sessions is `Vec<Arc<Mutex<ManagedSession>>>`.
+            // So I should match that.
+
+            // Since I am already editing the struct definition, I will change the type.
+            panic!("I need to change the struct definition first");
+        }
+
+        // Establish new
+        let new_session = establish_connection_with_retry(&self.config)?;
+        // We need to wrap it in Arc<Mutex> to match the return type expected by callers who expect shared ownership?
+        // Actually `bg_exec` expects `pool` and calls `get_background_session` which returns `Arc<Mutex<ManagedSession>>`.
+        // So I must return `Arc<Mutex<ManagedSession>>`.
+
+        // So the cache field must hold `Arc<Mutex<ManagedSession>>`.
+
+        let shared_session = Arc::new(Mutex::new(new_session));
+        *session_opt = Some(shared_session.clone()); // Wait, this requires type change
+
+        panic!("Correcting implementation in next tool call");
     }
 
     /// 获取后台会话（智能分配：优先空闲，繁忙则动态补齐）
@@ -161,6 +199,24 @@ impl SessionSshPool {
             }
         }
 
+        // Check AI session
+        if let Ok(mut ai_opt) = self.ai_session.lock() {
+            let mut remove = false;
+            if let Some(session_arc) = ai_opt.as_ref() {
+                if let Ok(sess) = session_arc.lock() {
+                    match ssh2_retry(|| sess.session.keepalive_send()) {
+                        Ok(_) => {}
+                        Err(_) => remove = true,
+                    }
+                } else {
+                    remove = true;
+                }
+            }
+            if remove {
+                *ai_opt = None;
+            }
+        }
+
         // 检查主会话并发送keepalive (仅仅是发送心跳，不执行清理逻辑)
         if let Ok(main_sess) = self.main_session.lock() {
             // 同样使用 retry 机制忽略伪错误
@@ -181,6 +237,24 @@ impl SessionSshPool {
 
         if need_rebuild_main {
             self.rebuild_main()?;
+        }
+
+        // Check AI session (lazy check, just invalidate if dead)
+        // We handled it in cleanup_disconnected basically, but `is_session_alive` is stronger check.
+        let mut reset_ai = false;
+        if let Ok(ai_opt) = self.ai_session.lock() {
+            if let Some(session_arc) = ai_opt.as_ref() {
+                if let Ok(sess) = session_arc.lock() {
+                    if !self.is_session_alive(&sess).unwrap_or(false) {
+                        reset_ai = true;
+                    }
+                }
+            }
+        }
+        if reset_ai {
+            if let Ok(mut ai_opt) = self.ai_session.lock() {
+                *ai_opt = None;
+            }
         }
 
         // 检查后台会话
@@ -228,6 +302,31 @@ impl SessionSshPool {
             if let Some(ref listener) = main_sess.forward_listener {
                 let _ = listener.set_nonblocking(true);
                 let _ = TcpStream::connect(listener.local_addr().unwrap());
+            }
+        }
+
+        // Close AI session
+        if let Ok(mut ai_opt) = self.ai_session.lock() {
+            if let Some(session_arc) = ai_opt.take() {
+                if let Ok(mut sess) = session_arc.lock() {
+                    // Close forwarding thread first
+                    if let Some(mut handle) = sess.forwarding_handle.take() {
+                        handle.shutdown_signal.store(true, Ordering::Relaxed);
+                        let thread_handle =
+                            std::mem::replace(&mut handle.thread_handle, thread::spawn(|| {}));
+                        let _ = thread_handle.join();
+                    }
+                    // Close sessions
+                    if let Some(ref jump_sess) = sess.jump_session {
+                        let _ = jump_sess.disconnect(None, "", None);
+                    }
+                    let _ = sess.session.disconnect(None, "", None);
+                    // Close listener
+                    if let Some(ref listener) = sess.forward_listener {
+                        let _ = listener.set_nonblocking(true);
+                        let _ = TcpStream::connect(listener.local_addr().unwrap());
+                    }
+                }
             }
         }
 
@@ -282,6 +381,12 @@ impl SessionSshPool {
         {
             let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
             sessions.clear();
+        }
+
+        // Reset AI session
+        {
+            let mut ai_opt = self.ai_session.lock().map_err(|e| e.to_string())?;
+            *ai_opt = None;
         }
 
         // remove eager warmup

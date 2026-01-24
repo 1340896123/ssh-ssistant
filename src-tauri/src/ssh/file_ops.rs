@@ -935,6 +935,7 @@ pub async fn search_remote_files(
                         command: cmd,
                         listener: tx,
                         cancel_flag: None,
+                        is_ai: false,
                     })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
 

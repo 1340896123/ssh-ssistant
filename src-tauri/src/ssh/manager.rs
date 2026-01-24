@@ -29,6 +29,7 @@ pub enum SshCommand {
         command: String,
         listener: Sender<Result<String, String>>,
         cancel_flag: Option<Arc<AtomicBool>>,
+        is_ai: bool,
     },
     /// List directory (SFTP)
     SftpLs {
@@ -273,10 +274,11 @@ impl SshManager {
                 command,
                 listener,
                 cancel_flag,
+                is_ai,
             } => {
                 let pool = self.pool.clone();
                 thread::spawn(move || {
-                    let res = Self::bg_exec(pool, &command, cancel_flag.as_ref());
+                    let res = Self::bg_exec(pool, &command, cancel_flag.as_ref(), is_ai);
                     let _ = listener.send(res);
                 });
             }
@@ -425,8 +427,13 @@ impl SshManager {
         pool: SessionSshPool,
         command: &str,
         cancel_flag: Option<&Arc<AtomicBool>>,
+        is_ai: bool,
     ) -> Result<String, String> {
-        let session_mutex = pool.get_background_session()?;
+        let session_mutex = if is_ai {
+            pool.get_ai_session()?
+        } else {
+            pool.get_background_session()?
+        };
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
 
         let mut channel = crate::ssh::utils::ssh2_retry(|| session.channel_session())

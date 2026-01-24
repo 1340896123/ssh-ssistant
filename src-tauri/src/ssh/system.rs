@@ -63,6 +63,7 @@ fn run_ssh_command(sender: &Sender<SshCommand>, cmd: &str) -> Result<String, Str
         command: cmd.to_string(),
         listener: tx,
         cancel_flag: None,
+        is_ai: false,
     }).map_err(|e| format!("Failed to send command: {}", e))?;
     
     rx.recv().map_err(|_| "Failed to receive response from SSH Manager".to_string())?
