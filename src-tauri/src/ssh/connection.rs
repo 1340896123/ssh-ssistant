@@ -104,40 +104,15 @@ impl SessionSshPool {
         let mut session_opt = self.ai_session.lock().map_err(|e| e.to_string())?;
 
         if let Some(session) = session_opt.as_ref() {
-            // Check if alive? We rely on handle/retry to detect failure, but here we just return it.
-            // But we can check if it needs rebuild if we want.
-            // For now, let's just use the shared logic or just return it.
-            // But wait, the shared logic returns Arc<Mutex<ManagedSession>>.
-            // We need to return a CLONE of the Arc wrapping the session.
-            // But session_opt is Option<ManagedSession>. We can't Arc wrap it easily if it's inside Option.
-            // Wait, I defined `ai_session: Arc<Mutex<Option<ManagedSession>>>`.
-            // I should define it as `ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>`?
-            // Or simpler: `ai_session: Arc<Mutex<Option<ManagedSession>>>` is hard to share as Arc<Mutex>.
-
-            // Let's change definition to `ai_session: Arc<Mutex<Arc<Mutex<ManagedSession>>>>`?
-            // No, we want lazy load.
-            // `ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>`
-
-            // Re-thinking:
-            // background_sessions is `Vec<Arc<Mutex<ManagedSession>>>`.
-            // So I should match that.
-
-            // Since I am already editing the struct definition, I will change the type.
-            panic!("I need to change the struct definition first");
+            return Ok(session.clone());
         }
 
         // Establish new
         let new_session = establish_connection_with_retry(&self.config)?;
-        // We need to wrap it in Arc<Mutex> to match the return type expected by callers who expect shared ownership?
-        // Actually `bg_exec` expects `pool` and calls `get_background_session` which returns `Arc<Mutex<ManagedSession>>`.
-        // So I must return `Arc<Mutex<ManagedSession>>`.
-
-        // So the cache field must hold `Arc<Mutex<ManagedSession>>`.
-
         let shared_session = Arc::new(Mutex::new(new_session));
-        *session_opt = Some(shared_session.clone()); // Wait, this requires type change
+        *session_opt = Some(shared_session.clone());
 
-        panic!("Correcting implementation in next tool call");
+        Ok(shared_session)
     }
 
     /// 获取后台会话（智能分配：优先空闲，繁忙则动态补齐）

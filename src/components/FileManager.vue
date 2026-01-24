@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, shallowRef, triggerRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy } from 'lucide-vue-next';
+import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy, Terminal as TerminalIcon } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
 import type { FileEntry, FileManagerViewMode } from '../types';
@@ -1687,7 +1687,7 @@ function formatSize(size: number): string {
                     }}</span>
                     <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-gray-400">({{
                         selectedFiles.size
-                        }})</span>
+                    }})</span>
                 </button>
                 <button @click.stop="handleRename(contextMenu.file!)"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700">{{ t('fileManager.contextMenu.rename')
