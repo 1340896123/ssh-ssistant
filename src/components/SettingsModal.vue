@@ -261,6 +261,14 @@ const tabs = [
                   </select>
                 </div>
                 <div>
+                  <label class="block text-sm font-medium text-gray-300 mb-1">Layout Position</label>
+                  <select v-model="form.fileManager.layout"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none">
+                    <option value="bottom">Bottom (Below Terminal)</option>
+                    <option value="left">Left (Side by Side)</option>
+                  </select>
+                </div>
+                <div>
                   <label class="block text-sm font-medium text-gray-300 mb-1">SFTP Buffer Size (KB)</label>
                   <input v-model.number="form.fileManager.sftpBufferSize" type="number" min="64" max="1024" step="64"
                     class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />

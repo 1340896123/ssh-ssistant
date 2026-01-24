@@ -59,9 +59,11 @@ export interface TerminalAppearanceSettings {
 }
 
 export type FileManagerViewMode = "flat" | "tree";
+export type FileManagerLayout = "left" | "bottom";
 
 export interface FileManagerSettings {
   viewMode: FileManagerViewMode;
+  layout: FileManagerLayout;
   sftpBufferSize: number; // SFTP buffer size in KB
 }
 

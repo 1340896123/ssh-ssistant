@@ -33,6 +33,7 @@ const terminalContext = ref("");
 
 onBeforeUpdate(() => {
   terminalTabAreaRefs.value = [];
+  mainColumnRefs.value = [];
 });
 
 function getActiveTerminalView() {
@@ -58,9 +59,14 @@ function updateTerminalContext() {
 }
 
 // Layout state
-const fileWidth = ref(30); // percentage
-const aiWidth = ref(30); // percentage
-// Terminal width is derived: 100 - fileWidth - aiWidth
+// Layout state
+const fileWidth = ref(30); // percentage width for file manager (Left Layout)
+const fileHeight = ref(30); // percentage height for file manager (Bottom Layout)
+const aiWidth = ref(30); // percentage width for AI assistant
+// Terminal occupies remaining space in the left column
+
+const layoutMode = computed(() => settingsStore.fileManager.layout || 'bottom');
+
 
 // Sidebar width state - initialize from cache immediately
 const getInitialSidebarWidth = () => {
@@ -73,6 +79,7 @@ const getInitialSidebarWidth = () => {
 const sidebarWidth = ref(getInitialSidebarWidth());
 
 const containerRef = ref<HTMLElement | null>(null);
+const mainColumnRefs = ref<HTMLElement[]>([]);
 const isResizing = ref<"file" | "ai" | "sidebar" | null>(null);
 
 const activeSession = computed(() => sessionStore.activeSession);
@@ -229,7 +236,16 @@ onUnmounted(() => {
 
 function startResize(target: "file" | "ai" | "sidebar") {
   isResizing.value = target;
-  document.body.style.cursor = "col-resize";
+  if (target === "file") {
+    // Cursor depends on layout mode
+    if (layoutMode.value === 'bottom') {
+      document.body.style.cursor = "row-resize";
+    } else {
+      document.body.style.cursor = "col-resize";
+    }
+  } else {
+    document.body.style.cursor = "col-resize";
+  }
   document.body.style.userSelect = "none";
 }
 
@@ -252,26 +268,63 @@ function handleMouseMove(e: MouseEvent) {
     return;
   }
 
-  // For file and ai resizers, we need containerRef
-  if (!containerRef.value) return;
-  const containerRect = containerRef.value.getBoundingClientRect();
-  const totalWidth = containerRect.width;
+  // For ai resizer, we need containerRef
+  if (isResizing.value === "ai" && containerRef.value) {
+    const containerRect = containerRef.value.getBoundingClientRect();
+    const totalWidth = containerRect.width;
 
-  if (isResizing.value === "file") {
-    // Calculate new file width percentage based on mouse X relative to container
-    const newFileWidth = ((e.clientX - containerRect.left) / totalWidth) * 100;
-    // Constraints
-    if (newFileWidth > 10 && newFileWidth < 100 - aiWidth.value - 10) {
-      fileWidth.value = newFileWidth;
-    }
-  } else if (isResizing.value === "ai") {
     // Calculate new AI width. Mouse X is the left edge of AI panel approximately.
     // AI width = 100 - (percent at mouse X)
     const mousePercent = ((e.clientX - containerRect.left) / totalWidth) * 100;
     const newAiWidth = 100 - mousePercent;
 
-    if (newAiWidth > 10 && newAiWidth < 100 - fileWidth.value - 10) {
+    if (newAiWidth > 10 && newAiWidth < 90) {
       aiWidth.value = newAiWidth;
+    }
+  } else if (isResizing.value === "file") {
+    if (layoutMode.value === 'bottom') {
+      // BOTTOM LAYOUT: Vertical Resize
+
+      // For file resizer, we need mainColumnRefs (vertical resize) of the active session
+      // Find active session index
+      const activeIndex = sessionStore.sessions.findIndex(
+        (s) => s.id === activeSession.value?.id
+      );
+
+      const colEl = activeIndex !== -1 ? mainColumnRefs.value[activeIndex] : null;
+
+      if (colEl) {
+        const columnRect = colEl.getBoundingClientRect();
+        const totalHeight = columnRect.height;
+
+        if (totalHeight > 0) {
+          // Calculate new file height percentage based on mouse Y relative to main column
+          // The resizer is at the top of the file manager, so mouse Y decides the top edge of file manager
+          // File Height = 100 - (percent at mouse Y)
+          const mousePercent = ((e.clientY - columnRect.top) / totalHeight) * 100;
+          const newFileHeight = 100 - mousePercent;
+
+          // Constraints: min 10%, max 80% (leave space for terminal)
+          if (newFileHeight > 5 && newFileHeight < 90) {
+            fileHeight.value = newFileHeight;
+          }
+        }
+      }
+    } else {
+      // LEFT LAYOUT: Horizontal Resize
+
+      if (!containerRef.value) return;
+      const containerRect = containerRef.value.getBoundingClientRect();
+      const totalWidth = containerRect.width;
+
+      // Calculate new file width percentage based on mouse X relative to container
+      const newFileWidth = ((e.clientX - containerRect.left) / totalWidth) * 100;
+
+      // Constraints
+      // Max width limited by AI width
+      if (newFileWidth > 10 && newFileWidth < 100 - aiWidth.value - 10) {
+        fileWidth.value = newFileWidth;
+      }
     }
   }
 }
@@ -388,26 +441,56 @@ function switchTerminalToPath(sessionId: string, path: string) {
         <div v-for="(session, index) in sessionStore.sessions" :key="session.id"
           v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex flex-col">
           <div class="flex-1 flex overflow-hidden">
-            <!-- Files -->
-            <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
-              <FileManager :sessionId="session.id" @openFileEditor="
-                (filePath, fileName) =>
-                  openFileEditor(session.id, filePath, fileName)
-              " @switchToTerminalPath="switchTerminalToPath" />
+            <!-- Left Column: Terminal & Files -->
+            <!-- Left Column: Terminal & Files -->
+
+            <!-- LAYOUT: BOTTOM (Flex Column) -->
+            <div v-if="layoutMode === 'bottom'" class="flex flex-col h-full overflow-hidden"
+              :style="{ width: `calc(100% - ${aiWidth}%)` }" :ref="(el: any) => { if (el) mainColumnRefs[index] = el }">
+              <!-- Terminal -->
+              <div class="overflow-hidden flex flex-col flex-1 border-r border-gray-700"
+                :style="{ height: `calc(100% - ${fileHeight}%)` }">
+                <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
+                  :sessionId="session.id" />
+              </div>
+
+              <!-- Resizer (Horizontal) -->
+              <div
+                class="h-1 bg-gray-800 hover:bg-blue-500 cursor-row-resize flex-shrink-0 z-10 transition-colors border-t border-b border-gray-700"
+                @mousedown.prevent="startResize('file')"></div>
+
+              <!-- Files -->
+              <div class="overflow-hidden flex flex-col border-r border-gray-700" :style="{ height: fileHeight + '%' }">
+                <FileManager :sessionId="session.id" @openFileEditor="
+                  (filePath, fileName) =>
+                    openFileEditor(session.id, filePath, fileName)
+                " @switchToTerminalPath="switchTerminalToPath" />
+              </div>
             </div>
 
-            <!-- Resizer 1 -->
-            <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-              @mousedown.prevent="startResize('file')"></div>
+            <!-- LAYOUT: LEFT (Side by Side) -->
+            <template v-else>
+              <!-- Files (Left) -->
+              <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
+                <FileManager :sessionId="session.id" @openFileEditor="
+                  (filePath, fileName) =>
+                    openFileEditor(session.id, filePath, fileName)
+                " @switchToTerminalPath="switchTerminalToPath" />
+              </div>
 
-            <!-- Terminal -->
-            <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
-              :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
-              <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
-                :sessionId="session.id" />
-            </div>
+              <!-- Resizer (Vertical) -->
+              <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
+                @mousedown.prevent="startResize('file')"></div>
 
-            <!-- Resizer 2 -->
+              <!-- Terminal (Center) -->
+              <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
+                :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
+                <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
+                  :sessionId="session.id" />
+              </div>
+            </template>
+
+            <!-- Resizer (Vertical separator) -->
             <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
               @mousedown.prevent="startResize('ai')"></div>
 

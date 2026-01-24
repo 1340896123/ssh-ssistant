@@ -20,6 +20,7 @@ export const useSettingsStore = defineStore('settings', {
     },
     fileManager: {
       viewMode: 'flat',
+      layout: 'bottom',
       sftpBufferSize: 512
     },
     sshPool: {
