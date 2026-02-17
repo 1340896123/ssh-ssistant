@@ -4,6 +4,7 @@ use crate::ssh::ShellMsg;
 use std::io::{Read, Write};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, State};
 
@@ -152,14 +153,32 @@ pub fn start_shell_thread(
 
             thread::spawn(move || {
                 let mut buf = [0u8; 4096];
+                let timeout_duration = Duration::from_secs(30);
+                let mut last_activity = std::time::Instant::now();
+
                 loop {
                     match reader.read(&mut buf) {
                         Ok(n) if n > 0 => {
+                            last_activity = std::time::Instant::now();
                             let _ = app_clone
                                 .emit(&format!("term-data:{}", shell_id_read), buf[0..n].to_vec());
                         }
                         Ok(_) => break,
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            // Check timeout on WouldBlock
+                            if last_activity.elapsed() > timeout_duration {
+                                eprintln!("WSL read timeout after {:?}", timeout_duration);
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
                         Err(_) => break,
+                    }
+
+                    // Also check timeout periodically even on successful reads
+                    if last_activity.elapsed() > timeout_duration {
+                        eprintln!("WSL read timeout after {:?}", timeout_duration);
+                        break;
                     }
                 }
                 let _ = app_clone.emit(&format!("term-exit:{}", shell_id_read), ());

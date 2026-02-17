@@ -292,23 +292,49 @@ impl SessionSshPool {
         Ok(())
     }
 
-    /// 检查单个会话是否存活
+    /// 检查单个会话是否存活（优化版：优先轻量级检测，带缓存）
     fn is_session_alive(&self, session: &ManagedSession) -> Result<bool, String> {
-        // 尝试打开一个通道来检测连接状态
-        // 核心修复：必须使用 ssh2_retry，否则非阻塞模式下这里大概率直接返回 Error(WouldBlock)
-        match ssh2_retry(|| session.channel_session()) {
-            Ok(mut channel) => {
-                // 执行一个极轻量级命令 'true' (比 pwd 更轻)
-                match ssh2_retry(|| channel.exec("true")) {
-                    Ok(_) => {
-                        let _ = channel.close();
-                        Ok(true)
+        // 使用会话地址作为缓存key
+        let session_key = session as *const ManagedSession as usize;
+
+        // 1. 检查缓存
+        {
+            let mut cache = self.health_cache.lock().map_err(|e| e.to_string())?;
+            cache.cleanup_expired(); // 定期清理过期条目
+            if let Some(cached_result) = cache.get(session_key) {
+                return Ok(cached_result);
+            }
+        }
+
+        // 2. 优先使用轻量级 keepalive_send 检测
+        let result = match ssh2_retry(|| session.session.keepalive_send()) {
+            Ok(_) => {
+                // keepalive 成功，连接很可能还活着
+                true
+            }
+            Err(_) => {
+                // keepalive 失败，使用更可靠的 channel 检测
+                match ssh2_retry(|| session.channel_session()) {
+                    Ok(mut channel) => {
+                        match ssh2_retry(|| channel.exec("true")) {
+                            Ok(_) => {
+                                let _ = channel.close();
+                                true
+                            }
+                            Err(_) => false,
+                        }
                     }
-                    Err(_) => Ok(false),
+                    Err(_) => false,
                 }
             }
-            Err(_) => Ok(false),
+        };
+
+        // 3. 更新缓存
+        if let Ok(mut cache) = self.health_cache.lock() {
+            cache.insert(session_key, result);
         }
+
+        Ok(result)
     }
 
     /// 关闭所有SSH连接
@@ -385,13 +411,46 @@ impl SessionSshPool {
         }
     }
 
+    /// 显式清理 ManagedSession 的所有资源
+    fn cleanup_managed_session(session: &mut ManagedSession) {
+        // 1. 先关闭转发线程
+        if let Some(mut handle) = session.forwarding_handle.take() {
+            handle.shutdown_signal.store(true, Ordering::Relaxed);
+            let thread_handle = std::mem::replace(&mut handle.thread_handle, thread::spawn(|| {}));
+            let _ = thread_handle.join();
+        }
+
+        // 2. 关闭 SSH 会话
+        if let Some(ref jump_sess) = session.jump_session {
+            let _ = jump_sess.disconnect(None, "", None);
+        }
+        let _ = session.session.disconnect(None, "", None);
+
+        // 3. 关闭 TCP 监听器
+        if let Some(ref listener) = session.forward_listener {
+            let _ = listener.set_nonblocking(true);
+            let _ = TcpStream::connect(listener.local_addr().unwrap());
+        }
+    }
+
     fn rebuild_main(&self) -> Result<(), String> {
         // 在锁之外建立连接，避免阻塞其他持有锁的操作
         let new_session = establish_connection_with_retry(&self.config)?;
 
         {
             let mut main_sess = self.main_session.lock().map_err(|e| e.to_string())?;
+
+            // 显式清理旧会话的所有资源
+            Self::cleanup_managed_session(&mut main_sess);
+
+            // 替换为新会话
             *main_sess = new_session;
+
+            // 使缓存失效
+            if let Ok(mut cache) = self.health_cache.lock() {
+                let session_key = &*main_sess as *const ManagedSession as usize;
+                cache.invalidate(session_key);
+            }
 
             // Reset creation time
             if let Ok(mut t) = self.created_at.lock() {
@@ -406,26 +465,30 @@ impl SessionSshPool {
         // 重建主会话
         self.rebuild_main()?;
 
-        // 清空后台会话，它们会按需懒加载
+        // 清空并关闭所有后台会话
         {
             let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
-            sessions.clear();
+            for session in sessions.drain(..) {
+                if let Ok(mut sess) = session.lock() {
+                    Self::cleanup_managed_session(&mut sess);
+                }
+            }
         }
 
-        // Reset AI session
+        // Reset AI session 并清理资源
         {
             let mut ai_opt = self.ai_session.lock().map_err(|e| e.to_string())?;
-            *ai_opt = None;
+            if let Some(session_arc) = ai_opt.take() {
+                if let Ok(mut sess) = session_arc.lock() {
+                    Self::cleanup_managed_session(&mut sess);
+                }
+            }
         }
 
-        // remove eager warmup
-        /*
-        // 预热一个后台会话
-        if let Ok(initial_bg_session) = establish_connection_with_retry(&self.config) {
-            let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
-            sessions.push(Arc::new(Mutex::new(initial_bg_session)));
+        // 清空缓存
+        if let Ok(mut cache) = self.health_cache.lock() {
+            *cache = HealthCheckCache::new();
         }
-        */
 
         Ok(())
     }
