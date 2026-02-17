@@ -718,6 +718,26 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
             // We use std::env::temp_dir() and a random filename
             use ssh_key::PrivateKey;
 
+            // RAII guard to ensure temp files are cleaned up on any exit path
+            struct TempFileGuard {
+                key_path: std::path::PathBuf,
+                pub_key_path: std::path::PathBuf,
+            }
+
+            impl TempFileGuard {
+                fn new(key_path: std::path::PathBuf, pub_key_path: std::path::PathBuf) -> Self {
+                    Self { key_path, pub_key_path }
+                }
+            }
+
+            impl Drop for TempFileGuard {
+                fn drop(&mut self) {
+                    // Silently clean up - errors here are not critical
+                    let _ = std::fs::remove_file(&self.key_path);
+                    let _ = std::fs::remove_file(&self.pub_key_path);
+                }
+            }
+
             // Write private key to temp file
             let uuid = uuid::Uuid::new_v4();
             let temp_dir = std::env::temp_dir();
@@ -733,7 +753,6 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
 
             // Check for PPK format issues before parsing
             if key_content.contains("PuTTY-User-Key-File") {
-                let _ = std::fs::remove_file(&key_path);
                 return Err("Putty (PPK) format is not supported. Please convert your private key to OpenSSH format (PEM) using PuTTYgen or ssh-keygen.".to_string());
             }
 
@@ -741,7 +760,6 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
             let public_key_content = PrivateKey::from_openssh(key_content)
                 .and_then(|pk| pk.public_key().to_openssh())
                 .map_err(|e| {
-                    let _ = std::fs::remove_file(&key_path);
                     format!(
                         "Failed to parse private key. Ensure it is in OpenSSH format. Details: {}",
                         e
@@ -749,9 +767,11 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
                 })?;
 
             std::fs::write(&pub_key_path, &public_key_content).map_err(|e| {
-                let _ = std::fs::remove_file(&key_path);
                 format!("Failed to write temporary public key file: {}", e)
             })?;
+
+            // Create RAII guard to ensure cleanup
+            let _guard = TempFileGuard::new(key_path.clone(), pub_key_path.clone());
 
             let passphrase = config.key_passphrase.as_deref();
 
@@ -762,10 +782,6 @@ fn establish_connection_internal(config: &SshConnConfig) -> Result<ManagedSessio
                 &key_path,
                 passphrase,
             );
-
-            // Wipe and delete the temp files immediately
-            let _ = std::fs::remove_file(&key_path);
-            let _ = std::fs::remove_file(&pub_key_path);
 
             auth_res.map_err(|e| {
                 let hint = if passphrase.is_some() {
