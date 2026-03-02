@@ -79,8 +79,7 @@ pub enum SshCommand {
         new_path: String,
         listener: Sender<Result<(), String>>,
     },
-    /// Download File (Streaming)
-    /// This is a simplified version. For real progress, we might need a dedicated channel response.
+    /// Download File (Streaming) - uses transfer_pool to avoid blocking general operations
     SftpDownload {
         remote_path: String,
         local_path: String,
@@ -89,7 +88,7 @@ pub enum SshCommand {
         listener: Sender<Result<(), String>>,
         cancel_flag: Arc<AtomicBool>,
     },
-    /// Upload File (Streaming)
+    /// Upload File (Streaming) - uses transfer_pool to avoid blocking general operations
     SftpUpload {
         local_path: String,
         remote_path: String,
@@ -557,10 +556,11 @@ impl SshManager {
                 cancel_flag,
             } => {
                 eprintln!("[DEBUG] SSH Manager: SftpDownload command received: transfer_id={}, remote={}", transfer_id, remote_path);
+                // 使用传输专用会话池，避免阻塞普通SFTP操作
                 let pool = self.pool.clone();
                 thread::spawn(move || {
                     eprintln!("[DEBUG] SftpDownload thread started: transfer_id={}", transfer_id);
-                    let res = Self::bg_sftp_download(
+                    let res = Self::bg_sftp_download_with_pool(
                         pool,
                         &remote_path,
                         &local_path,
@@ -581,10 +581,11 @@ impl SshManager {
                 cancel_flag,
             } => {
                 eprintln!("[DEBUG] SSH Manager: SftpUpload command received: transfer_id={}, remote={}", transfer_id, remote_path);
+                // 使用传输专用会话池，避免阻塞普通SFTP操作
                 let pool = self.pool.clone();
                 thread::spawn(move || {
                     eprintln!("[DEBUG] SftpUpload thread started: transfer_id={}", transfer_id);
-                    let res = Self::bg_sftp_upload(
+                    let res = Self::bg_sftp_upload_with_pool(
                         pool,
                         &local_path,
                         &remote_path,
@@ -840,7 +841,11 @@ impl SshManager {
             .map_err(|e| e.to_string())
     }
 
-    fn bg_sftp_download(
+    // --- Transfer Functions using dedicated Transfer Pool ---
+    // These functions use get_transfer_session() instead of get_background_session()
+    // to avoid blocking regular SFTP operations (ls, read, etc.) during file transfers
+
+    fn bg_sftp_download_with_pool(
         pool: SessionSshPool,
         remote_path: &str,
         local_path: &str,
@@ -851,18 +856,19 @@ impl SshManager {
         use crate::ssh::ProgressPayload;
         use tauri::Emitter;
 
-        eprintln!("[DEBUG] bg_sftp_download ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
+        eprintln!("[DEBUG] bg_sftp_download_with_pool ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
 
         // Timeout configuration (default 5 minutes)
         let sftp_timeout = Duration::from_secs(300); // 5 minutes default
         let no_progress_timeout = Duration::from_secs(30); // 30 seconds without progress
 
-        let session_mutex = pool.get_background_session()?;
-        eprintln!("[DEBUG] bg_sftp_download: Got background session for transfer_id={}", transfer_id);
+        // 关键修复：使用传输专用会话池，而不是后台会话池
+        // 这样大文件传输不会阻塞目录浏览等普通操作
+        let session_mutex = pool.get_transfer_session()?;
+        eprintln!("[DEBUG] bg_sftp_download_with_pool: Got transfer session for transfer_id={}", transfer_id);
+
         // Hold the session lock for the entire transfer to ensure exclusive
         // access to this SSH session (prevents concurrent SFTP ops on same session).
-        // IMPORTANT: do not attempt to lock session_mutex again inside the loop,
-        // otherwise it will deadlock (std::sync::Mutex is not re-entrant).
         let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session_guard)?;
 
@@ -950,7 +956,7 @@ impl SshManager {
         Ok(())
     }
 
-    fn bg_sftp_upload(
+    fn bg_sftp_upload_with_pool(
         pool: SessionSshPool,
         local_path: &str,
         remote_path: &str,
@@ -961,17 +967,18 @@ impl SshManager {
         use crate::ssh::ProgressPayload;
         use tauri::Emitter;
 
-        eprintln!("[DEBUG] bg_sftp_upload ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
+        eprintln!("[DEBUG] bg_sftp_upload_with_pool ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
 
         // Timeout configuration (default 5 minutes)
         let sftp_timeout = Duration::from_secs(300); // 5 minutes default
         let no_progress_timeout = Duration::from_secs(30); // 30 seconds without progress
 
-        let session_mutex = pool.get_background_session()?;
-        eprintln!("[DEBUG] bg_sftp_upload: Got background session for transfer_id={}", transfer_id);
-        // Hold the session lock for the entire transfer to ensure exclusive
-        // access to this SSH session.
-        // IMPORTANT: do not lock session_mutex again inside the loop.
+        // 关键修复：使用传输专用会话池，而不是后台会话池
+        // 这样大文件传输不会阻塞目录浏览等普通操作
+        let session_mutex = pool.get_transfer_session()?;
+        eprintln!("[DEBUG] bg_sftp_upload_with_pool: Got transfer session for transfer_id={}", transfer_id);
+
+        // Hold the session lock for the entire transfer to ensure exclusive access
         let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session_guard)?;
 
@@ -1070,6 +1077,30 @@ impl SshManager {
             },
         );
         Ok(())
+    }
+
+    fn bg_sftp_download(
+        pool: SessionSshPool,
+        remote_path: &str,
+        local_path: &str,
+        transfer_id: &str,
+        app: &tauri::AppHandle,
+        cancel_flag: &Arc<AtomicBool>,
+    ) -> Result<(), String> {
+        // Delegate to the new transfer pool implementation
+        Self::bg_sftp_download_with_pool(pool, remote_path, local_path, transfer_id, app, cancel_flag)
+    }
+
+    fn bg_sftp_upload(
+        pool: SessionSshPool,
+        local_path: &str,
+        remote_path: &str,
+        transfer_id: &str,
+        app: &tauri::AppHandle,
+        cancel_flag: &Arc<AtomicBool>,
+    ) -> Result<(), String> {
+        // Delegate to the new transfer pool implementation
+        Self::bg_sftp_upload_with_pool(pool, local_path, remote_path, transfer_id, app, cancel_flag)
     }
 
     fn create_remote_dir_recursive(sftp: &ssh2::Sftp, path: &Path) -> Result<(), ssh2::Error> {

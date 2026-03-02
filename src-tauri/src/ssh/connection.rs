@@ -111,14 +111,16 @@ impl std::ops::Deref for ManagedSession {
     }
 }
 
-/// 会话级SSH连接池：1个主会话（终端专用）+ N个后台会话（文件操作、命令执行）
+/// 会话级SSH连接池：1个主会话（终端专用）+ N个后台会话（文件操作、命令执行）+ M个传输专用会话（大文件传输）
 #[derive(Clone)]
 pub struct SessionSshPool {
     config: SshConnConfig,
     main_session: Arc<Mutex<ManagedSession>>, // 主会话，专用于终端
     ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // Helper dedicated session for AI
-    background_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 后台会话池
+    background_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 后台会话池（用于快速SFTP操作）
+    transfer_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 传输专用会话池（用于大文件上传/下载）
     max_background_sessions: usize,           // 最大后台会话数量
+    max_transfer_sessions: usize,             // 最大传输会话数量
     next_bg_index: Arc<Mutex<usize>>,         // 轮询索引
     created_at: Arc<Mutex<Instant>>,          // 主会话建立时间，用于延迟后台连接
     health_cache: Arc<Mutex<HealthCheckCache>>, // 心跳检测结果缓存
@@ -144,12 +146,17 @@ impl SessionSshPool {
         // Don't create background session immediately to save resources and avoid rate limits
         // It will be created on demand when get_background_session is called
 
+        // 计算传输会话池大小：至少2个，最多与后台会话相同，默认4个
+        let max_transfer_sessions = (max_background_sessions / 2).max(2).min(6);
+
         Ok(Self {
             config,
             main_session: Arc::new(Mutex::new(main_session)),
             ai_session: Arc::new(Mutex::new(None)),
             background_sessions: Arc::new(Mutex::new(Vec::new())),
+            transfer_sessions: Arc::new(Mutex::new(Vec::new())),
             max_background_sessions,
+            max_transfer_sessions,
             next_bg_index: Arc::new(Mutex::new(0)),
             created_at: Arc::new(Mutex::new(Instant::now())),
             health_cache: Arc::new(Mutex::new(HealthCheckCache::new())),
@@ -157,6 +164,75 @@ impl SessionSshPool {
             timeout_settings,
             reconnect_settings,
         })
+    }
+
+    /// 获取传输专用会话（用于大文件上传/下载，避免阻塞普通操作）
+    pub fn get_transfer_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
+        // 使用更长的超时时间，因为传输可能需要等待
+        self.get_transfer_session_with_timeout(Duration::from_secs(30))
+    }
+
+    /// 获取传输专用会话（带超时保护）
+    pub fn get_transfer_session_with_timeout(&self, timeout: Duration) -> Result<Arc<Mutex<ManagedSession>>, String> {
+        let start = Instant::now();
+        let check_interval = Duration::from_millis(100);
+
+        loop {
+            // 检查超时
+            if start.elapsed() > timeout {
+                return Err("Timeout waiting for available transfer session. Please try again later.".to_string());
+            }
+
+            let mut sessions = self.transfer_sessions.lock().map_err(|e| e.to_string())?;
+
+            // 1. 尝试寻找当前没有被其它线程锁定的"空闲"会话
+            for session in sessions.iter() {
+                if let Ok(_guard) = session.try_lock() {
+                    // 能够立即拿到锁，说明它是空闲的
+                    return Ok(session.clone());
+                }
+            }
+
+            // 2. 如果没有空闲会话，且还没达到上限，则创建一个新会话
+            if sessions.len() < self.max_transfer_sessions {
+                // 使用指数退避策略替代固定延迟
+                let delay_ms = if !sessions.is_empty() {
+                    let mut count = self.connection_stagger_count.lock().map_err(|e| e.to_string())?;
+                    let delay_ms = 10_u64.saturating_pow((*count).min(5)); // 指数退避：10ms, 100ms, 1s, 10s
+                    *count = count.saturating_add(1);
+                    Some(delay_ms)
+                } else {
+                    None
+                };
+
+                // 关键：先释放锁，再建立新连接
+                drop(sessions);
+
+                // Stagger new connections to avoid flooding the server
+                if let Some(ms) = delay_ms {
+                    thread::sleep(Duration::from_millis(ms));
+                }
+
+                // 建立新连接
+                let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
+                let session_arc = Arc::new(Mutex::new(new_session));
+
+                // 重新获取锁，添加新会话
+                let mut sessions = self.transfer_sessions.lock().map_err(|e| e.to_string())?;
+                sessions.push(session_arc.clone());
+
+                // 重置计数器
+                if let Ok(mut count) = self.connection_stagger_count.lock() {
+                    *count = 0;
+                }
+
+                return Ok(session_arc);
+            }
+
+            // 3. 所有会话都在忙，释放锁后短暂等待再重试
+            drop(sessions);
+            thread::sleep(check_interval);
+        }
     }
 
     /// 获取AI助手专用会话（懒加载）
