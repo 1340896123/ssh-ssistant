@@ -556,8 +556,10 @@ impl SshManager {
                 listener,
                 cancel_flag,
             } => {
+                eprintln!("[DEBUG] SSH Manager: SftpDownload command received: transfer_id={}, remote={}", transfer_id, remote_path);
                 let pool = self.pool.clone();
                 thread::spawn(move || {
+                    eprintln!("[DEBUG] SftpDownload thread started: transfer_id={}", transfer_id);
                     let res = Self::bg_sftp_download(
                         pool,
                         &remote_path,
@@ -566,6 +568,7 @@ impl SshManager {
                         &app_handle,
                         &cancel_flag,
                     );
+                    eprintln!("[DEBUG] SftpDownload thread finished: transfer_id={}, result={:?}", transfer_id, res);
                     let _ = listener.send(res);
                 });
             }
@@ -577,8 +580,10 @@ impl SshManager {
                 listener,
                 cancel_flag,
             } => {
+                eprintln!("[DEBUG] SSH Manager: SftpUpload command received: transfer_id={}, remote={}", transfer_id, remote_path);
                 let pool = self.pool.clone();
                 thread::spawn(move || {
+                    eprintln!("[DEBUG] SftpUpload thread started: transfer_id={}", transfer_id);
                     let res = Self::bg_sftp_upload(
                         pool,
                         &local_path,
@@ -587,6 +592,7 @@ impl SshManager {
                         &app_handle,
                         &cancel_flag,
                     );
+                    eprintln!("[DEBUG] SftpUpload thread finished: transfer_id={}, result={:?}", transfer_id, res);
                     let _ = listener.send(res);
                 });
             }
@@ -845,13 +851,20 @@ impl SshManager {
         use crate::ssh::ProgressPayload;
         use tauri::Emitter;
 
+        eprintln!("[DEBUG] bg_sftp_download ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
+
         // Timeout configuration (default 5 minutes)
         let sftp_timeout = Duration::from_secs(300); // 5 minutes default
         let no_progress_timeout = Duration::from_secs(30); // 30 seconds without progress
 
         let session_mutex = pool.get_background_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
+        eprintln!("[DEBUG] bg_sftp_download: Got background session for transfer_id={}", transfer_id);
+        // Hold the session lock for the entire transfer to ensure exclusive
+        // access to this SSH session (prevents concurrent SFTP ops on same session).
+        // IMPORTANT: do not attempt to lock session_mutex again inside the loop,
+        // otherwise it will deadlock (std::sync::Mutex is not re-entrant).
+        let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
+        let sftp = Self::bg_get_sftp(&session_guard)?;
 
         let mut remote = crate::ssh::utils::ssh2_retry(|| sftp.open(Path::new(remote_path)))
             .map_err(|e| e.to_string())?;
@@ -892,13 +905,7 @@ impl SshManager {
                 ));
             }
 
-            // 获取锁，读取一小块数据，然后立即释放锁
-            let read_res = {
-                let _session = session_mutex.lock().map_err(|e| e.to_string())?;
-                remote.read(&mut buf)
-            };
-
-            match read_res {
+            match remote.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     local.write_all(&buf[..n]).map_err(|e| e.to_string())?;
@@ -954,13 +961,19 @@ impl SshManager {
         use crate::ssh::ProgressPayload;
         use tauri::Emitter;
 
+        eprintln!("[DEBUG] bg_sftp_upload ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
+
         // Timeout configuration (default 5 minutes)
         let sftp_timeout = Duration::from_secs(300); // 5 minutes default
         let no_progress_timeout = Duration::from_secs(30); // 30 seconds without progress
 
         let session_mutex = pool.get_background_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
+        eprintln!("[DEBUG] bg_sftp_upload: Got background session for transfer_id={}", transfer_id);
+        // Hold the session lock for the entire transfer to ensure exclusive
+        // access to this SSH session.
+        // IMPORTANT: do not lock session_mutex again inside the loop.
+        let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
+        let sftp = Self::bg_get_sftp(&session_guard)?;
 
         let mut local = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
         let metadata = local.metadata().map_err(|e| e.to_string())?;
@@ -1014,13 +1027,7 @@ impl SshManager {
 
             let mut pos = 0;
             while pos < n {
-                // 获取锁，写入一部分数据，然后释放
-                let write_res = {
-                    let _session = session_mutex.lock().map_err(|e| e.to_string())?;
-                    remote.write(&buf[pos..n])
-                };
-
-                match write_res {
+                match remote.write(&buf[pos..n]) {
                     Ok(written) => {
                         pos += written;
                         transferred += written as u64;

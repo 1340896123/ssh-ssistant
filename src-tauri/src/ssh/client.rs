@@ -139,10 +139,12 @@ pub async fn connect(
         let reconnect_settings: Option<crate::models::ReconnectSettings> =
             app_settings.as_ref().map(|s| s.reconnect.clone());
         // 从设置中获取最大后台会话数，默认为 6（比原来的 3 更大，减少阻塞）
+        // 架构护栏：至少保留 2 个后台会话，避免传输占用导致目录浏览/刷新被阻塞。
         let max_background_sessions: usize = app_settings
             .as_ref()
             .map(|s| s.ssh_pool.max_background_sessions as usize)
-            .unwrap_or(6);
+            .unwrap_or(6)
+            .max(2);
 
         // Establish connection and spawn manager thread
         let sender = tokio::task::spawn_blocking(move || {

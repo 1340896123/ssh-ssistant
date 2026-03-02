@@ -210,11 +210,22 @@ impl SessionSshPool {
                     let delay_ms = 10_u64.saturating_pow((*count).min(5)); // 指数退避：10ms, 100ms, 1s, 10s
                     *count = count.saturating_add(1);
                     drop(count);
+                    // 释放锁后再 sleep，避免阻塞其他线程
+                    drop(sessions);
                     thread::sleep(Duration::from_millis(delay_ms));
+                    continue; // 重新进入循环获取锁
                 }
 
+                // 关键修复：先释放锁，再建立新连接
+                // 这样其他线程可以继续使用现有的空闲会话
+                drop(sessions);
+
+                // 建立新连接（可能需要较长时间，因为有重试机制）
                 let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
                 let session_arc = Arc::new(Mutex::new(new_session));
+
+                // 重新获取锁，添加新会话
+                let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
                 sessions.push(session_arc.clone());
 
                 // 重置计数器
@@ -250,8 +261,15 @@ impl SessionSshPool {
 
             // 确保至少有一个后台会话
             if sessions.is_empty() {
+                // 先释放锁，再建立连接，避免阻塞其他操作
+                drop(sessions);
                 if let Ok(new_session) = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref()) {
-                    sessions.push(Arc::new(Mutex::new(new_session)));
+                    if let Ok(mut sessions) = self.background_sessions.lock() {
+                        // 再次检查是否为空（其他线程可能已经创建了）
+                        if sessions.is_empty() {
+                            sessions.push(Arc::new(Mutex::new(new_session)));
+                        }
+                    }
                 }
             }
         }

@@ -455,6 +455,9 @@ pub async fn download_file(
     remote_path: String,
     local_path: String,
 ) -> Result<String, String> {
+    eprintln!("[DEBUG] download_file called: id={}, transfer_id={}, remote_path={}, local_path={}",
+        id, transfer_id, remote_path, local_path);
+
     let client = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
@@ -699,6 +702,9 @@ pub async fn upload_file(
     local_path: String,
     remote_path: String,
 ) -> Result<String, String> {
+    eprintln!("[DEBUG] upload_file called: id={}, transfer_id={}, local_path={}, remote_path={}",
+        id, transfer_id, local_path, remote_path);
+
     let client = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
