@@ -506,7 +506,7 @@ pub async fn download_file(
     let transfer_state_wsl = transfer_state.clone();
 
     // Spawn the operation
-    match &client.client_type {
+    let _ = match &client.client_type {
         ClientType::Ssh(sender) => {
             let sender = sender.clone();
             let app_handle = app.clone();
@@ -542,28 +542,12 @@ pub async fn download_file(
                     return;
                 }
 
-                // Wait for completion with timeout (10 minutes max for large files)
-                let recv_result = std::thread::spawn(move || {
-                    let timeout = std::time::Duration::from_secs(600); // 10 minutes
-                    let start = std::time::Instant::now();
-
-                    loop {
-                        match rx.try_recv() {
-                            Ok(result) => return Some(result),
-                            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                if start.elapsed() > timeout {
-                                    return None; // Timeout
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                            }
-                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                return None; // Channel closed
-                            }
-                        }
-                    }
+                let recv_result = tokio::task::spawn_blocking(move || {
+                    rx.recv_timeout(std::time::Duration::from_secs(600)).ok()
                 })
-                .join()
-                .unwrap_or(None);
+                .await
+                .ok()
+                .flatten();
 
                 match recv_result {
                     Some(Ok(_)) => {
@@ -752,7 +736,7 @@ pub async fn upload_file(
     let transfer_state_ssh = transfer_state.clone();
     let transfer_state_wsl = transfer_state.clone();
 
-    match &client.client_type {
+    let _ = match &client.client_type {
         ClientType::Ssh(sender) => {
             let sender = sender.clone();
             let app_handle = app.clone();
@@ -789,28 +773,12 @@ pub async fn upload_file(
                     return;
                 }
 
-                // Wait for completion with timeout (10 minutes max for large files)
-                let recv_result = std::thread::spawn(move || {
-                    let timeout = std::time::Duration::from_secs(600); // 10 minutes
-                    let start = std::time::Instant::now();
-
-                    loop {
-                        match rx.try_recv() {
-                            Ok(result) => return Some(result),
-                            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                if start.elapsed() > timeout {
-                                    return None; // Timeout
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                            }
-                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                return None; // Channel closed
-                            }
-                        }
-                    }
+                let recv_result = tokio::task::spawn_blocking(move || {
+                    rx.recv_timeout(std::time::Duration::from_secs(600)).ok()
                 })
-                .join()
-                .unwrap_or(None);
+                .await
+                .ok()
+                .flatten();
 
                 match recv_result {
                     Some(Ok(_)) => {

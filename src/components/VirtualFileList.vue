@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, h, reactive } from 'vue';
 import { useVirtualizer } from '@tanstack/vue-virtual';
+import { useDebounceFn } from '@vueuse/core';
 import type { FileEntry, FileManagerViewMode, ColumnKey } from '../types';
 import { useFileIcon } from '../composables/useFileIcon';
 
@@ -51,7 +52,7 @@ const virtualizerOptions = {
     get count() { return props.items.length; },
     getScrollElement: () => virtualizerContainerRef.value as Element | null,
     estimateSize: () => 32, // 每行高度
-    overscan: 5,
+    overscan: 10, // 增加到10以提升滚动流畅度
 };
 
 const virtualizer = useVirtualizer(virtualizerOptions);
@@ -75,6 +76,9 @@ async function loadIcon(item: FileEntry) {
     }
 }
 
+// 防抖版本的图标加载函数，提升滚动性能
+const loadIconDebounced = useDebounceFn(loadIcon, 100);
+
 function getIconForFile(name: string) {
     const ext = name.split('.').pop()?.toLowerCase();
     if (ext && iconMap.has(ext)) {
@@ -85,8 +89,8 @@ function getIconForFile(name: string) {
 
 
 function renderFileItem(item: FileEntry, index: number) {
-    // Load icon eagerly if needed
-    loadIcon(item);
+    // 使用防抖版本加载图标，提升滚动性能
+    loadIconDebounced(item);
 
     const isSelected = props.selectedFiles.has(item.name);
     const isParentDir = item.name === '..';
@@ -181,7 +185,8 @@ function renderFileItem(item: FileEntry, index: number) {
 }
 
 function renderTreeNode(node: TreeNode) {
-    loadIcon(node.entry);
+    // 使用防抖版本加载图标，提升滚动性能
+    loadIconDebounced(node.entry);
 
     const isSelected = props.selectedTreePaths.has(node.path);
     const isExpanded = props.expandedPaths?.has(node.path);

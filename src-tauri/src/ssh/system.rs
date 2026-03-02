@@ -1,4 +1,5 @@
 use super::client::{AppState, ClientType};
+use crate::models::{DiskUsage, ServerStatus};
 use crate::ssh::{execute_ssh_operation, SshCommand};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Sender;
@@ -336,3 +337,88 @@ pub async fn get_remote_system_status(
         memory: final_memory,
     })
 }
+
+/// Get server status using the isolated status session pool
+#[command]
+pub async fn get_server_status(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ServerStatus, String> {
+    let client = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        clients.get(&id).ok_or("Session not found")?.clone()
+    };
+
+    match &client.client_type {
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
+            let result = execute_ssh_operation(move || {
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::GetServerStatus { listener: tx })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
+
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
+            })
+            .await;
+
+            result
+        }
+        ClientType::Wsl(_) => {
+            // For WSL, return default status (not implemented for WSL)
+            Ok(ServerStatus {
+                cpu_usage: None,
+                memory_used: None,
+                memory_total: None,
+                uptime: None,
+                load_average: None,
+            })
+        }
+    }
+}
+
+/// Get disk usage for a specific path using the isolated status session pool
+#[command]
+pub async fn get_disk_usage(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> Result<DiskUsage, String> {
+    let client = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        clients.get(&id).ok_or("Session not found")?.clone()
+    };
+
+    match &client.client_type {
+        ClientType::Ssh(sender) => {
+            let sender = sender.clone();
+            let result = execute_ssh_operation(move || {
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::GetDiskUsage {
+                        path: path.clone(),
+                        listener: tx,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
+
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
+            })
+            .await;
+
+            result
+        }
+        ClientType::Wsl(_) => {
+            // For WSL, return default usage (not implemented for WSL)
+            Ok(DiskUsage {
+                path,
+                total: 0,
+                used: 0,
+                available: 0,
+                usage_percent: 0.0,
+            })
+        }
+    }
+}
+

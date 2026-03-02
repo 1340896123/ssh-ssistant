@@ -34,6 +34,43 @@ export const useTransferStore = defineStore('transfers', () => {
     // Listen for progress events
     let unlisten: (() => void) | null = null;
 
+    // Batch progress update configuration
+    const PROGRESS_THROTTLE_MS = 500;
+
+    // Batch update queue for progress events
+    interface ProgressPayload {
+        id: string;
+        transferred: number;
+        total: number;
+    }
+
+    let progressUpdateQueue = new Map<string, ProgressPayload>();
+    let progressUpdateTimer: number | null = null;
+
+    function applyBatchedProgress() {
+        const updates = Array.from(progressUpdateQueue.values());
+        if (updates.length === 0) return;
+
+        progressUpdateQueue.clear();
+
+        for (const payload of updates) {
+            const item = items.value.find(i => i.id === payload.id);
+            if (item) {
+                item.transferred = payload.transferred;
+                item.size = payload.total;
+                item.progress = payload.total > 0
+                    ? Math.round((payload.transferred / payload.total) * 100)
+                    : 0;
+
+                if (item.status !== 'cancelled' && item.status !== 'error') {
+                    item.status = payload.transferred >= payload.total && payload.total > 0 ? 'completed' : 'running';
+                }
+
+                updateDirectoryProgress(item.id, payload.transferred, payload.total);
+            }
+        }
+    }
+
     const directoryProgress = new Map<string, {
         totalFiles: number;
         completedFiles: number;
@@ -50,19 +87,17 @@ export const useTransferStore = defineStore('transfers', () => {
         if (unlisten) return;
 
         const unlistenProgress = await listen('transfer-progress', (event: any) => {
-            const payload = event.payload as { id: string, transferred: number, total: number };
-            const item = items.value.find(i => i.id === payload.id);
-            if (item) {
-                // Update item state
-                item.transferred = payload.transferred;
-                item.size = payload.total;
-                item.progress = payload.total > 0 ? Math.round((payload.transferred / payload.total) * 100) : 0;
+            const payload = event.payload as ProgressPayload;
 
-                if (item.status !== 'cancelled' && item.status !== 'error') {
-                    item.status = payload.transferred >= payload.total && payload.total > 0 ? 'completed' : 'running';
-                }
+            // Queue the update instead of applying immediately
+            progressUpdateQueue.set(payload.id, payload);
 
-                updateDirectoryProgress(item.id, payload.transferred, payload.total);
+            // Schedule batch update
+            if (!progressUpdateTimer) {
+                progressUpdateTimer = window.setTimeout(() => {
+                    applyBatchedProgress();
+                    progressUpdateTimer = null;
+                }, PROGRESS_THROTTLE_MS);
             }
         });
 
@@ -78,6 +113,12 @@ export const useTransferStore = defineStore('transfers', () => {
         unlisten = () => {
             unlistenProgress();
             unlistenError();
+            // Clean up progress update timer
+            if (progressUpdateTimer !== null) {
+                clearTimeout(progressUpdateTimer);
+                progressUpdateTimer = null;
+            }
+            progressUpdateQueue.clear();
         };
     }
 

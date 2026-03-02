@@ -2,7 +2,7 @@ use super::connection::{ManagedSession, SessionSshPool};
 use super::heartbeat::{HeartbeatAction, HeartbeatManager, HeartbeatResult};
 use super::network_monitor::NetworkMonitor;
 use super::ShellMsg;
-use crate::models::{FileEntry, HeartbeatSettings, NetworkAdaptiveSettings};
+use crate::models::{DiskUsage, FileEntry, HeartbeatSettings, NetworkAdaptiveSettings, ServerStatus};
 
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
@@ -97,6 +97,15 @@ pub enum SshCommand {
         listener: Sender<Result<(), String>>,
         cancel_flag: Arc<AtomicBool>,
     },
+    /// Get server status (uses status session pool)
+    GetServerStatus {
+        listener: Sender<Result<ServerStatus, String>>,
+    },
+    /// Get disk usage for a path (uses status session pool)
+    GetDiskUsage {
+        path: String,
+        listener: Sender<Result<DiskUsage, String>>,
+    },
 
     /// Shutdown the manager
     Shutdown,
@@ -117,7 +126,6 @@ pub struct SshManager {
 
     // Network Monitor
     network_monitor: Arc<Mutex<NetworkMonitor>>,
-    latency_tx: Option<Sender<()>>,
 }
 
 impl SshManager {
@@ -149,58 +157,6 @@ impl SshManager {
         );
         let network_monitor = Arc::new(Mutex::new(NetworkMonitor::with_default_settings()));
 
-        let (latency_tx, latency_rx) = std::sync::mpsc::channel();
-        let pool_clone = pool.clone();
-        let monitor_clone = Arc::clone(&network_monitor);
-
-        thread::spawn(move || {
-            loop {
-                if latency_rx.recv().is_err() {
-                    break;
-                }
-
-                let should_check = {
-                    if let Ok(monitor) = monitor_clone.lock() {
-                        monitor.should_check()
-                    } else {
-                        false
-                    }
-                };
-
-                if !should_check {
-                    continue;
-                }
-
-                let session_mutex = match pool_clone.get_transfer_session() {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("[NetworkMonitor] Failed to get transfer session: {}", e);
-                        continue;
-                    }
-                };
-
-                let session_guard = match session_mutex.lock() {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-
-                if let Ok(mut monitor) = monitor_clone.lock() {
-                    if let Err(e) = monitor.measure_latency(&session_guard.session) {
-                        eprintln!("[NetworkMonitor] Failed to measure latency (worker): {}", e);
-                    } else {
-                        let status = monitor.get_status();
-                        let params = monitor.get_recommended_params();
-                        eprintln!(
-                            "[NetworkMonitor] Latency: {}ms, Quality: {:?}, Recommended buffer: {}KB",
-                            status.latency_ms,
-                            status.quality,
-                            params.sftp_buffer_size / 1024
-                        );
-                    }
-                }
-            }
-        });
-
         Self {
             session,
             pool,
@@ -210,7 +166,6 @@ impl SshManager {
             shell_sender: None,
             heartbeat_manager,
             network_monitor,
-            latency_tx: Some(latency_tx),
         }
     }
 
@@ -305,10 +260,7 @@ impl SshManager {
             // 4. Perform Layered Heartbeat Check
             let heartbeat_result = self.heartbeat_manager.perform_heartbeat(&self.session);
 
-            // 4.5 Trigger Network Latency Check asynchronously (worker thread)
-            if let Some(tx) = &self.latency_tx {
-                let _ = tx.send(());
-            }
+            self.tick_network_monitor();
 
             // 5. Handle Heartbeat Result
             match heartbeat_result {
@@ -447,29 +399,20 @@ impl SshManager {
                 cancel_flag,
                 is_ai,
             } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_exec(pool, &command, cancel_flag.as_ref(), is_ai);
-                    let _ = listener.send(res);
-                });
+                let res = Self::bg_exec(self.pool.clone(), &command, cancel_flag.as_ref(), is_ai);
+                let _ = listener.send(res);
             }
             SshCommand::SftpLs { path, listener } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_ls(pool, &path);
-                    let _ = listener.send(res);
-                });
+                let res = Self::bg_sftp_ls(self.pool.clone(), &path);
+                let _ = listener.send(res);
             }
             SshCommand::SftpRead {
                 path,
                 max_len,
                 listener,
             } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_read(pool, &path, max_len);
-                    let _ = listener.send(res);
-                });
+                let res = Self::bg_sftp_read(self.pool.clone(), &path, max_len);
+                let _ = listener.send(res);
             }
             SshCommand::SftpWrite {
                 path,
@@ -477,75 +420,57 @@ impl SshManager {
                 mode,
                 listener,
             } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_write(pool, &path, &content, mode.as_deref());
-                    let _ = listener.send(res);
-                });
+                let res = Self::bg_sftp_write(self.pool.clone(), &path, &content, mode.as_deref());
+                let _ = listener.send(res);
             }
             SshCommand::SftpMkdir { path, listener } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_simple(pool, &path, |sftp, p| {
-                        sftp.mkdir(p, 0o755).map_err(|e| e.to_string())
-                    });
-                    let _ = listener.send(res);
+                let res = Self::bg_sftp_simple(self.pool.clone(), &path, |sftp, p| {
+                    sftp.mkdir(p, 0o755).map_err(|e| e.to_string())
                 });
+                let _ = listener.send(res);
             }
             SshCommand::SftpCreate { path, listener } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_simple(pool, &path, |sftp, p| {
-                        sftp.create(p).map_err(|e| e.to_string()).map(|_| ())
-                    });
-                    let _ = listener.send(res);
+                let res = Self::bg_sftp_simple(self.pool.clone(), &path, |sftp, p| {
+                    sftp.create(p).map_err(|e| e.to_string()).map(|_| ())
                 });
+                let _ = listener.send(res);
             }
             SshCommand::SftpChmod {
                 path,
                 mode,
                 listener,
             } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_simple(pool, &path, move |sftp, p| {
-                        sftp.setstat(
-                            p,
-                            ssh2::FileStat {
-                                perm: Some(mode),
-                                size: None,
-                                uid: None,
-                                gid: None,
-                                atime: None,
-                                mtime: None,
-                            },
-                        )
-                        .map_err(|e| e.to_string())
-                    });
-                    let _ = listener.send(res);
+                let res = Self::bg_sftp_simple(self.pool.clone(), &path, move |sftp, p| {
+                    sftp.setstat(
+                        p,
+                        ssh2::FileStat {
+                            perm: Some(mode),
+                            size: None,
+                            uid: None,
+                            gid: None,
+                            atime: None,
+                            mtime: None,
+                        },
+                    )
+                    .map_err(|e| e.to_string())
                 });
+                let _ = listener.send(res);
             }
             SshCommand::SftpDelete {
                 path,
                 is_dir,
                 listener,
             } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_delete(pool, &path, is_dir);
-                    let _ = listener.send(res);
-                });
+                let res = Self::bg_sftp_delete(self.pool.clone(), &path, is_dir);
+                let _ = listener.send(res);
             }
             SshCommand::SftpRename {
                 old_path,
                 new_path,
                 listener,
             } => {
-                let pool = self.pool.clone();
-                thread::spawn(move || {
-                    let res = Self::bg_sftp_rename(pool, &old_path, &new_path);
-                    let _ = listener.send(res);
-                });
+                let res = Self::bg_sftp_rename(self.pool.clone(), &old_path, &new_path);
+                let _ = listener.send(res);
             }
             SshCommand::SftpDownload {
                 remote_path,
@@ -555,11 +480,8 @@ impl SshManager {
                 listener,
                 cancel_flag,
             } => {
-                eprintln!("[DEBUG] SSH Manager: SftpDownload command received: transfer_id={}, remote={}", transfer_id, remote_path);
-                // 使用传输专用会话池，避免阻塞普通SFTP操作
                 let pool = self.pool.clone();
                 thread::spawn(move || {
-                    eprintln!("[DEBUG] SftpDownload thread started: transfer_id={}", transfer_id);
                     let res = Self::bg_sftp_download_with_pool(
                         pool,
                         &remote_path,
@@ -568,7 +490,6 @@ impl SshManager {
                         &app_handle,
                         &cancel_flag,
                     );
-                    eprintln!("[DEBUG] SftpDownload thread finished: transfer_id={}, result={:?}", transfer_id, res);
                     let _ = listener.send(res);
                 });
             }
@@ -580,11 +501,8 @@ impl SshManager {
                 listener,
                 cancel_flag,
             } => {
-                eprintln!("[DEBUG] SSH Manager: SftpUpload command received: transfer_id={}, remote={}", transfer_id, remote_path);
-                // 使用传输专用会话池，避免阻塞普通SFTP操作
                 let pool = self.pool.clone();
                 thread::spawn(move || {
-                    eprintln!("[DEBUG] SftpUpload thread started: transfer_id={}", transfer_id);
                     let res = Self::bg_sftp_upload_with_pool(
                         pool,
                         &local_path,
@@ -593,9 +511,49 @@ impl SshManager {
                         &app_handle,
                         &cancel_flag,
                     );
-                    eprintln!("[DEBUG] SftpUpload thread finished: transfer_id={}, result={:?}", transfer_id, res);
                     let _ = listener.send(res);
                 });
+            }
+            SshCommand::GetServerStatus { listener } => {
+                let res = Self::bg_get_server_status(self.pool.clone());
+                let _ = listener.send(res);
+            }
+            SshCommand::GetDiskUsage { path, listener } => {
+                let res = Self::bg_get_disk_usage(self.pool.clone(), &path);
+                let _ = listener.send(res);
+            }
+        }
+    }
+
+    fn tick_network_monitor(&mut self) {
+        let should_check = {
+            if let Ok(monitor) = self.network_monitor.lock() {
+                monitor.should_check()
+            } else {
+                false
+            }
+        };
+
+        if !should_check {
+            return;
+        }
+
+        let session_mutex = match self.pool.get_transfer_session() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[NetworkMonitor] Failed to get transfer session: {}", e);
+                return;
+            }
+        };
+
+        let session_guard = match session_mutex.try_lock() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        if let Ok(mut monitor) = self.network_monitor.lock() {
+            if let Err(e) = monitor.measure_latency(&session_guard.session) {
+                eprintln!("[NetworkMonitor] Failed to measure latency: {}", e);
             }
         }
     }
@@ -611,7 +569,7 @@ impl SshManager {
         let session_mutex = if is_ai {
             pool.get_ai_session()?
         } else {
-            pool.get_background_session()?
+            pool.get_file_browser_session()?
         };
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
 
@@ -654,7 +612,7 @@ impl SshManager {
     }
 
     fn bg_sftp_ls(pool: SessionSshPool, path: &str) -> Result<Vec<FileEntry>, String> {
-        let session_mutex = pool.get_background_session()?;
+        let session_mutex = pool.get_file_browser_session()?;
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session)?;
 
@@ -706,7 +664,7 @@ impl SshManager {
         path: &str,
         max_len: Option<usize>,
     ) -> Result<Vec<u8>, String> {
-        let session_mutex = pool.get_background_session()?;
+        let session_mutex = pool.get_file_browser_session()?;
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session)?;
 
@@ -748,7 +706,7 @@ impl SshManager {
         content: &[u8],
         mode: Option<&str>,
     ) -> Result<(), String> {
-        let session_mutex = pool.get_background_session()?;
+        let session_mutex = pool.get_file_browser_session()?;
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session)?;
 
@@ -791,14 +749,14 @@ impl SshManager {
     where
         F: FnOnce(&ssh2::Sftp, &Path) -> Result<(), String>,
     {
-        let session_mutex = pool.get_background_session()?;
+        let session_mutex = pool.get_file_browser_session()?;
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session)?;
         op(&sftp, Path::new(path))
     }
 
     fn bg_sftp_delete(pool: SessionSshPool, path: &str, is_dir: bool) -> Result<(), String> {
-        let session_mutex = pool.get_background_session()?;
+        let session_mutex = pool.get_file_browser_session()?;
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session)?;
 
@@ -833,7 +791,7 @@ impl SshManager {
     }
 
     fn bg_sftp_rename(pool: SessionSshPool, old: &str, new: &str) -> Result<(), String> {
-        let session_mutex = pool.get_background_session()?;
+        let session_mutex = pool.get_file_browser_session()?;
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
         let sftp = Self::bg_get_sftp(&session)?;
 
@@ -842,7 +800,7 @@ impl SshManager {
     }
 
     // --- Transfer Functions using dedicated Transfer Pool ---
-    // These functions use get_transfer_session() instead of get_background_session()
+    // These functions use get_transfer_session() instead of get_file_browser_session()
     // to avoid blocking regular SFTP operations (ls, read, etc.) during file transfers
 
     fn bg_sftp_download_with_pool(
@@ -867,9 +825,29 @@ impl SshManager {
         let session_mutex = pool.get_transfer_session()?;
         eprintln!("[DEBUG] bg_sftp_download_with_pool: Got transfer session for transfer_id={}", transfer_id);
 
-        // Hold the session lock for the entire transfer to ensure exclusive
-        // access to this SSH session (prevents concurrent SFTP ops on same session).
         let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
+
+        struct BlockingRestoreGuard<'a> {
+            sess: &'a ssh2::Session,
+            was_blocking: bool,
+        }
+
+        impl<'a> Drop for BlockingRestoreGuard<'a> {
+            fn drop(&mut self) {
+                if !self.was_blocking {
+                    self.sess.set_blocking(false);
+                }
+            }
+        }
+
+        let was_blocking = session_guard.session.is_blocking();
+        if !was_blocking {
+            session_guard.session.set_blocking(true);
+        }
+        let _restore_guard = BlockingRestoreGuard {
+            sess: &session_guard.session,
+            was_blocking,
+        };
         let sftp = Self::bg_get_sftp(&session_guard)?;
 
         let mut remote = crate::ssh::utils::ssh2_retry(|| sftp.open(Path::new(remote_path)))
@@ -884,6 +862,7 @@ impl SshManager {
         let mut buf = [0u8; 16384];
         let mut transferred = 0u64;
         let mut last_emit = Instant::now();
+        let mut last_emit_transferred = 0u64;
 
         // Timeout tracking
         let transfer_start = Instant::now();
@@ -919,7 +898,9 @@ impl SshManager {
                     last_progress_time = Instant::now(); // Update progress time
                     would_block_count = 0; // Reset WouldBlock counter on success
 
-                    if last_emit.elapsed().as_millis() > 100 {
+                    if last_emit.elapsed().as_millis() > 250
+                        || transferred.saturating_sub(last_emit_transferred) >= 256 * 1024
+                    {
                         let _ = app.emit(
                             "transfer-progress",
                             ProgressPayload {
@@ -929,6 +910,7 @@ impl SshManager {
                             },
                         );
                         last_emit = Instant::now();
+                        last_emit_transferred = transferred;
                     }
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
@@ -953,6 +935,7 @@ impl SshManager {
                 total,
             },
         );
+
         Ok(())
     }
 
@@ -978,8 +961,29 @@ impl SshManager {
         let session_mutex = pool.get_transfer_session()?;
         eprintln!("[DEBUG] bg_sftp_upload_with_pool: Got transfer session for transfer_id={}", transfer_id);
 
-        // Hold the session lock for the entire transfer to ensure exclusive access
         let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
+
+        struct BlockingRestoreGuard<'a> {
+            sess: &'a ssh2::Session,
+            was_blocking: bool,
+        }
+
+        impl<'a> Drop for BlockingRestoreGuard<'a> {
+            fn drop(&mut self) {
+                if !self.was_blocking {
+                    self.sess.set_blocking(false);
+                }
+            }
+        }
+
+        let was_blocking = session_guard.session.is_blocking();
+        if !was_blocking {
+            session_guard.session.set_blocking(true);
+        }
+        let _restore_guard = BlockingRestoreGuard {
+            sess: &session_guard.session,
+            was_blocking,
+        };
         let sftp = Self::bg_get_sftp(&session_guard)?;
 
         let mut local = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
@@ -1000,6 +1004,7 @@ impl SshManager {
         let mut buf = vec![0u8; buffer_size];
         let mut transferred = 0u64;
         let mut last_emit = Instant::now();
+        let mut last_emit_transferred = 0u64;
 
         // Timeout tracking
         let transfer_start = Instant::now();
@@ -1041,7 +1046,9 @@ impl SshManager {
                         last_progress_time = Instant::now(); // Update progress time
                         would_block_count = 0; // Reset WouldBlock counter on success
 
-                        if last_emit.elapsed().as_millis() > 100 {
+                        if last_emit.elapsed().as_millis() > 250
+                            || transferred.saturating_sub(last_emit_transferred) >= 256 * 1024
+                        {
                             let _ = app.emit(
                                 "transfer-progress",
                                 ProgressPayload {
@@ -1051,6 +1058,7 @@ impl SshManager {
                                 },
                             );
                             last_emit = Instant::now();
+                            last_emit_transferred = transferred;
                         }
                     }
                     Err(e) if e.kind() == ErrorKind::WouldBlock => {
@@ -1115,5 +1123,126 @@ impl SshManager {
             let _ = sftp.mkdir(path, 0o755);
         }
         Ok(())
+    }
+
+    // --- Status Bar Query Functions ---
+    // These functions use the dedicated status session pool for isolation
+
+    /// Get server status using the status session pool
+    fn bg_get_server_status(pool: SessionSshPool) -> Result<ServerStatus, String> {
+        let session_mutex = pool.get_status_session()?;
+        let session = session_mutex.lock().map_err(|e| e.to_string())?;
+
+        // Helper function to run a command and parse output
+        let run_command = |cmd: &str| -> Result<String, String> {
+            let mut channel = crate::ssh::utils::ssh2_retry(|| session.channel_session())
+                .map_err(|e| e.to_string())?;
+            crate::ssh::utils::ssh2_retry(|| channel.exec(cmd)).map_err(|e| e.to_string())?;
+
+            let mut output = String::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                match channel.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        output.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    }
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
+            let _ = channel.wait_close();
+            Ok(output.trim().to_string())
+        };
+
+        // Get CPU usage
+        let cpu_usage = run_command("top -bn1 | grep \"Cpu(s)\" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//'")
+            .ok()
+            .and_then(|s| s.trim().parse::<f32>().ok());
+
+        // Get memory info from /proc/meminfo
+        let memory_output = run_command(
+            "awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {print total \" \" avail}' /proc/meminfo 2>/dev/null"
+        ).ok();
+        let (memory_used, memory_total) = if let Some(mem) = memory_output {
+            let parts: Vec<&str> = mem.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let total: u64 = parts[0].parse().unwrap_or(0);
+                let avail: u64 = parts[1].parse().unwrap_or(0);
+                let used = total.saturating_sub(avail);
+                (Some(used), Some(total))
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+        // Get uptime in seconds
+        let uptime = run_command("cat /proc/uptime | awk '{print int($1)}'")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok());
+
+        // Get load average
+        let load_average = run_command("cat /proc/loadavg | awk '{print $1 \" \" $2 \" \" $3}'")
+            .ok()
+            .filter(|s| !s.is_empty());
+
+        Ok(ServerStatus {
+            cpu_usage,
+            memory_used,
+            memory_total,
+            uptime,
+            load_average,
+        })
+    }
+
+    /// Get disk usage for a specific path using the status session pool
+    fn bg_get_disk_usage(pool: SessionSshPool, path: &str) -> Result<DiskUsage, String> {
+        let session_mutex = pool.get_status_session()?;
+        let session = session_mutex.lock().map_err(|e| e.to_string())?;
+
+        let cmd = format!("df -B1 \"{}\" 2>/dev/null | tail -1", path);
+        let mut channel = crate::ssh::utils::ssh2_retry(|| session.channel_session())
+            .map_err(|e| e.to_string())?;
+        crate::ssh::utils::ssh2_retry(|| channel.exec(&cmd)).map_err(|e| e.to_string())?;
+
+        let mut output = String::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            match channel.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    output.push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        let _ = channel.wait_close();
+
+        // Parse df output: filesystem total used avail percent mount
+        let parts: Vec<&str> = output.split_whitespace().collect();
+        if parts.len() >= 6 {
+            let total: u64 = parts[1].parse().map_err(|_| "Failed to parse total".to_string())?;
+            let used: u64 = parts[2].parse().map_err(|_| "Failed to parse used".to_string())?;
+            let available: u64 = parts[3].parse().map_err(|_| "Failed to parse available".to_string())?;
+            let percent_str = parts[4].trim_end_matches('%');
+            let usage_percent: f32 = percent_str.parse().map_err(|_| "Failed to parse percent".to_string())?;
+
+            Ok(DiskUsage {
+                path: path.to_string(),
+                total,
+                used,
+                available,
+                usage_percent,
+            })
+        } else {
+            Err(format!("Invalid df output for path: {}", path))
+        }
     }
 }

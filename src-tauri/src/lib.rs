@@ -73,7 +73,9 @@ pub fn run() {
             db::generate_ssh_key,
             ssh::connection::install_ssh_key,
             system::get_file_icon,
-            ssh::system::get_remote_system_status
+            ssh::system::get_remote_system_status,
+            ssh::system::get_server_status,
+            ssh::system::get_disk_usage
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

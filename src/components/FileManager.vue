@@ -157,6 +157,32 @@ const isLoadingFiles = ref(false);
 const activeSuggestionIndex = ref(-1);
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 请求去重机制 - 避免对相同路径的重复请求
+const pendingRequests = new Map<string, Promise<FileEntry[]>>();
+
+async function listFilesWithDedup(sessionId: string, path: string): Promise<FileEntry[]> {
+    const cacheKey = `${sessionId}:${path}`;
+
+    // 检查是否有相同路径的 pending 请求
+    const existing = pendingRequests.get(cacheKey);
+    if (existing) {
+        return existing;
+    }
+
+    // 创建新请求
+    const promise = (async () => {
+        try {
+            return await invoke<FileEntry[]>('list_files', { id: sessionId, path });
+        } finally {
+            // 请求完成后清理缓存
+            pendingRequests.delete(cacheKey);
+        }
+    })();
+
+    pendingRequests.set(cacheKey, promise);
+    return promise;
+}
+
 function handlePathInput() {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
@@ -199,7 +225,7 @@ async function fetchSuggestions(input: string) {
     try {
         // If parentPath is empty, default to / or .
         const searchPath = parentPath || '/';
-        const entries = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path: searchPath });
+        const entries = await listFilesWithDedup(props.sessionId, searchPath);
 
         suggestions.value = entries
             .filter(e => e.isDir && e.name.startsWith(filterPrefix))
@@ -378,7 +404,7 @@ async function loadFiles(path: string) {
 
         try {
             console.log('Loading files for path:', path);
-            const loadedFiles = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path });
+            const loadedFiles = await listFilesWithDedup(props.sessionId, path);
 
             // 检查请求是否已被取消
             if (currentController.signal.aborted) {
@@ -510,7 +536,7 @@ async function toggleDirectory(node: TreeNode) {
     triggerRef(treeNodes);
 
     try {
-        const children = await invoke<FileEntry[]>('list_files', { id: props.sessionId, path: node.path });
+        const children = await listFilesWithDedup(props.sessionId, node.path);
         const currentChildrenMap = new Map(childrenMap.value);
         const childPaths: string[] = [];
 
@@ -972,7 +998,7 @@ async function calculateDirectoryStats(remotePath: string, sessionId: string): P
     let totalSize = 0;
 
     async function scanDirectory(path: string) {
-        const entries = await invoke<FileEntry[]>('list_files', { id: sessionId, path });
+        const entries = await listFilesWithDedup(sessionId, path);
 
         for (const entry of entries) {
             const fullPath = pathUtils.value.join(path, entry.name);
@@ -1004,7 +1030,7 @@ async function downloadDirectoryRecursive(remoteDirPath: string, localDirPath: s
         }
 
         // List remote directory contents
-        const entries = await invoke<FileEntry[]>('list_files', { id: sessionId, path: remoteDirPath });
+        const entries = await listFilesWithDedup(sessionId, remoteDirPath);
 
         for (const entry of entries) {
             // 鍐嶆妫€鏌ョ姸鎬?

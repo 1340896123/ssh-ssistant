@@ -111,15 +111,23 @@ impl std::ops::Deref for ManagedSession {
     }
 }
 
-/// 会话级SSH连接池：1个主会话（终端专用）+ N个后台会话（文件操作、命令执行）+ M个传输专用会话（大文件传输）
+/// 会话级SSH连接池：1个主会话（终端专用）+ 1个AI会话 + N个文件浏览器会话 + M个传输专用会话 + 1个状态栏会话（懒加载）
+///
+/// 五个场景严格隔离：
+/// 1. 终端主会话 (main_session)
+/// 2. AI助手会话 (ai_session)
+/// 3. 文件浏览器会话池 (file_browser_pool)
+/// 4. 文件传输会话池 (transfer_pool)
+/// 5. 状态栏会话 (status_pool, 懒加载单例)
 #[derive(Clone)]
 pub struct SessionSshPool {
     config: SshConnConfig,
     main_session: Arc<Mutex<ManagedSession>>, // 主会话，专用于终端
-    ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // Helper dedicated session for AI
-    background_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 后台会话池（用于快速SFTP操作）
-    transfer_sessions: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 传输专用会话池（用于大文件上传/下载）
-    max_background_sessions: usize,           // 最大后台会话数量
+    ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // AI助手专用会话
+    file_browser_pool: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 文件浏览器会话池（用于快速SFTP操作）
+    transfer_pool: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 文件传输会话池（用于大文件上传/下载）
+    status_pool: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // 状态栏专用会话（懒加载单例）
+    max_file_browser_sessions: usize,           // 最大文件浏览器会话数量
     max_transfer_sessions: usize,             // 最大传输会话数量
     next_bg_index: Arc<Mutex<usize>>,         // 轮询索引
     created_at: Arc<Mutex<Instant>>,          // 主会话建立时间，用于延迟后台连接
@@ -130,13 +138,13 @@ pub struct SessionSshPool {
 }
 
 impl SessionSshPool {
-    pub fn new(config: SshConnConfig, max_background_sessions: usize, timeout_settings: Option<ConnectionTimeoutSettings>) -> Result<Self, String> {
-        Self::with_reconnect_settings(config, max_background_sessions, timeout_settings, None)
+    pub fn new(config: SshConnConfig, max_file_browser_sessions: usize, timeout_settings: Option<ConnectionTimeoutSettings>) -> Result<Self, String> {
+        Self::with_reconnect_settings(config, max_file_browser_sessions, timeout_settings, None)
     }
 
     pub fn with_reconnect_settings(
         config: SshConnConfig,
-        max_background_sessions: usize,
+        max_file_browser_sessions: usize,
         timeout_settings: Option<ConnectionTimeoutSettings>,
         reconnect_settings: Option<ReconnectSettings>,
     ) -> Result<Self, String> {
@@ -144,18 +152,19 @@ impl SessionSshPool {
         let main_session = establish_connection_with_retry(&config, timeout_settings.as_ref(), reconnect_settings.as_ref())?;
 
         // Don't create background session immediately to save resources and avoid rate limits
-        // It will be created on demand when get_background_session is called
+        // It will be created on demand when get_file_browser_session is called
 
-        // 计算传输会话池大小：至少2个，最多与后台会话相同，默认4个
-        let max_transfer_sessions = (max_background_sessions / 2).max(2).min(6);
+        // 计算传输会话池大小：至少2个，最多与文件浏览器会话相同，默认4个
+        let max_transfer_sessions = (max_file_browser_sessions / 2).max(2).min(6);
 
         Ok(Self {
             config,
             main_session: Arc::new(Mutex::new(main_session)),
             ai_session: Arc::new(Mutex::new(None)),
-            background_sessions: Arc::new(Mutex::new(Vec::new())),
-            transfer_sessions: Arc::new(Mutex::new(Vec::new())),
-            max_background_sessions,
+            file_browser_pool: Arc::new(Mutex::new(Vec::new())),
+            transfer_pool: Arc::new(Mutex::new(Vec::new())),
+            status_pool: Arc::new(Mutex::new(None)),
+            max_file_browser_sessions,
             max_transfer_sessions,
             next_bg_index: Arc::new(Mutex::new(0)),
             created_at: Arc::new(Mutex::new(Instant::now())),
@@ -183,7 +192,7 @@ impl SessionSshPool {
                 return Err("Timeout waiting for available transfer session. Please try again later.".to_string());
             }
 
-            let mut sessions = self.transfer_sessions.lock().map_err(|e| e.to_string())?;
+            let mut sessions = self.transfer_pool.lock().map_err(|e| e.to_string())?;
 
             // 1. 尝试寻找当前没有被其它线程锁定的"空闲"会话
             for session in sessions.iter() {
@@ -218,7 +227,7 @@ impl SessionSshPool {
                 let session_arc = Arc::new(Mutex::new(new_session));
 
                 // 重新获取锁，添加新会话
-                let mut sessions = self.transfer_sessions.lock().map_err(|e| e.to_string())?;
+                let mut sessions = self.transfer_pool.lock().map_err(|e| e.to_string())?;
                 sessions.push(session_arc.clone());
 
                 // 重置计数器
@@ -251,14 +260,14 @@ impl SessionSshPool {
         Ok(shared_session)
     }
 
-    /// 获取后台会话（智能分配：优先空闲，繁忙则动态补齐）
-    pub fn get_background_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
+    /// 获取文件浏览器会话（智能分配：优先空闲，繁忙则动态补齐）
+    pub fn get_file_browser_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
         // 使用默认超时 5 秒
-        self.get_background_session_with_timeout(Duration::from_secs(5))
+        self.get_file_browser_session_with_timeout(Duration::from_secs(5))
     }
 
-    /// 获取后台会话（带超时保护）
-    pub fn get_background_session_with_timeout(&self, timeout: Duration) -> Result<Arc<Mutex<ManagedSession>>, String> {
+    /// 获取文件浏览器会话（带超时保护）
+    pub fn get_file_browser_session_with_timeout(&self, timeout: Duration) -> Result<Arc<Mutex<ManagedSession>>, String> {
         let start = Instant::now();
         let check_interval = Duration::from_millis(50);
 
@@ -268,7 +277,7 @@ impl SessionSshPool {
                 return Err("Timeout waiting for available SFTP session. Please try again later.".to_string());
             }
 
-            let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
+            let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
 
             // 1. 尝试寻找当前没有被其它线程锁定的"空闲"会话
             for session in sessions.iter() {
@@ -279,7 +288,7 @@ impl SessionSshPool {
             }
 
             // 2. 如果没有空闲会话，且还没达到上限，则创建一个新会话
-            if sessions.len() < self.max_background_sessions {
+            if sessions.len() < self.max_file_browser_sessions {
                 // 使用指数退避策略替代固定延迟
                 let delay_ms = if !sessions.is_empty() {
                     let mut count = self.connection_stagger_count.lock().map_err(|e| e.to_string())?;
@@ -304,7 +313,7 @@ impl SessionSshPool {
                 let session_arc = Arc::new(Mutex::new(new_session));
 
                 // 重新获取锁，添加新会话
-                let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
+                let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
                 sessions.push(session_arc.clone());
 
                 // 重置计数器
@@ -321,10 +330,39 @@ impl SessionSshPool {
         }
     }
 
+    /// 获取后台会话（已弃用，请使用 get_file_browser_session）
+    #[deprecated(note = "Use get_file_browser_session instead")]
+    pub fn get_background_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
+        self.get_file_browser_session()
+    }
+
+    /// 获取后台会话（带超时保护，已弃用，请使用 get_file_browser_session_with_timeout）
+    #[deprecated(note = "Use get_file_browser_session_with_timeout instead")]
+    pub fn get_background_session_with_timeout(&self, timeout: Duration) -> Result<Arc<Mutex<ManagedSession>>, String> {
+        self.get_file_browser_session_with_timeout(timeout)
+    }
+
+    /// 获取状态栏专用会话（懒加载单例）
+    ///
+    /// 状态栏会话是单例模式，只在首次调用时创建，之后复用同一个会话
+    /// 如果会话断开，cleanup_disconnected 会将其置为 None，下次调用会重新创建
+    pub fn get_status_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
+        let mut pool = self.status_pool.lock().map_err(|e| e.to_string())?;
+
+        if pool.is_none() {
+            let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
+            let session_arc = Arc::new(Mutex::new(new_session));
+            *pool = Some(session_arc.clone());
+            return Ok(session_arc);
+        }
+
+        Ok(pool.as_ref().unwrap().clone())
+    }
+
     /// 检查并清理断开的连接
     pub fn cleanup_disconnected(&self) {
-        // 检查后台会话
-        if let Ok(mut sessions) = self.background_sessions.lock() {
+        // 检查文件浏览器会话
+        if let Ok(mut sessions) = self.file_browser_pool.lock() {
             sessions.retain(|session| {
                 if let Ok(sess) = session.lock() {
                     // 核心修复：使用 ssh2_retry 处理 WouldBlock 错误
@@ -338,12 +376,12 @@ impl SessionSshPool {
                 }
             });
 
-            // 确保至少有一个后台会话
+            // 确保至少有一个文件浏览器会话
             if sessions.is_empty() {
                 // 先释放锁，再建立连接，避免阻塞其他操作
                 drop(sessions);
                 if let Ok(new_session) = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref()) {
-                    if let Ok(mut sessions) = self.background_sessions.lock() {
+                    if let Ok(mut sessions) = self.file_browser_pool.lock() {
                         // 再次检查是否为空（其他线程可能已经创建了）
                         if sessions.is_empty() {
                             sessions.push(Arc::new(Mutex::new(new_session)));
@@ -368,6 +406,24 @@ impl SessionSshPool {
             }
             if remove {
                 *ai_opt = None;
+            }
+        }
+
+        // Check status session (懒加载会话)
+        if let Ok(mut status_opt) = self.status_pool.lock() {
+            let mut remove = false;
+            if let Some(session_arc) = status_opt.as_ref() {
+                if let Ok(sess) = session_arc.lock() {
+                    match ssh2_retry(|| sess.session.keepalive_send()) {
+                        Ok(_) => {}
+                        Err(_) => remove = true,
+                    }
+                } else {
+                    remove = true;
+                }
+            }
+            if remove {
+                *status_opt = None;
             }
         }
 
@@ -510,8 +566,8 @@ impl SessionSshPool {
             }
         }
 
-        // 关闭所有后台会话
-        if let Ok(mut sessions) = self.background_sessions.lock() {
+        // 关闭所有文件浏览器会话
+        if let Ok(mut sessions) = self.file_browser_pool.lock() {
             for session in sessions.drain(..) {
                 if let Ok(mut sess) = session.lock() {
                     // Close forwarding thread first
@@ -592,7 +648,7 @@ impl SessionSshPool {
 
         // 清空并关闭所有后台会话
         {
-            let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
+            let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
             for session in sessions.drain(..) {
                 if let Ok(mut sess) = session.lock() {
                     Self::cleanup_managed_session(&mut sess);
@@ -627,8 +683,8 @@ impl SessionSshPool {
             SessionHealthMetadata::new()
         };
 
-        // Collect background sessions metadata
-        let background_metadata: Vec<SessionHealthMetadata> = if let Ok(sessions) = self.background_sessions.lock() {
+        // Collect file browser sessions metadata
+        let background_metadata: Vec<SessionHealthMetadata> = if let Ok(sessions) = self.file_browser_pool.lock() {
             sessions
                 .iter()
                 .filter_map(|s| s.lock().ok().map(|sess| sess.health_metadata.clone()))
@@ -649,13 +705,13 @@ impl SessionSshPool {
 
     /// 预热备用会话
     pub fn warmup_sessions(&self, count: usize) -> Result<(), String> {
-        let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
+        let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
 
         let current_count = sessions.len();
         let needed = count.saturating_sub(current_count);
 
         for i in 0..needed {
-            if sessions.len() >= self.max_background_sessions {
+            if sessions.len() >= self.max_file_browser_sessions {
                 break;
             }
             // Stagger new connections to avoid flooding the server
@@ -685,7 +741,7 @@ impl SessionSshPool {
                     self.rebuild_main()?;
                 }
                 HealthAction::RebuildBackground(idx) => {
-                    self.rebuild_background_session(*idx)?;
+                    self.rebuild_file_browser_session(*idx)?;
                 }
                 HealthAction::RebuildAi => {
                     self.rebuild_ai_session()?;
@@ -723,16 +779,16 @@ impl SessionSshPool {
         }
     }
 
-    /// 重建特定索引的后台会话
-    fn rebuild_background_session(&self, idx: usize) -> Result<(), String> {
-        let mut sessions = self.background_sessions.lock().map_err(|e| e.to_string())?;
+    /// 重建特定索引的文件浏览器会话
+    fn rebuild_file_browser_session(&self, idx: usize) -> Result<(), String> {
+        let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
 
         if idx < sessions.len() {
             // Remove the unhealthy session
             sessions.remove(idx);
 
             // Create a new session if we're below the limit
-            if sessions.len() < self.max_background_sessions {
+            if sessions.len() < self.max_file_browser_sessions {
                 match establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref()) {
                     Ok(new_session) => {
                         sessions.push(Arc::new(Mutex::new(new_session)));

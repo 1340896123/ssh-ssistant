@@ -394,3 +394,25 @@ impl std::fmt::Display for FileOperationError {
 }
 
 impl std::error::Error for FileOperationError {}
+
+/// Server status information for the status bar
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerStatus {
+    pub cpu_usage: Option<f32>,
+    pub memory_used: Option<u64>,
+    pub memory_total: Option<u64>,
+    pub uptime: Option<u64>,
+    pub load_average: Option<String>,
+}
+
+/// Disk usage information for a specific path
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskUsage {
+    pub path: String,
+    pub total: u64,
+    pub used: u64,
+    pub available: u64,
+    pub usage_percent: f32,
+}
