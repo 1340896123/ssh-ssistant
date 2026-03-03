@@ -1,0 +1,42 @@
+# 修复 WSL 打开无限终端 bug 实现指南
+
+## 问题描述
+用户在使用 WSL 连接时，打开 WSL 后会发现终端开始不断无限弹出。严重影响使用体验。
+
+## 原因分析
+通过代码审查分析，发现 `src-tauri/src/ssh/command.rs`、`src-tauri/src/ssh/system.rs` 和 `src-tauri/src/ssh/file_ops.rs` 中涉及执行 WSL 命令的地方存在致命缺陷：
+
+在 Windows 环境下使用 `std::process::Command::new("wsl")` 执行程序如果不显式附加 `CREATE_NO_WINDOW` (即 `0x08000000`) 标志，每次执行命令都会弹出一个 cmd 或 conhost 控制台窗口（哪怕是闪退）。
+由于：
+1. `system.rs` 中的系统状态监控（CPU、内存等）会以高频率拉取 WSL 的后台数据。
+2. 前端初始化（如 `AIAssistant` 或 `FileManager`）会调用 `exec_command('pwd')`、`list_files` 等方法频繁访问后端。
+每次后台请求获取这些信息或执行隐式命令时，都会新产生一个终端窗口。因此导致肉眼可见的“WSL下打开无限弹出终端”这一恶性 BUG。
+
+## 修复方案
+
+### 1. 引入必要的 `windows` 构建标签常量
+为确保仅在 Windows 下附加创建标志，避免破坏可能在非 Windows 下或无需特殊标志的环境（尽管此项目大量使用 `wsl` 表示在 Windows）。
+修改受影响的文件，在其导入区引入相关包或者直接写硬编码常量：
+```rust
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+```
+
+### 2. 为所有隐式执行的 `wsl` Command 增加不弹窗标志
+在以下文件中搜寻所有的 `Command::new("wsl")` 并通过 `.creation_flags(CREATE_NO_WINDOW)` 阻止可见窗口启动。
+具体包含：
+* `src-tauri/src/ssh/command.rs`
+    * `exec_command`
+    * `get_working_directory`
+* `src-tauri/src/ssh/system.rs`
+    * `run_wsl_command`
+* `src-tauri/src/ssh/file_ops.rs`
+    * `change_file_permission`
+
+此外，针对之前检查过的 `src-tauri/src/ssh/wsl.rs` 中已经良好应用了 `CREATE_NO_WINDOW` 这一规范经验，这次我们将这些规范延展到上述所有的命令执行上下文中。
+
+## 修复详情重点说明
+只需保证每次 `std::process::Command::new("wsl")` 创建进程时，都能安全无感地在底层进行 PTY 或是流式数据读取通信即可，从而有效拦截弹出的控制台，彻底根除无限弹窗无限终端的问题死锁。
+
+修订必须确保满足 TypeScript 以及 Rust 代码的兼容性要求，并且由于不涉及对逻辑分支的大调整，其稳定性可以得以充分保障。

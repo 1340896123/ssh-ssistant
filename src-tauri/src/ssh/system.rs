@@ -7,6 +7,12 @@ use std::thread;
 use std::time::Duration;
 use tauri::{command, AppHandle, State};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DiskInfo {
@@ -72,7 +78,11 @@ fn run_ssh_command(sender: &Sender<SshCommand>, cmd: &str) -> Result<String, Str
 
 // Helper to run command on WSL
 fn run_wsl_command(distro: &str, cmd: &str) -> Result<String, String> {
-     let output = std::process::Command::new("wsl")
+     let mut command = std::process::Command::new("wsl");
+     #[cfg(target_os = "windows")]
+     command.creation_flags(CREATE_NO_WINDOW);
+
+     let output = command
         .arg("-d")
         .arg(distro)
         .arg("bash")

@@ -13,6 +13,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::ssh::ProgressPayload;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Clone, serde::Serialize)]
 struct ErrorPayload {
     id: String,
@@ -407,7 +413,11 @@ pub async fn change_file_permission(
             tokio::task::spawn_blocking(move || {
                 // wsl -d distro chmod octal path
                 let octal = format!("{:o}", permission);
-                let output = std::process::Command::new("wsl")
+                let mut cmd = std::process::Command::new("wsl");
+                #[cfg(target_os = "windows")]
+                cmd.creation_flags(CREATE_NO_WINDOW);
+
+                let output = cmd
                     .arg("-d")
                     .arg(&distro)
                     .arg("chmod")
@@ -455,8 +465,10 @@ pub async fn download_file(
     remote_path: String,
     local_path: String,
 ) -> Result<String, String> {
-    eprintln!("[DEBUG] download_file called: id={}, transfer_id={}, remote_path={}, local_path={}",
-        id, transfer_id, remote_path, local_path);
+    eprintln!(
+        "[DEBUG] download_file called: id={}, transfer_id={}, remote_path={}, local_path={}",
+        id, transfer_id, remote_path, local_path
+    );
 
     let client = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
@@ -686,8 +698,10 @@ pub async fn upload_file(
     local_path: String,
     remote_path: String,
 ) -> Result<String, String> {
-    eprintln!("[DEBUG] upload_file called: id={}, transfer_id={}, local_path={}, remote_path={}",
-        id, transfer_id, local_path, remote_path);
+    eprintln!(
+        "[DEBUG] upload_file called: id={}, transfer_id={}, local_path={}, remote_path={}",
+        id, transfer_id, local_path, remote_path
+    );
 
     let client = {
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
@@ -1052,9 +1066,12 @@ fn create_remote_dir_recursive(sftp: &ssh2::Sftp, path: &Path) -> Result<(), ssh
 // TransferManager Integration Functions
 // ============================================================================
 
-use crate::ssh::transfer::{TransferManager, TransferOperation, TransferSettings};
-use crate::db::{save_transfer_record, get_transfer_records_by_client, cleanup_old_transfer_records, TransferRecord as DbTransferRecord};
+use crate::db::{
+    cleanup_old_transfer_records, get_transfer_records_by_client, save_transfer_record,
+    TransferRecord as DbTransferRecord,
+};
 use crate::ssh::client::cancel_transfer;
+use crate::ssh::transfer::{TransferManager, TransferOperation, TransferSettings};
 
 /// Start a transfer using the new TransferManager
 #[tauri::command]
@@ -1102,7 +1119,9 @@ pub async fn start_transfer_with_manager(
     };
 
     // Get app data directory for checkpoints
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
     // Create transfer settings
@@ -1121,12 +1140,20 @@ pub async fn start_transfer_with_manager(
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
-                crate::ssh::transfer::TransferEvent::Progress { id, transferred, total, speed_bps: _ } => {
-                    let _ = app_clone.emit("transfer-progress", ProgressPayload {
-                        id,
-                        transferred,
-                        total,
-                    });
+                crate::ssh::transfer::TransferEvent::Progress {
+                    id,
+                    transferred,
+                    total,
+                    speed_bps: _,
+                } => {
+                    let _ = app_clone.emit(
+                        "transfer-progress",
+                        ProgressPayload {
+                            id,
+                            transferred,
+                            total,
+                        },
+                    );
                 }
                 crate::ssh::transfer::TransferEvent::Completed { id, .. } => {
                     let _ = app_clone.emit("transfer-completed", id);
@@ -1140,12 +1167,15 @@ pub async fn start_transfer_with_manager(
     });
 
     // Start the transfer
-    let transfer_id = manager.start_transfer(
-        op_type,
-        PathBuf::from(local_path.clone()),
-        remote_path.clone(),
-        app.clone(),
-    ).await.map_err(|e| format!("Failed to start transfer: {}", e))?;
+    let transfer_id = manager
+        .start_transfer(
+            op_type,
+            PathBuf::from(local_path.clone()),
+            remote_path.clone(),
+            app.clone(),
+        )
+        .await
+        .map_err(|e| format!("Failed to start transfer: {}", e))?;
 
     // Save initial transfer record to database
     let now = std::time::SystemTime::now()
@@ -1208,10 +1238,6 @@ pub async fn get_transfer_records(
 
 /// Clean up old transfer records
 #[tauri::command]
-pub async fn cleanup_old_transfers(
-    app: AppHandle,
-    days_old: i64,
-) -> Result<usize, String> {
+pub async fn cleanup_old_transfers(app: AppHandle, days_old: i64) -> Result<usize, String> {
     cleanup_old_transfer_records(&app, days_old)
 }
-

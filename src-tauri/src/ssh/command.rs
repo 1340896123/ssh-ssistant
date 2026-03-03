@@ -4,6 +4,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[tauri::command]
 pub async fn exec_command(
     _app_handle: AppHandle,
@@ -68,7 +74,11 @@ pub async fn exec_command(
                     }
                 }
 
-                let output = std::process::Command::new("wsl")
+                let mut cmd = std::process::Command::new("wsl");
+                #[cfg(target_os = "windows")]
+                cmd.creation_flags(CREATE_NO_WINDOW);
+
+                let output = cmd
                     .arg("-d")
                     .arg(&distro)
                     .arg("bash")
@@ -147,7 +157,11 @@ pub async fn get_working_directory(
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
             tokio::task::spawn_blocking(move || {
-                let output = std::process::Command::new("wsl")
+                let mut cmd = std::process::Command::new("wsl");
+                #[cfg(target_os = "windows")]
+                cmd.creation_flags(CREATE_NO_WINDOW);
+
+                let output = cmd
                     .arg("-d")
                     .arg(&distro)
                     .arg("exec")
