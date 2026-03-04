@@ -393,20 +393,20 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
 <template>
   <div class="h-screen w-screen bg-bg-primary text-text-primary flex overflow-hidden font-sans relative">
-    <!-- Subtle warm gradient overlay -->
-    <div class="absolute inset-0 pointer-events-none opacity-50 bg-gradient-to-br from-secondary/5 via-transparent to-primary/5"></div>
+    <!-- Aurora gradient overlay -->
+    <div class="absolute inset-0 pointer-events-none bg-gradient-to-br from-primary/10 via-transparent to-secondary/10 opacity-60"></div>
 
     <!-- Sidebar -->
-    <aside v-show="!isSidebarCollapsed" class="bg-bg-secondary border-r border-subtle flex flex-col flex-shrink-0 shadow-sm"
+    <aside v-show="!isSidebarCollapsed" class="bg-bg-secondary/95 backdrop-blur-sm border-r border-subtle flex flex-col flex-shrink-0"
       :style="{ width: sidebarWidth + 'px' }">
-      <div class="p-4 border-b border-subtle flex justify-between items-center bg-bg-elevated">
-        <h1 class="text-lg font-semibold text-primary">{{ t("app.title") }}</h1>
+      <div class="p-4 border-b border-subtle flex justify-between items-center bg-bg-tertiary/80">
+        <h1 class="text-lg font-semibold neon-text">{{ t("app.title") }}</h1>
         <div class="flex items-center space-x-2">
-          <button @click="showSettingsModal = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
+          <button @click="showSettingsModal = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-elevated transition-all duration-fast"
             :title="t('app.settings')">
             <Settings class="w-4 h-4" />
           </button>
-          <button @click="isSidebarCollapsed = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
+          <button @click="isSidebarCollapsed = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-elevated transition-all duration-fast"
             :title="t('app.collapseSidebar') || 'Collapse Sidebar'">
             <PanelLeftClose class="w-4 h-4" />
           </button>
@@ -415,7 +415,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
       <div class="flex-1 overflow-y-auto p-2">
         <ConnectionList @edit="openEditConnectionModal" />
       </div>
-      <div class="p-4 border-t border-subtle bg-bg-elevated">
+      <div class="p-4 border-t border-subtle bg-bg-tertiary/80">
         <button @click="openNewConnectionModal"
           class="w-full btn btn-primary">
           {{ t("app.newConnection") }}
@@ -425,14 +425,14 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
     <!-- Sidebar Resizer -->
     <div v-show="!isSidebarCollapsed"
-      class="w-1 bg-bg-tertiary hover:bg-secondary cursor-col-resize flex-shrink-0 z-10 transition-colors duration-normal"
+      class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
       @mousedown.prevent="startResize('sidebar')">
     </div>
 
     <!-- Main Content -->
     <main class="flex-1 flex flex-col bg-bg-primary min-w-0 relative">
       <!-- Tabs -->
-      <div class="h-10 bg-bg-secondary border-b border-subtle flex flex-shrink-0">
+      <div class="h-10 bg-bg-secondary/95 backdrop-blur-sm border-b border-subtle flex flex-shrink-0">
         <button v-if="isSidebarCollapsed" @click="isSidebarCollapsed = false"
           class="px-3 hover:bg-bg-tertiary border-r border-subtle flex items-center justify-center text-text-muted hover:text-primary transition-all duration-fast"
           :title="t('app.expandSidebar') || 'Expand Sidebar'">
@@ -460,7 +460,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
               <!-- Resizer (Horizontal) -->
               <div
-                class="h-1 bg-bg-tertiary hover:bg-secondary cursor-row-resize flex-shrink-0 z-10 transition-colors duration-normal"
+                class="h-1 bg-bg-tertiary hover:bg-primary cursor-row-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
                 @mousedown.prevent="startResize('file')">
               </div>
 
@@ -484,7 +484,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
               </div>
 
               <!-- Resizer (Vertical) -->
-              <div class="w-1 bg-bg-tertiary hover:bg-secondary cursor-col-resize flex-shrink-0 z-10 transition-colors duration-normal"
+              <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
                 @mousedown.prevent="startResize('file')">
               </div>
 
@@ -497,12 +497,12 @@ function switchTerminalToPath(sessionId: string, path: string) {
             </template>
 
             <!-- Resizer (Vertical separator) -->
-            <div class="w-1 bg-bg-tertiary hover:bg-secondary cursor-col-resize flex-shrink-0 z-10 transition-colors duration-normal"
+            <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
               @mousedown.prevent="startResize('ai')">
             </div>
 
             <!-- AI -->
-            <div class="overflow-hidden flex flex-col bg-bg-secondary" :style="{ width: aiWidth + '%' }">
+            <div class="overflow-hidden flex flex-col bg-bg-secondary/90 backdrop-blur-sm glow-border" :style="{ width: aiWidth + '%' }">
               <AIAssistant :sessionId="session.id" :terminal-context="terminalContext"
                 @refresh-context="updateTerminalContext" />
             </div>
