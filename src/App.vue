@@ -392,28 +392,32 @@ function switchTerminalToPath(sessionId: string, path: string) {
 </script>
 
 <template>
-  <div class="h-screen w-screen bg-gray-900 text-white flex overflow-hidden font-sans">
+  <div class="h-screen w-screen bg-bg-primary text-text-primary flex overflow-hidden font-sans relative">
+    <!-- Subtle warm gradient overlay -->
+    <div class="absolute inset-0 pointer-events-none opacity-50 bg-gradient-to-br from-secondary/5 via-transparent to-primary/5"></div>
+
     <!-- Sidebar -->
-    <aside v-show="!isSidebarCollapsed" class="bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0"
+    <aside v-show="!isSidebarCollapsed" class="bg-bg-secondary border-r border-subtle flex flex-col flex-shrink-0 shadow-sm"
       :style="{ width: sidebarWidth + 'px' }">
-      <div class="p-4 border-b border-gray-700 flex justify-between items-center">
-        <h1 class="text-lg font-bold">{{ t("app.title") }}</h1>
+      <div class="p-4 border-b border-subtle flex justify-between items-center bg-bg-elevated">
+        <h1 class="text-lg font-semibold text-primary">{{ t("app.title") }}</h1>
         <div class="flex items-center space-x-2">
-          <button @click="showSettingsModal = true" class="text-gray-400 hover:text-white" :title="t('app.settings')">
-            <Settings class="w-5 h-5" />
+          <button @click="showSettingsModal = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
+            :title="t('app.settings')">
+            <Settings class="w-4 h-4" />
           </button>
-          <button @click="isSidebarCollapsed = true" class="text-gray-400 hover:text-white"
+          <button @click="isSidebarCollapsed = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
             :title="t('app.collapseSidebar') || 'Collapse Sidebar'">
-            <PanelLeftClose class="w-5 h-5" />
+            <PanelLeftClose class="w-4 h-4" />
           </button>
         </div>
       </div>
       <div class="flex-1 overflow-y-auto p-2">
         <ConnectionList @edit="openEditConnectionModal" />
       </div>
-      <div class="p-4 border-t border-gray-700">
+      <div class="p-4 border-t border-subtle bg-bg-elevated">
         <button @click="openNewConnectionModal"
-          class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded cursor-pointer transition-colors">
+          class="w-full btn btn-primary">
           {{ t("app.newConnection") }}
         </button>
       </div>
@@ -421,15 +425,16 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
     <!-- Sidebar Resizer -->
     <div v-show="!isSidebarCollapsed"
-      class="w-1 bg-gray-600 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-      @mousedown.prevent="startResize('sidebar')"></div>
+      class="w-1 bg-bg-tertiary hover:bg-secondary cursor-col-resize flex-shrink-0 z-10 transition-colors duration-normal"
+      @mousedown.prevent="startResize('sidebar')">
+    </div>
 
     <!-- Main Content -->
-    <main class="flex-1 flex flex-col bg-gray-900 min-w-0">
+    <main class="flex-1 flex flex-col bg-bg-primary min-w-0 relative">
       <!-- Tabs -->
-      <div class="h-10 bg-gray-800 border-b border-gray-700 flex flex-shrink-0">
+      <div class="h-10 bg-bg-secondary border-b border-subtle flex flex-shrink-0">
         <button v-if="isSidebarCollapsed" @click="isSidebarCollapsed = false"
-          class="px-3 hover:bg-gray-700 border-r border-gray-700 flex items-center justify-center text-gray-400 hover:text-white"
+          class="px-3 hover:bg-bg-tertiary border-r border-subtle flex items-center justify-center text-text-muted hover:text-primary transition-all duration-fast"
           :title="t('app.expandSidebar') || 'Expand Sidebar'">
           <PanelLeftOpen class="w-4 h-4" />
         </button>
@@ -439,16 +444,15 @@ function switchTerminalToPath(sessionId: string, path: string) {
       <!-- Viewport -->
       <div class="flex-1 relative overflow-hidden" v-if="sessionStore.sessions.length > 0" ref="containerRef">
         <div v-for="(session, index) in sessionStore.sessions" :key="session.id"
-          v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex flex-col">
+          v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex flex-col fade-in">
           <div class="flex-1 flex overflow-hidden">
-            <!-- Left Column: Terminal & Files -->
             <!-- Left Column: Terminal & Files -->
 
             <!-- LAYOUT: BOTTOM (Flex Column) -->
             <div v-if="layoutMode === 'bottom'" class="flex flex-col h-full overflow-hidden"
               :style="{ width: `calc(100% - ${aiWidth}%)` }" :ref="(el: any) => { if (el) mainColumnRefs[index] = el }">
               <!-- Terminal -->
-              <div class="overflow-hidden flex flex-col flex-1 border-r border-gray-700"
+              <div class="overflow-hidden flex flex-col flex-1 border-r border-subtle"
                 :style="{ height: `calc(100% - ${fileHeight}%)` }">
                 <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
                   :sessionId="session.id" />
@@ -456,11 +460,12 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
               <!-- Resizer (Horizontal) -->
               <div
-                class="h-1 bg-gray-800 hover:bg-blue-500 cursor-row-resize flex-shrink-0 z-10 transition-colors border-t border-b border-gray-700"
-                @mousedown.prevent="startResize('file')"></div>
+                class="h-1 bg-bg-tertiary hover:bg-secondary cursor-row-resize flex-shrink-0 z-10 transition-colors duration-normal"
+                @mousedown.prevent="startResize('file')">
+              </div>
 
               <!-- Files -->
-              <div class="overflow-hidden flex flex-col border-r border-gray-700" :style="{ height: fileHeight + '%' }">
+              <div class="overflow-hidden flex flex-col border-r border-subtle bg-bg-secondary/30" :style="{ height: fileHeight + '%' }">
                 <FileManager :sessionId="session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
@@ -471,7 +476,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
             <!-- LAYOUT: LEFT (Side by Side) -->
             <template v-else>
               <!-- Files (Left) -->
-              <div class="overflow-hidden flex flex-col" :style="{ width: fileWidth + '%' }">
+              <div class="overflow-hidden flex flex-col bg-bg-secondary/30" :style="{ width: fileWidth + '%' }">
                 <FileManager :sessionId="session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
@@ -479,11 +484,12 @@ function switchTerminalToPath(sessionId: string, path: string) {
               </div>
 
               <!-- Resizer (Vertical) -->
-              <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-                @mousedown.prevent="startResize('file')"></div>
+              <div class="w-1 bg-bg-tertiary hover:bg-secondary cursor-col-resize flex-shrink-0 z-10 transition-colors duration-normal"
+                @mousedown.prevent="startResize('file')">
+              </div>
 
               <!-- Terminal (Center) -->
-              <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-gray-700"
+              <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-subtle"
                 :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
                 <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
                   :sessionId="session.id" />
@@ -491,26 +497,27 @@ function switchTerminalToPath(sessionId: string, path: string) {
             </template>
 
             <!-- Resizer (Vertical separator) -->
-            <div class="w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 z-10 transition-colors"
-              @mousedown.prevent="startResize('ai')"></div>
+            <div class="w-1 bg-bg-tertiary hover:bg-secondary cursor-col-resize flex-shrink-0 z-10 transition-colors duration-normal"
+              @mousedown.prevent="startResize('ai')">
+            </div>
 
             <!-- AI -->
-            <div class="overflow-hidden flex flex-col" :style="{ width: aiWidth + '%' }">
+            <div class="overflow-hidden flex flex-col bg-bg-secondary" :style="{ width: aiWidth + '%' }">
               <AIAssistant :sessionId="session.id" :terminal-context="terminalContext"
                 @refresh-context="updateTerminalContext" />
             </div>
           </div>
 
           <!-- Session Status Bar -->
-          <div class="h-8 bg-gray-800 border-t border-gray-700 text-xs flex items-center justify-between px-3">
-            <div class="text-gray-300">
+          <div class="h-8 bg-bg-secondary border-t border-subtle text-xs flex items-center justify-between px-3 backdrop-blur-sm">
+            <div class="text-text-primary">
               {{ t("app.sessionDuration") }}:
               {{ activeSessionDuration || "0s" }}
             </div>
             <div class="flex-1 flex justify-end items-center space-x-4 ml-4">
               <template v-if="sessionStatus[session.id]">
                 <!-- Uptime -->
-                <div class="text-gray-400 truncate" :title="sessionStatus[session.id].uptime">
+                <div class="text-text-secondary truncate" :title="sessionStatus[session.id].uptime">
                   {{ sessionStatus[session.id].uptime }}
                 </div>
 
@@ -519,54 +526,54 @@ function switchTerminalToPath(sessionId: string, path: string) {
                   sessionStatus[session.id].mounts &&
                   sessionStatus[session.id].mounts.length > 0
                 "
-                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200 py-1 -my-1 px-2 -mx-2">
+                  class="group relative flex items-center cursor-help text-text-secondary hover:text-primary transition-colors duration-fast py-1 -my-1 px-2 -mx-2 rounded hover:bg-bg-tertiary/50">
                   <div class="flex items-center space-x-1">
                     <span>Disk:</span>
                     <span
-                      :class="{ 'text-red-400': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) > 90 }">
+                      :class="{ 'text-error': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) > 90, 'text-warning': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) > 80, 'status-online': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) <= 80 }">
                       {{ sessionStatus[session.id].disk?.percent || "N/A" }}
                     </span>
                   </div>
                   <!-- Enhanced Tooltip with all mount points -->
                   <div
-                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[100]">
+                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto">
-                      <div class="text-gray-300 font-medium mb-2 pb-1 border-b border-gray-600">
+                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto glow-border">
+                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle neon-text">
                         Disk Mounts ({{
                           sessionStatus[session.id].mounts.length
                         }})
                       </div>
                       <div class="space-y-2">
                         <div v-for="mount in sessionStatus[session.id].mounts" :key="mount.mount"
-                          class="border-b border-gray-700/50 pb-2 last:border-b-0">
+                          class="border-b border-subtle/50 pb-2 last:border-b-0">
                           <div class="flex items-center justify-between mb-1">
-                            <span class="text-blue-400 font-mono text-xs truncate flex-1 mr-2" :title="mount.mount">
+                            <span class="text-primary font-mono text-xs truncate flex-1 mr-2" :title="mount.mount">
                               {{ mount.mount }}
                             </span>
                             <span :class="{
-                              'text-red-400': parseInt(mount.percent) > 90,
-                              'text-yellow-400': parseInt(mount.percent) > 80,
-                              'text-green-400': parseInt(mount.percent) <= 80,
+                              'text-error': parseInt(mount.percent) > 90,
+                              'text-warning': parseInt(mount.percent) > 80,
+                              'status-online': parseInt(mount.percent) <= 80,
                             }" class="font-mono text-xs">
                               {{ mount.percent }}
                             </span>
                           </div>
                           <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                            <div class="text-gray-500">FS:</div>
-                            <div class="text-gray-300 font-mono truncate" :title="mount.filesystem">
+                            <div class="text-text-muted">FS:</div>
+                            <div class="text-text-primary font-mono truncate" :title="mount.filesystem">
                               {{ mount.filesystem }}
                             </div>
-                            <div class="text-gray-500">Size:</div>
-                            <div class="text-gray-300 font-mono text-right">
+                            <div class="text-text-muted">Size:</div>
+                            <div class="text-text-primary font-mono text-right">
                               {{ mount.size }}
                             </div>
-                            <div class="text-gray-500">Used:</div>
-                            <div class="text-gray-300 font-mono text-right">
+                            <div class="text-text-muted">Used:</div>
+                            <div class="text-text-primary font-mono text-right">
                               {{ mount.used }}
                             </div>
-                            <div class="text-gray-500">Avail:</div>
-                            <div class="text-gray-300 font-mono text-right">
+                            <div class="text-text-muted">Avail:</div>
+                            <div class="text-text-primary font-mono text-right">
                               {{ mount.avail }}
                             </div>
                           </div>
@@ -574,58 +581,58 @@ function switchTerminalToPath(sessionId: string, path: string) {
                       </div>
                       <!-- Tooltip arrow -->
                       <div class="absolute top-full right-4 -mt-1">
-                        <div class="w-2 h-2 bg-gray-800 border-r border-b border-gray-600 transform rotate-45"></div>
+                        <div class="w-2 h-2 bg-bg-secondary border-r border-b border-subtle transform rotate-45"></div>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div v-else class="text-gray-500">Disk: N/A</div>
+                <div v-else class="text-text-muted">Disk: N/A</div>
 
                 <!-- CPU Usage -->
                 <div v-if="sessionStatus[session.id].cpu"
-                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200 py-1 -my-1 px-2 -mx-2">
+                  class="group relative flex items-center cursor-help text-text-secondary hover:text-primary transition-colors duration-fast py-1 -my-1 px-2 -mx-2 rounded hover:bg-bg-tertiary/50">
                   <div class="flex items-center space-x-1">
                     <span>CPU:</span>
                     <span :class="{
-                      'text-red-400': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 90,
-                      'text-yellow-400': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 70,
-                      'text-green-400': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) <= 70
+                      'text-error': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 90,
+                      'text-warning': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 70,
+                      'status-online': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) <= 70
                     }">
                       {{ sessionStatus[session.id].cpu?.usage || "N/A" }}
                     </span>
                   </div>
                   <!-- CPU Tooltip with top 5 processes -->
                   <div
-                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[100]">
+                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto">
-                      <div class="text-gray-300 font-medium mb-2 pb-1 border-b border-gray-600">
+                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto glow-border">
+                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle neon-text-secondary">
                         Top 5 CPU Processes
                       </div>
                       <div class="space-y-2">
                         <div v-for="process in sessionStatus[
                           session.id
                         ].cpu?.topProcesses.slice(0, 5)" :key="process.pid"
-                          class="border-b border-gray-700/50 pb-2 last:border-b-0">
+                          class="border-b border-subtle/50 pb-2 last:border-b-0">
                           <div class="flex items-center justify-between mb-1">
-                            <span class="text-blue-400 font-mono text-xs truncate flex-1 mr-2" :title="process.command">
+                            <span class="text-primary font-mono text-xs truncate flex-1 mr-2" :title="process.command">
                               {{ process.command }}
                             </span>
-                            <span class="text-orange-400 font-mono text-xs">
+                            <span class="text-secondary font-mono text-xs">
                               {{ process.cpu }}
                             </span>
                           </div>
                           <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                            <div class="text-gray-500">PID:</div>
-                            <div class="text-gray-300 font-mono">
+                            <div class="text-text-muted">PID:</div>
+                            <div class="text-text-primary font-mono">
                               {{ process.pid }}
                             </div>
-                            <div class="text-gray-500">Memory:</div>
-                            <div class="text-gray-300 font-mono text-right">
+                            <div class="text-text-muted">Memory:</div>
+                            <div class="text-text-primary font-mono text-right">
                               {{ process.memory }}
                             </div>
-                            <div class="text-gray-500">Mem Usage:</div>
-                            <div class="text-gray-300 font-mono text-right">
+                            <div class="text-text-muted">Mem Usage:</div>
+                            <div class="text-text-primary font-mono text-right">
                               {{ process.memoryPercent }}
                             </div>
                           </div>
@@ -633,58 +640,58 @@ function switchTerminalToPath(sessionId: string, path: string) {
                       </div>
                       <!-- Tooltip arrow -->
                       <div class="absolute top-full right-4 -mt-1">
-                        <div class="w-2 h-2 bg-gray-800 border-r border-b border-gray-600 transform rotate-45"></div>
+                        <div class="w-2 h-2 bg-bg-secondary border-r border-b border-subtle transform rotate-45"></div>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div v-else class="text-gray-500">CPU: N/A</div>
+                <div v-else class="text-text-muted">CPU: N/A</div>
 
                 <!-- Memory Usage -->
                 <div v-if="sessionStatus[session.id].memory"
-                  class="group relative flex items-center cursor-help text-gray-400 hover:text-gray-200 py-1 -my-1 px-2 -mx-2">
+                  class="group relative flex items-center cursor-help text-text-secondary hover:text-primary transition-colors duration-fast py-1 -my-1 px-2 -mx-2 rounded hover:bg-bg-tertiary/50">
                   <div class="flex items-center space-x-1">
                     <span>Mem:</span>
                     <span :class="{
-                      'text-red-400': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 90,
-                      'text-yellow-400': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 70,
-                      'text-green-400': sessionStatus[session.id].memory && (!sessionStatus[session.id].memory!.usage.includes('%') || parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') <= 70)
+                      'text-error': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 90,
+                      'text-warning': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 70,
+                      'status-online': sessionStatus[session.id].memory && (!sessionStatus[session.id].memory!.usage.includes('%') || parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') <= 70)
                     }">
                       {{ sessionStatus[session.id].memory?.usage || "N/A" }}
                     </span>
                   </div>
                   <!-- Memory Tooltip with top 5 processes -->
                   <div
-                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[100]">
+                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto">
-                      <div class="text-gray-300 font-medium mb-2 pb-1 border-b border-gray-600">
+                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto glow-border-accent">
+                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle neon-text-accent">
                         Top 5 Memory Processes
                       </div>
                       <div class="space-y-2">
                         <div v-for="process in sessionStatus[
                           session.id
                         ].memory?.topProcesses.slice(0, 5)" :key="process.pid"
-                          class="border-b border-gray-700/50 pb-2 last:border-b-0">
+                          class="border-b border-subtle/50 pb-2 last:border-b-0">
                           <div class="flex items-center justify-between mb-1">
-                            <span class="text-blue-400 font-mono text-xs truncate flex-1 mr-2" :title="process.command">
+                            <span class="text-primary font-mono text-xs truncate flex-1 mr-2" :title="process.command">
                               {{ process.command }}
                             </span>
-                            <span class="text-purple-400 font-mono text-xs">
+                            <span class="text-accent font-mono text-xs">
                               {{ process.memory }}
                             </span>
                           </div>
                           <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                            <div class="text-gray-500">PID:</div>
-                            <div class="text-gray-300 font-mono">
+                            <div class="text-text-muted">PID:</div>
+                            <div class="text-text-primary font-mono">
                               {{ process.pid }}
                             </div>
-                            <div class="text-gray-500">CPU:</div>
-                            <div class="text-gray-300 font-mono text-right">
+                            <div class="text-text-muted">CPU:</div>
+                            <div class="text-text-primary font-mono text-right">
                               {{ process.cpu }}
                             </div>
-                            <div class="text-gray-500">Mem Usage:</div>
-                            <div class="text-gray-300 font-mono text-right">
+                            <div class="text-text-muted">Mem Usage:</div>
+                            <div class="text-text-primary font-mono text-right">
                               {{ process.memoryPercent }}
                             </div>
                           </div>
@@ -692,26 +699,26 @@ function switchTerminalToPath(sessionId: string, path: string) {
                       </div>
                       <!-- Tooltip arrow -->
                       <div class="absolute top-full right-4 -mt-1">
-                        <div class="w-2 h-2 bg-gray-800 border-r border-b border-gray-600 transform rotate-45"></div>
+                        <div class="w-2 h-2 bg-bg-secondary border-r border-b border-subtle transform rotate-45"></div>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div v-else class="text-gray-500">Mem: N/A</div>
+                <div v-else class="text-text-muted">Mem: N/A</div>
 
                 <!-- IP -->
-                <div class="text-gray-400 truncate" :title="sessionStatus[session.id].ip">
+                <div class="text-text-secondary truncate font-mono" :title="sessionStatus[session.id].ip">
                   IP: {{ sessionStatus[session.id].ip }}
                 </div>
               </template>
-              <div v-else class="text-gray-500 italic">
+              <div v-else class="text-text-muted italic">
                 {{ t("app.loadingStatus") }}
               </div>
             </div>
           </div>
         </div>
       </div>
-      <div class="flex-1 flex items-center justify-center text-gray-500" v-else>
+      <div class="flex-1 flex items-center justify-center text-text-muted" v-else>
         {{ t("app.selectConnectionToStart") }}
       </div>
     </main>
