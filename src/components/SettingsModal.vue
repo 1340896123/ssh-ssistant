@@ -135,7 +135,7 @@ const tabs = [
     <div class="bg-bg-elevated rounded-lg w-[700px] border border-border-primary flex flex-col max-h-[85vh]">
       <div class="flex items-center justify-between p-4 border-b border-border-primary">
         <h2 class="text-lg font-semibold text-text-primary">{{ t('settings.title') }}</h2>
-        <button @click="$emit('close')" class="text-muted hover:text-primary transition-colors-fast">
+        <button @click="$emit('close')" class="text-text-secondary hover:text-text-primary transition-colors-fast">
           <X class="w-5 h-5" />
         </button>
       </div>
@@ -158,7 +158,7 @@ const tabs = [
           <!-- General Tab -->
           <div v-if="activeTab === 'general'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">{{ t('settings.appearance') }}</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.appearance') }}</h3>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.theme') }}</label>
@@ -180,10 +180,10 @@ const tabs = [
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">{{ t('settings.cacheManagement') }}</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.cacheManagement') }}</h3>
               <div class="space-y-4">
                 <div>
-                  <p class="text-sm text-muted mb-2">{{ t('settings.clearCacheDesc') }}</p>
+                  <p class="text-sm text-text-secondary mb-2">{{ t('settings.clearCacheDesc') }}</p>
                   <button @click="clearCache"
                     class="px-4 py-2 text-sm bg-error hover:bg-error/80 text-text-primary rounded transition-colors-fast">
                     {{ t('settings.clearCache') }}
@@ -196,7 +196,7 @@ const tabs = [
           <!-- AI Tab -->
           <div v-if="activeTab === 'ai'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">{{ t('settings.aiAssistant') }}</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.aiAssistant') }}</h3>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.apiUrl') }}</label>
@@ -223,7 +223,7 @@ const tabs = [
           <!-- Terminal Tab -->
           <div v-if="activeTab === 'terminal'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">{{ t('settings.terminalAppearance') }}</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.terminalAppearance') }}</h3>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.terminalFontSize')
@@ -260,7 +260,7 @@ const tabs = [
           <!-- File Manager Tab -->
           <div v-if="activeTab === 'fileManager'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">{{ t('settings.fileManagement') }}</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.fileManagement') }}</h3>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.fileManagerViewMode')
@@ -283,7 +283,7 @@ const tabs = [
                   <label class="block text-sm font-medium text-secondary mb-1">SFTP Buffer Size (KB)</label>
                   <input v-model.number="form.fileManager.sftpBufferSize" type="number" min="64" max="1024" step="64"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Buffer size for SFTP file transfers (64KB-1024KB, step 64KB)</p>
+                  <p class="text-xs text-text-secondary mt-1">Buffer size for SFTP file transfers (64KB-1024KB, step 64KB)</p>
                 </div>
               </div>
             </section>
@@ -292,75 +292,75 @@ const tabs = [
           <!-- Connection Tab -->
           <div v-if="activeTab === 'connection'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">Connection Timeout Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">Connection Timeout Settings</h3>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Connection Timeout (seconds)</label>
                   <input v-model.number="form.connectionTimeout.connectionTimeoutSecs" type="number" min="5" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Timeout for establishing SSH connections (default: 15s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Timeout for establishing SSH connections (default: 15s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Jump Host Timeout (seconds)</label>
                   <input v-model.number="form.connectionTimeout.jumpHostTimeoutSecs" type="number" min="10" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Timeout for connecting to jump host (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Timeout for connecting to jump host (default: 30s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Local Forward Timeout (seconds)</label>
                   <input v-model.number="form.connectionTimeout.localForwardTimeoutSecs" type="number" min="5" max="60"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Timeout for local port forwarding (default: 10s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Timeout for local port forwarding (default: 10s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Command Timeout (seconds)</label>
                   <input v-model.number="form.connectionTimeout.commandTimeoutSecs" type="number" min="10" max="300"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Timeout for executing remote commands (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Timeout for executing remote commands (default: 30s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">SFTP Operation Timeout (seconds)</label>
                   <input v-model.number="form.connectionTimeout.sftpOperationTimeoutSecs" type="number" min="30" max="600"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Timeout for SFTP file operations (default: 60s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Timeout for SFTP file operations (default: 60s)</p>
                 </div>
               </div>
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">Smart Reconnection Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">Smart Reconnection Settings</h3>
               <div class="space-y-4">
                 <div class="flex items-center">
                   <input v-model="form.reconnect.enableAutoReconnect" type="checkbox"
-                    class="bg-bg-secondary border-subtle rounded text-primary focus:ring-primary focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                    class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
                   <span class="ml-2 text-sm text-secondary">Enable Auto Reconnect with Exponential Backoff</span>
                 </div>
-                <p class="text-xs text-muted">
+                <p class="text-xs text-text-secondary">
                   When enabled, failed connections will be retried with increasing delays. Permanent errors (auth failures) will not be retried.
                 </p>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Max Reconnect Attempts</label>
                   <input v-model.number="form.reconnect.maxReconnectAttempts" type="number" min="1" max="10"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Maximum number of reconnection attempts (default: 5)</p>
+                  <p class="text-xs text-text-secondary mt-1">Maximum number of reconnection attempts (default: 5)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Initial Delay (ms)</label>
                   <input v-model.number="form.reconnect.initialDelayMs" type="number" min="500" max="5000" step="100"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Initial delay before first retry (default: 1000ms)</p>
+                  <p class="text-xs text-text-secondary mt-1">Initial delay before first retry (default: 1000ms)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Max Delay (ms)</label>
                   <input v-model.number="form.reconnect.maxDelayMs" type="number" min="5000" max="60000" step="1000"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Maximum delay between retries (default: 30000ms)</p>
+                  <p class="text-xs text-text-secondary mt-1">Maximum delay between retries (default: 30000ms)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Backoff Multiplier</label>
                   <input v-model.number="form.reconnect.backoffMultiplier" type="number" min="1.5" max="3.0" step="0.1"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">
+                  <p class="text-xs text-text-secondary mt-1">
                     Delay multiplier for exponential backoff: delay = min(initial * multiplier^attempt, maxDelay) (default: 2.0)
                   </p>
                 </div>
@@ -368,9 +368,9 @@ const tabs = [
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">Heartbeat Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">Heartbeat Settings</h3>
               <div class="space-y-4">
-                <p class="text-xs text-muted">
+                <p class="text-xs text-text-secondary">
                   Layered heartbeat detection: TCP (fastest) -> SSH (medium) -> Application (most reliable).
                   The system progressively checks connection health and takes action based on failure count.
                 </p>
@@ -378,31 +378,31 @@ const tabs = [
                   <label class="block text-sm font-medium text-secondary mb-1">TCP Keepalive Interval (seconds)</label>
                   <input v-model.number="form.heartbeat.tcpKeepaliveIntervalSecs" type="number" min="30" max="300"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">TCP-level keepalive interval (default: 60s)</p>
+                  <p class="text-xs text-text-secondary mt-1">TCP-level keepalive interval (default: 60s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">SSH Keepalive Interval (seconds)</label>
                   <input v-model.number="form.heartbeat.sshKeepaliveIntervalSecs" type="number" min="5" max="60"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">SSH-level keepalive packet interval (default: 15s)</p>
+                  <p class="text-xs text-text-secondary mt-1">SSH-level keepalive packet interval (default: 15s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">App Heartbeat Interval (seconds)</label>
                   <input v-model.number="form.heartbeat.appHeartbeatIntervalSecs" type="number" min="10" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Application-level heartbeat by executing 'echo' command (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Application-level heartbeat by executing 'echo' command (default: 30s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Heartbeat Timeout (seconds)</label>
                   <input v-model.number="form.heartbeat.heartbeatTimeoutSecs" type="number" min="2" max="30"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Timeout for each heartbeat check (default: 5s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Timeout for each heartbeat check (default: 5s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Failed Heartbeats Before Action</label>
                   <input v-model.number="form.heartbeat.failedHeartbeatsBeforeAction" type="number" min="1" max="10"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">
+                  <p class="text-xs text-text-secondary mt-1">
                     Number of consecutive failures before triggering reconnection (default: 3).
                     Action progression: SendKeepalive -> BackgroundReconnect -> NotifyUser -> ForceReconnect
                   </p>
@@ -411,9 +411,9 @@ const tabs = [
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">Pool Health Check Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">Pool Health Check Settings</h3>
               <div class="space-y-4">
-                <p class="text-xs text-muted">
+                <p class="text-xs text-text-secondary">
                   Connection pool health monitoring: periodic health checks, session warmup, and automatic rebuild of unhealthy sessions.
                   Sessions are scored based on age, failure count, and idle time.
                 </p>
@@ -421,25 +421,25 @@ const tabs = [
                   <label class="block text-sm font-medium text-secondary mb-1">Health Check Interval (seconds)</label>
                   <input v-model.number="form.poolHealth.healthCheckIntervalSecs" type="number" min="30" max="300"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Interval between pool health checks (default: 60s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Interval between pool health checks (default: 60s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Session Warmup Count</label>
                   <input v-model.number="form.poolHealth.sessionWarmupCount" type="number" min="0" max="5"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Number of pre-warmed background sessions (default: 1)</p>
+                  <p class="text-xs text-text-secondary mt-1">Number of pre-warmed background sessions (default: 1)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Max Session Age (minutes)</label>
                   <input v-model.number="form.poolHealth.maxSessionAgeMinutes" type="number" min="10" max="480"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Maximum session lifetime before forced rotation (default: 60 min)</p>
+                  <p class="text-xs text-text-secondary mt-1">Maximum session lifetime before forced rotation (default: 60 min)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Unhealthy Threshold</label>
                   <input v-model.number="form.poolHealth.unhealthyThreshold" type="number" min="1" max="10"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">
+                  <p class="text-xs text-text-secondary mt-1">
                     Consecutive failures before marking session as unhealthy (default: 3).
                     Unhealthy sessions will be automatically rebuilt.
                   </p>
@@ -448,17 +448,17 @@ const tabs = [
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">Network Adaptive Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">Network Adaptive Settings</h3>
               <div class="space-y-4">
-                <p class="text-xs text-muted">
+                <p class="text-xs text-text-secondary">
                   Adaptive network optimization: automatically adjusts heartbeat interval, SFTP buffer size, and command timeout based on network conditions.
                 </p>
                 <div class="flex items-center">
                   <input v-model="form.networkAdaptive.enableAdaptive" type="checkbox"
-                    class="bg-bg-secondary border-subtle rounded text-primary focus:ring-primary focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                    class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
                   <span class="ml-2 text-sm text-secondary">Enable Network Adaptive Mode</span>
                 </div>
-                <p class="text-xs text-muted">
+                <p class="text-xs text-text-secondary">
                   When enabled, the system will automatically measure network latency and adjust parameters:
                   <br/>- Excellent (&lt;50ms): Heartbeat 10s, SFTP Buffer 1MB, Timeout 60s
                   <br/>- Good (50-150ms): Heartbeat 15s, SFTP Buffer 512KB, Timeout 30s
@@ -469,19 +469,19 @@ const tabs = [
                   <label class="block text-sm font-medium text-secondary mb-1">Latency Check Interval (seconds)</label>
                   <input v-model.number="form.networkAdaptive.latencyCheckIntervalSecs" type="number" min="10" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Interval for measuring network latency (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Interval for measuring network latency (default: 30s)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">High Latency Threshold (ms)</label>
                   <input v-model.number="form.networkAdaptive.highLatencyThresholdMs" type="number" min="100" max="1000"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Latency threshold to consider as high latency (default: 300ms)</p>
+                  <p class="text-xs text-text-secondary mt-1">Latency threshold to consider as high latency (default: 300ms)</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">Low Bandwidth Threshold (KB/s)</label>
                   <input v-model.number="form.networkAdaptive.lowBandwidthThresholdKbps" type="number" min="10" max="500"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">Bandwidth threshold to consider as low bandwidth (default: 100 KB/s)</p>
+                  <p class="text-xs text-text-secondary mt-1">Bandwidth threshold to consider as low bandwidth (default: 100 KB/s)</p>
                 </div>
               </div>
             </section>
@@ -490,21 +490,21 @@ const tabs = [
           <!-- SSH Pool Tab -->
           <div v-if="activeTab === 'sshPool'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-primary mb-4">{{ t('settings.sshPool') }}</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.sshPool') }}</h3>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.maxBackgroundSessions')
                   }}</label>
                   <input v-model.number="form.sshPool.maxBackgroundSessions" type="number" min="1" max="10"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">{{ t('settings.maxBackgroundSessionsDesc') }}</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.maxBackgroundSessionsDesc') }}</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.enableAutoCleanup')
                   }}</label>
                   <div class="flex items-center">
                     <input v-model="form.sshPool.enableAutoCleanup" type="checkbox"
-                      class="bg-bg-secondary border-subtle rounded text-primary focus:ring-primary focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                      class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
                     <span class="ml-2 text-sm text-secondary">{{ t('settings.enableAutoCleanupDesc') }}</span>
                   </div>
                 </div>
@@ -513,7 +513,7 @@ const tabs = [
                   }}</label>
                   <input v-model.number="form.sshPool.cleanupIntervalMinutes" type="number" min="1" max="60"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-muted mt-1">{{ t('settings.cleanupIntervalMinutesDesc') }}</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.cleanupIntervalMinutesDesc') }}</p>
                 </div>
               </div>
             </section>
@@ -544,26 +544,26 @@ const tabs = [
               <!-- Import Mode -->
               <div v-if="keyInputMode === 'import'" class="space-y-3">
                 <div>
-                  <label class="block text-xs uppercase text-muted mb-1">Key Name</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">Key Name</label>
                   <input v-model="newKey.name"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
                     placeholder="My Private Key" />
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-muted mb-1">Private Key Content</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">Private Key Content</label>
                   <textarea v-model="newKey.content" rows="4"
                     class="w-full p-2 bg-bg-tertiary border border-subtle rounded text-primary focus:border-primary focus:shadow-glow-subtle outline-none transition-all-fast input-retro font-mono text-xs"
                     placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..." />
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-muted mb-1">Passphrase (Optional)</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">Passphrase (Optional)</label>
                   <input v-model="newKey.passphrase" type="password"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
                     placeholder="Key Passphrase" />
                 </div>
                 <div class="flex justify-end gap-2 mt-2">
                   <button @click="showAddKeyForm = false"
-                    class="px-3 py-1.5 text-sm text-muted hover:text-primary btn-retro">Cancel</button>
+                    class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
                   <button @click="addKey"
                     class="px-3 py-1.5 text-sm bg-success hover:bg-success/80 text-text-primary rounded">Import Key</button>
                 </div>
@@ -572,13 +572,13 @@ const tabs = [
               <!-- Generate Mode -->
               <div v-if="keyInputMode === 'generate'" class="space-y-3">
                 <div>
-                  <label class="block text-xs uppercase text-muted mb-1">Key Name</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">Key Name</label>
                   <input v-model="genKey.name"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
                     placeholder="id_ed25519" />
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-muted mb-1">Algorithm</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">Algorithm</label>
                   <select v-model="genKey.algorithm"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast">
                     <option value="ed25519">Ed25519 (Recommended)</option>
@@ -586,14 +586,14 @@ const tabs = [
                   </select>
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-muted mb-1">Passphrase (Optional)</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">Passphrase (Optional)</label>
                   <input v-model="genKey.passphrase" type="password"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
                     placeholder="Secure Passphrase" />
                 </div>
                 <div class="flex justify-end gap-2 mt-2">
                   <button @click="showAddKeyForm = false"
-                    class="px-3 py-1.5 text-sm text-muted hover:text-primary btn-retro">Cancel</button>
+                    class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
                   <button @click="generateKey" :disabled="isGenerating"
                     class="px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded disabled:opacity-50 flex items-center gap-2">
                     <div v-if="isGenerating"
@@ -615,8 +615,8 @@ const tabs = [
                     <Key class="w-4 h-4" />
                   </div>
                   <div>
-                    <div class="font-medium text-primary">{{ key.name }}</div>
-                    <div class="text-xs text-muted">Created: {{ formatDate(key.createdAt) }}</div>
+                    <div class="font-medium text-text-primary">{{ key.name }}</div>
+                    <div class="text-xs text-text-secondary">Created: {{ formatDate(key.createdAt) }}</div>
                   </div>
                 </div>
                 <button @click="deleteKey(key.id)"
