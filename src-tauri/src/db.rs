@@ -98,6 +98,12 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
         [],
     );
 
+    // Migration: Add file manager layout
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN file_manager_layout TEXT NOT NULL DEFAULT 'bottom'"#,
+        [],
+    );
+
     // Migration: Add connection timeout settings
     let _ = conn.execute(
         r#"ALTER TABLE settings ADD COLUMN connection_timeout_secs INTEGER NOT NULL DEFAULT 15"#,
@@ -429,7 +435,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes, file_manager_sftp_buffer_size, connection_timeout_secs, jump_host_timeout_secs, local_forward_timeout_secs, command_timeout_secs, sftp_operation_timeout_secs, reconnect_max_attempts, reconnect_initial_delay_ms, reconnect_max_delay_ms, reconnect_backoff_multiplier, reconnect_enabled, heartbeat_tcp_keepalive_interval_secs, heartbeat_ssh_keepalive_interval_secs, heartbeat_app_heartbeat_interval_secs, heartbeat_timeout_secs, heartbeat_failed_heartbeats_before_action, pool_health_check_interval_secs, pool_session_warmup_count, pool_max_session_age_minutes, pool_unhealthy_threshold, network_adaptive_enabled, network_latency_check_interval_secs, network_high_latency_threshold_ms, network_low_bandwidth_threshold_kbps FROM settings WHERE id = 1")
+    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, file_manager_layout, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes, file_manager_sftp_buffer_size, connection_timeout_secs, jump_host_timeout_secs, local_forward_timeout_secs, command_timeout_secs, sftp_operation_timeout_secs, reconnect_max_attempts, reconnect_initial_delay_ms, reconnect_max_delay_ms, reconnect_backoff_multiplier, reconnect_enabled, heartbeat_tcp_keepalive_interval_secs, heartbeat_ssh_keepalive_interval_secs, heartbeat_app_heartbeat_interval_secs, heartbeat_timeout_secs, heartbeat_failed_heartbeats_before_action, pool_health_check_interval_secs, pool_session_warmup_count, pool_max_session_age_minutes, pool_unhealthy_threshold, network_adaptive_enabled, network_latency_check_interval_secs, network_high_latency_threshold_ms, network_low_bandwidth_threshold_kbps FROM settings WHERE id = 1")
         .map_err(|e| e.to_string())?;
 
     let mut rows = stmt
@@ -456,45 +462,48 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
                     view_mode: row
                         .get::<_, Option<String>>(9)?
                         .unwrap_or_else(|| "flat".to_string()),
-                    sftp_buffer_size: row.get::<_, Option<i32>>(13)?.unwrap_or(512),
+                    layout: row
+                        .get::<_, Option<String>>(10)?
+                        .unwrap_or_else(|| "bottom".to_string()),
+                    sftp_buffer_size: row.get::<_, Option<i32>>(14)?.unwrap_or(512),
                 },
                 ssh_pool: SshPoolSettings {
-                    max_background_sessions: row.get::<_, Option<i32>>(10)?.unwrap_or(10),
-                    enable_auto_cleanup: row.get::<_, Option<bool>>(11)?.unwrap_or(true),
-                    cleanup_interval_minutes: row.get::<_, Option<i32>>(12)?.unwrap_or(5),
+                    max_background_sessions: row.get::<_, Option<i32>>(11)?.unwrap_or(10),
+                    enable_auto_cleanup: row.get::<_, Option<bool>>(12)?.unwrap_or(true),
+                    cleanup_interval_minutes: row.get::<_, Option<i32>>(13)?.unwrap_or(5),
                 },
                 connection_timeout: ConnectionTimeoutSettings {
-                    connection_timeout_secs: row.get::<_, Option<u32>>(14)?.unwrap_or(15),
-                    jump_host_timeout_secs: row.get::<_, Option<u32>>(15)?.unwrap_or(30),
-                    local_forward_timeout_secs: row.get::<_, Option<u32>>(16)?.unwrap_or(10),
-                    command_timeout_secs: row.get::<_, Option<u32>>(17)?.unwrap_or(30),
-                    sftp_operation_timeout_secs: row.get::<_, Option<u32>>(18)?.unwrap_or(60),
+                    connection_timeout_secs: row.get::<_, Option<u32>>(15)?.unwrap_or(15),
+                    jump_host_timeout_secs: row.get::<_, Option<u32>>(16)?.unwrap_or(30),
+                    local_forward_timeout_secs: row.get::<_, Option<u32>>(17)?.unwrap_or(10),
+                    command_timeout_secs: row.get::<_, Option<u32>>(18)?.unwrap_or(30),
+                    sftp_operation_timeout_secs: row.get::<_, Option<u32>>(19)?.unwrap_or(60),
                 },
                 reconnect: ReconnectSettings {
-                    max_reconnect_attempts: row.get::<_, Option<u32>>(19)?.unwrap_or(5),
-                    initial_delay_ms: row.get::<_, Option<u32>>(20)?.unwrap_or(1000),
-                    max_delay_ms: row.get::<_, Option<u32>>(21)?.unwrap_or(30000),
-                    backoff_multiplier: row.get::<_, Option<f32>>(22)?.unwrap_or(2.0),
-                    enable_auto_reconnect: row.get::<_, Option<bool>>(23)?.unwrap_or(true),
+                    max_reconnect_attempts: row.get::<_, Option<u32>>(20)?.unwrap_or(5),
+                    initial_delay_ms: row.get::<_, Option<u32>>(21)?.unwrap_or(1000),
+                    max_delay_ms: row.get::<_, Option<u32>>(22)?.unwrap_or(30000),
+                    backoff_multiplier: row.get::<_, Option<f32>>(23)?.unwrap_or(2.0),
+                    enable_auto_reconnect: row.get::<_, Option<bool>>(24)?.unwrap_or(true),
                 },
                 heartbeat: HeartbeatSettings {
-                    tcp_keepalive_interval_secs: row.get::<_, Option<u32>>(24)?.unwrap_or(60),
-                    ssh_keepalive_interval_secs: row.get::<_, Option<u32>>(25)?.unwrap_or(15),
-                    app_heartbeat_interval_secs: row.get::<_, Option<u32>>(26)?.unwrap_or(30),
-                    heartbeat_timeout_secs: row.get::<_, Option<u32>>(27)?.unwrap_or(5),
-                    failed_heartbeats_before_action: row.get::<_, Option<u32>>(28)?.unwrap_or(3),
+                    tcp_keepalive_interval_secs: row.get::<_, Option<u32>>(25)?.unwrap_or(60),
+                    ssh_keepalive_interval_secs: row.get::<_, Option<u32>>(26)?.unwrap_or(15),
+                    app_heartbeat_interval_secs: row.get::<_, Option<u32>>(27)?.unwrap_or(30),
+                    heartbeat_timeout_secs: row.get::<_, Option<u32>>(28)?.unwrap_or(5),
+                    failed_heartbeats_before_action: row.get::<_, Option<u32>>(29)?.unwrap_or(3),
                 },
                 pool_health: PoolHealthSettings {
-                    health_check_interval_secs: row.get::<_, Option<u32>>(29)?.unwrap_or(60),
-                    session_warmup_count: row.get::<_, Option<u32>>(30)?.unwrap_or(1),
-                    max_session_age_minutes: row.get::<_, Option<u32>>(31)?.unwrap_or(60),
-                    unhealthy_threshold: row.get::<_, Option<u32>>(32)?.unwrap_or(3),
+                    health_check_interval_secs: row.get::<_, Option<u32>>(30)?.unwrap_or(60),
+                    session_warmup_count: row.get::<_, Option<u32>>(31)?.unwrap_or(1),
+                    max_session_age_minutes: row.get::<_, Option<u32>>(32)?.unwrap_or(60),
+                    unhealthy_threshold: row.get::<_, Option<u32>>(33)?.unwrap_or(3),
                 },
                 network_adaptive: NetworkAdaptiveSettings {
-                    enable_adaptive: row.get::<_, Option<bool>>(33)?.unwrap_or(true),
-                    latency_check_interval_secs: row.get::<_, Option<u32>>(34)?.unwrap_or(30),
-                    high_latency_threshold_ms: row.get::<_, Option<u32>>(35)?.unwrap_or(300),
-                    low_bandwidth_threshold_kbps: row.get::<_, Option<u32>>(36)?.unwrap_or(100),
+                    enable_adaptive: row.get::<_, Option<bool>>(34)?.unwrap_or(true),
+                    latency_check_interval_secs: row.get::<_, Option<u32>>(35)?.unwrap_or(30),
+                    high_latency_threshold_ms: row.get::<_, Option<u32>>(36)?.unwrap_or(300),
+                    low_bandwidth_threshold_kbps: row.get::<_, Option<u32>>(37)?.unwrap_or(100),
                 },
             })
         })
@@ -513,7 +522,7 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     conn.execute(
-        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, ssh_max_background_sessions=?11, ssh_enable_auto_cleanup=?12, ssh_cleanup_interval_minutes=?13, file_manager_sftp_buffer_size=?14, connection_timeout_secs=?15, jump_host_timeout_secs=?16, local_forward_timeout_secs=?17, command_timeout_secs=?18, sftp_operation_timeout_secs=?19, reconnect_max_attempts=?20, reconnect_initial_delay_ms=?21, reconnect_max_delay_ms=?22, reconnect_backoff_multiplier=?23, reconnect_enabled=?24, heartbeat_tcp_keepalive_interval_secs=?25, heartbeat_ssh_keepalive_interval_secs=?26, heartbeat_app_heartbeat_interval_secs=?27, heartbeat_timeout_secs=?28, heartbeat_failed_heartbeats_before_action=?29, pool_health_check_interval_secs=?30, pool_session_warmup_count=?31, pool_max_session_age_minutes=?32, pool_unhealthy_threshold=?33, network_adaptive_enabled=?34, network_latency_check_interval_secs=?35, network_high_latency_threshold_ms=?36, network_low_bandwidth_threshold_kbps=?37 WHERE id = 1",
+        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, file_manager_layout=?11, ssh_max_background_sessions=?12, ssh_enable_auto_cleanup=?13, ssh_cleanup_interval_minutes=?14, file_manager_sftp_buffer_size=?15, connection_timeout_secs=?16, jump_host_timeout_secs=?17, local_forward_timeout_secs=?18, command_timeout_secs=?19, sftp_operation_timeout_secs=?20, reconnect_max_attempts=?21, reconnect_initial_delay_ms=?22, reconnect_max_delay_ms=?23, reconnect_backoff_multiplier=?24, reconnect_enabled=?25, heartbeat_tcp_keepalive_interval_secs=?26, heartbeat_ssh_keepalive_interval_secs=?27, heartbeat_app_heartbeat_interval_secs=?28, heartbeat_timeout_secs=?29, heartbeat_failed_heartbeats_before_action=?30, pool_health_check_interval_secs=?31, pool_session_warmup_count=?32, pool_max_session_age_minutes=?33, pool_unhealthy_threshold=?34, network_adaptive_enabled=?35, network_latency_check_interval_secs=?36, network_high_latency_threshold_ms=?37, network_low_bandwidth_threshold_kbps=?38 WHERE id = 1",
         params![
             settings.theme,
             settings.language,
@@ -525,6 +534,7 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
             settings.terminal_appearance.cursor_style,
             settings.terminal_appearance.line_height,
             settings.file_manager.view_mode,
+            settings.file_manager.layout,
             settings.ssh_pool.max_background_sessions,
             settings.ssh_pool.enable_auto_cleanup,
             settings.ssh_pool.cleanup_interval_minutes,
