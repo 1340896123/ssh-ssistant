@@ -129,26 +129,26 @@ function toggleExpand() {
                                 <span class="truncate font-medium text-text-primary" :title="visibleItems[virtualItem.index].name">{{ visibleItems[virtualItem.index].name }}</span>
                                 <span v-if="visibleItems[virtualItem.index].isDirectory" class="text-xs text-text-muted">({{ visibleItems[virtualItem.index].completedFiles || 0 }}/{{ visibleItems[virtualItem.index].childFiles || 0 }} files)</span>
                             </div>
-                            <span class="text-gray-400 whitespace-nowrap ml-2">
+                            <span class="text-text-muted whitespace-nowrap ml-2">
                                 {{ visibleItems[virtualItem.index].status }}
                             </span>
                         </div>
                         
                         <!-- Progress Bar -->
-                        <div class="h-1.5 bg-gray-900 rounded-full overflow-hidden mb-1 border border-gray-700">
+                        <div class="h-1.5 bg-bg-tertiary rounded-full overflow-hidden mb-1 border border-border-primary">
                             <div 
                                 class="h-full transition-all duration-300"
                                 :class="{
-                                    'bg-blue-500': visibleItems[virtualItem.index].status === 'running',
-                                    'bg-yellow-500': visibleItems[virtualItem.index].status === 'paused',
-                                    'bg-green-500': visibleItems[virtualItem.index].status === 'completed',
-                                    'bg-red-500': visibleItems[virtualItem.index].status === 'error' || visibleItems[virtualItem.index].status === 'cancelled'
+                                    'bg-accent': visibleItems[virtualItem.index].status === 'running',
+                                    'bg-warning': visibleItems[virtualItem.index].status === 'paused',
+                                    'bg-success': visibleItems[virtualItem.index].status === 'completed',
+                                    'bg-error': visibleItems[virtualItem.index].status === 'error' || visibleItems[virtualItem.index].status === 'cancelled'
                                 }"
                                 :style="{ width: `${visibleItems[virtualItem.index].progress}%` }"
                             ></div>
                         </div>
                         
-                        <div class="flex items-center justify-between text-gray-400">
+                        <div class="flex items-center justify-between text-text-muted">
                             <span>{{ formatSize(visibleItems[virtualItem.index].transferred) }} / {{ formatSize(visibleItems[virtualItem.index].size) }}</span>
                             <div class="flex items-center space-x-1">
                                 <button v-if="visibleItems[virtualItem.index].status === 'running' && !visibleItems[virtualItem.index].isDirectory" @click="store.pauseTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-white" title="Pause">
