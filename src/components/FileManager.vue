@@ -1792,8 +1792,8 @@ function formatSize(size: number): string {
                     }}</button>
                 <div class="border-t border-subtle my-1"></div>
                 <button v-if="contextMenu.file?.isDir" @click.stop="handleSwitchToTerminalPath()"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 flex items-center">
-                    <TerminalIcon class="w-4 h-4 mr-2 text-gray-400" />
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center">
+                    <TerminalIcon class="w-4 h-4 mr-2 text-text-muted" />
                     {{ t('fileManager.contextMenu.switchToTerminalPath') || '在终端打开' }}
                 </button>
             </template>
