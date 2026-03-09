@@ -3,101 +3,79 @@
 @tailwind utilities;
 
 /* ============================================
-   Arctic Glow Design System
-   北极光 - 冷艳深邃的视觉体验
+   Minimalist Design System
+   浅色简约 - 清晰专注的视觉体验
    ============================================ */
 
 :root {
   /* ========================================
-     Theme Colors - Arctic Aurora
+     Theme Colors - Minimalist
      ======================================== */
 
-  /* Primary - Ice Blue */
-  --color-primary: #00D4FF;
-  --color-primary-light: #5CE1FF;
-  --color-primary-dark: #00A8CC;
-  --color-primary-dim: rgba(0, 212, 255, 0.1);
-  --color-primary-glow: rgba(0, 212, 255, 0.4);
+  /* Primary - Deep Charcoal */
+  --color-primary: #2B2B2B;
+  --color-primary-light: #3D3D3D;
+  --color-primary-dark: #1F1F1F;
+  --color-primary-dim: rgba(43, 43, 43, 0.1);
 
-  /* Secondary - Aurora Purple */
-  --color-secondary: #A855F7;
-  --color-secondary-light: #C084FC;
-  --color-secondary-dark: #7C3AED;
-  --color-secondary-dim: rgba(168, 85, 247, 0.1);
-  --color-secondary-glow: rgba(168, 85, 247, 0.4);
-
-  /* Accent - Northern Green */
-  --color-accent: #00FFB3;
-  --color-accent-light: #4DFFC8;
-  --color-accent-dark: #00CC8F;
-  --color-accent-dim: rgba(0, 255, 179, 0.1);
-  --color-accent-glow: rgba(0, 255, 179, 0.4);
+  /* Accent - Rust Red */
+  --color-accent: #C75B5B;
+  --color-accent-light: #D97878;
+  --color-accent-dark: #A83E3E;
 
   /* Status Colors */
-  --color-success: #00FFB3;
-  --color-success-dim: rgba(0, 255, 179, 0.1);
-  --color-error: #FF4D6A;
-  --color-error-dim: rgba(255, 77, 106, 0.1);
-  --color-warning: #FFB800;
-  --color-warning-dim: rgba(255, 184, 0, 0.1);
-  --color-info: #00D4FF;
-  --color-info-dim: rgba(0, 212, 255, 0.1);
+  --color-success: #5B9C5B;
+  --color-success-dim: rgba(91, 156, 91, 0.1);
+  --color-error: #C75B5B;
+  --color-error-dim: rgba(199, 91, 91, 0.1);
+  --color-warning: #B88A00;
+  --color-warning-dim: rgba(184, 138, 0, 0.1);
+  --color-info: #5B8CB8;
+  --color-info-dim: rgba(91, 140, 184, 0.1);
 
   /* ========================================
-     Background Colors - Deep Arctic
+     Background Colors - Light Pure
      ======================================== */
-  --bg-base: #030712;
-  --bg-primary: #0A1628;
-  --bg-secondary: #0F1E36;
-  --bg-tertiary: #152642;
-  --bg-elevated: #1A3152;
-  --bg-overlay: rgba(10, 22, 40, 0.95);
-  --bg-glass: rgba(15, 30, 54, 0.8);
+  --bg-base: #FFFFFF;
+  --bg-primary: #FAFAFA;
+  --bg-secondary: #F5F5F5;
+  --bg-tertiary: #EEEEEE;
+  --bg-elevated: #FFFFFF;
+  --bg-overlay: rgba(255, 255, 255, 0.95);
 
   /* ========================================
-     Text Colors - Cool Tones
+     Text Colors - High Contrast
      ======================================== */
-  --text-primary: #E8F4FC;
-  --text-secondary: #94ADC4;
-  --text-muted: #5A7A99;
-  --text-disabled: #3D5A73;
-  --text-on-primary: #0A1628;
+  --text-primary: #1A1A1A;
+  --text-secondary: #666666;
+  --text-muted: #999999;
+  --text-disabled: #CCCCCC;
+  --text-on-primary: #FFFFFF;
 
   /* ========================================
-     Border Colors - Frosted
+     Border Colors - Minimalist
      ======================================== */
-  --border-primary: rgba(0, 212, 255, 0.25);
-  --border-secondary: rgba(168, 85, 247, 0.2);
-  --border-accent: rgba(0, 255, 179, 0.2);
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-glow: rgba(0, 212, 255, 0.5);
+  --border-primary: #E0E0E0;
+  --border-secondary: #EEEEEE;
+  --border-accent: #C75B5B;
+  --border-subtle: #F5F5F5;
 
   /* ========================================
-     Glow Effects - Aurora
+     Shadows - Light Clean
      ======================================== */
-  --glow-primary: 0 0 20px rgba(0, 212, 255, 0.4), 0 0 40px rgba(0, 212, 255, 0.2);
-  --glow-secondary: 0 0 20px rgba(168, 85, 247, 0.4), 0 0 40px rgba(168, 85, 247, 0.2);
-  --glow-accent: 0 0 20px rgba(0, 255, 179, 0.4), 0 0 40px rgba(0, 255, 179, 0.2);
-  --glow-subtle: 0 0 15px rgba(0, 212, 255, 0.15);
-  --glow-intense: 0 0 30px rgba(0, 212, 255, 0.6), 0 0 60px rgba(0, 212, 255, 0.3);
-
-  /* ========================================
-     Shadows - Deep Cold
-     ======================================== */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.6);
-  --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.4);
-  --shadow-glow-card: 0 0 0 1px var(--border-primary), 0 4px 24px rgba(0, 212, 255, 0.1);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.12);
+  --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.04);
 
   /* ========================================
      Typography - Modern Clean
      ======================================== */
-  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --font-display: 'Orbitron', 'Outfit', sans-serif;
+  --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Inter', sans-serif;
 
   /* Font Sizes */
   --text-xs: 0.75rem;
@@ -136,7 +114,6 @@
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-glow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ========================================
      Z-Index Scale
@@ -177,54 +154,6 @@ body {
   position: relative;
 }
 
-/* Aurora gradient background */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(0, 212, 255, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(168, 85, 247, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 30% at 50% 50%, rgba(0, 255, 179, 0.05) 0%, transparent 50%);
-  pointer-events: none;
-  z-index: -1;
-  animation: aurora-shift 30s ease-in-out infinite alternate;
-}
-
-/* Subtle grid overlay */
-body::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image:
-    linear-gradient(rgba(0, 212, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 212, 255, 0.02) 1px, transparent 1px);
-  background-size: 60px 60px;
-  pointer-events: none;
-  z-index: -1;
-}
-
-@keyframes aurora-shift {
-  0% {
-    opacity: 1;
-    transform: scale(1) rotate(0deg);
-  }
-  50% {
-    opacity: 0.8;
-    transform: scale(1.1) rotate(2deg);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) rotate(-1deg);
-  }
-}
-
 /* ========================================
    Typography Styles
    ======================================== */
@@ -249,12 +178,12 @@ p {
 a {
   color: var(--color-primary);
   text-decoration: none;
-  transition: color var(--transition-fast), text-shadow var(--transition-fast);
+  transition: color var(--transition-fast);
 }
 
 a:hover {
   color: var(--color-primary-light);
-  text-shadow: 0 0 8px var(--color-primary-glow);
+  text-decoration: underline;
 }
 
 code, kbd, samp {
@@ -293,7 +222,7 @@ code, kbd, samp {
 }
 
 /* ========================================
-   Scrollbar Styles - Frosted
+   Scrollbar Styles - Minimalist
    ======================================== */
 ::-webkit-scrollbar {
   width: 8px;
@@ -306,15 +235,14 @@ code, kbd, samp {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-elevated) 100%);
+  background: var(--bg-tertiary);
   border-radius: var(--radius-full);
   border: 2px solid var(--bg-secondary);
   transition: background var(--transition-fast);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, var(--color-primary-dark) 0%, var(--color-secondary-dark) 100%);
-  box-shadow: var(--glow-subtle);
+  background: var(--border-primary);
 }
 
 /* Firefox */

@@ -8,8 +8,8 @@ const sessionStore = useSessionStore();
 <template>
   <div class="flex items-center h-full space-x-1 overflow-x-auto scrollbar-hide">
     <div v-for="session in sessionStore.sessions" :key="session.id"
-      class="flex items-center h-full px-3 min-w-[120px] max-w-[200px] bg-gray-800 border-r border-gray-700 cursor-pointer hover:bg-gray-700 select-none"
-      :class="{ '!bg-gray-900 border-t-2 border-t-blue-500': session.id === sessionStore.activeSessionId }"
+      class="flex items-center h-full px-3 min-w-[120px] max-w-[200px] bg-bg-tertiary border-r border-border-primary cursor-pointer hover:bg-bg-elevated select-none"
+      :class="{ 'bg-bg-elevated border-t-2 border-t-accent': session.id === sessionStore.activeSessionId }"
       @click="sessionStore.setActiveSession(session.id)">
 
       <!-- Status Icon -->
@@ -19,9 +19,9 @@ const sessionStore = useSessionStore();
         <Circle v-else class="w-3 h-3 text-red-500 fill-current" />
       </div>
 
-      <span class="text-xs text-gray-300 truncate flex-1">{{ session.connectionName }}</span>
+      <span class="text-xs text-text-primary truncate flex-1">{{ session.connectionName }}</span>
       <button @click.stop="sessionStore.closeSession(session.id)"
-        class="ml-2 text-gray-500 hover:text-white p-0.5 rounded-full hover:bg-gray-600">
+        class="ml-2 text-text-secondary hover:text-text-primary p-0.5 rounded-full hover:bg-bg-tertiary">
         <X class="w-3 h-3" />
       </button>
     </div>

@@ -393,14 +393,11 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
 <template>
   <div class="h-screen w-screen bg-bg-primary text-text-primary flex overflow-hidden font-sans relative">
-    <!-- Aurora gradient overlay -->
-    <div class="absolute inset-0 pointer-events-none bg-gradient-to-br from-primary/10 via-transparent to-secondary/10 opacity-60"></div>
-
     <!-- Sidebar -->
     <aside v-show="!isSidebarCollapsed" class="bg-bg-secondary/95 backdrop-blur-sm border-r border-subtle flex flex-col flex-shrink-0"
       :style="{ width: sidebarWidth + 'px' }">
       <div class="p-4 border-b border-subtle flex justify-between items-center bg-bg-tertiary/80">
-        <h1 class="text-lg font-semibold neon-text">{{ t("app.title") }}</h1>
+        <h1 class="text-lg font-semibold text-text-primary">{{ t("app.title") }}</h1>
         <div class="flex items-center space-x-2">
           <button @click="showSettingsModal = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-elevated transition-all duration-fast"
             :title="t('app.settings')">
@@ -425,7 +422,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
     <!-- Sidebar Resizer -->
     <div v-show="!isSidebarCollapsed"
-      class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
+      class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal"
       @mousedown.prevent="startResize('sidebar')">
     </div>
 
@@ -460,7 +457,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
               <!-- Resizer (Horizontal) -->
               <div
-                class="h-1 bg-bg-tertiary hover:bg-primary cursor-row-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
+                class="h-1 bg-bg-tertiary hover:bg-primary cursor-row-resize flex-shrink-0 z-10 transition-all duration-normal"
                 @mousedown.prevent="startResize('file')">
               </div>
 
@@ -484,7 +481,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
               </div>
 
               <!-- Resizer (Vertical) -->
-              <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
+              <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal"
                 @mousedown.prevent="startResize('file')">
               </div>
 
@@ -497,12 +494,12 @@ function switchTerminalToPath(sessionId: string, path: string) {
             </template>
 
             <!-- Resizer (Vertical separator) -->
-            <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal hover:shadow-glow"
+            <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal"
               @mousedown.prevent="startResize('ai')">
             </div>
 
             <!-- AI -->
-            <div class="overflow-hidden flex flex-col bg-bg-secondary/90 backdrop-blur-sm glow-border" :style="{ width: aiWidth + '%' }">
+            <div class="overflow-hidden flex flex-col bg-bg-secondary/90 backdrop-blur-sm border border-border-primary" :style="{ width: aiWidth + '%' }">
               <AIAssistant :sessionId="session.id" :terminal-context="terminalContext"
                 @refresh-context="updateTerminalContext" />
             </div>
@@ -538,8 +535,8 @@ function switchTerminalToPath(sessionId: string, path: string) {
                   <div
                     class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto glow-border">
-                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle neon-text">
+                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto border border-border-primary">
+                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
                         Disk Mounts ({{
                           sessionStatus[session.id].mounts.length
                         }})
@@ -605,8 +602,8 @@ function switchTerminalToPath(sessionId: string, path: string) {
                   <div
                     class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto glow-border">
-                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle neon-text-secondary">
+                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
+                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
                         Top 5 CPU Processes
                       </div>
                       <div class="space-y-2">
@@ -664,8 +661,8 @@ function switchTerminalToPath(sessionId: string, path: string) {
                   <div
                     class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto glow-border-accent">
-                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle neon-text-accent">
+                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
+                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
                         Top 5 Memory Processes
                       </div>
                       <div class="space-y-2">

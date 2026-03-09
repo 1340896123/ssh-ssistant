@@ -160,73 +160,73 @@ function save() {
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-    <div class="bg-gray-800 p-6 rounded shadow-lg w-[500px] text-white max-h-[90vh] overflow-y-auto">
-      <h2 class="text-xl mb-4 font-bold">{{ connectionToEdit ? 'Edit Connection' : 'New Connection' }}</h2>
+  <div v-if="show" class="fixed inset-0 bg-bg-overlay flex items-center justify-center z-50">
+    <div class="bg-bg-elevated p-6 rounded w-[500px] text-text-primary max-h-[90vh] overflow-y-auto border border-border-primary">
+      <h2 class="text-xl mb-4 font-bold text-text-primary">{{ connectionToEdit ? 'Edit Connection' : 'New Connection' }}</h2>
       <div class="space-y-4">
         <div>
-          <label class="block text-xs text-gray-400 uppercase mb-1">Name</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Name</label>
           <input v-model="form.name"
-            class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
+            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
             placeholder="My Server" />
         </div>
         <div class="grid grid-cols-4 gap-4">
           <div class="col-span-3">
-            <label class="block text-xs text-gray-400 uppercase mb-1">Host</label>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Host</label>
             <input v-model="form.host"
-              class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
               placeholder="192.168.1.1" />
           </div>
           <div>
-            <label class="block text-xs text-gray-400 uppercase mb-1">Port</label>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Port</label>
             <input v-model.number="form.port" type="number"
-              class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
               placeholder="22" />
           </div>
         </div>
         <div>
-          <label class="block text-xs text-gray-400 uppercase mb-1">Username</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Username</label>
           <input v-model="form.username"
-            class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
+            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
             placeholder="root" />
         </div>
 
         <div>
-          <label class="block text-xs text-gray-400 uppercase mb-1">Authentication Method</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Authentication Method</label>
           <div class="flex items-center justify-between">
             <div class="flex space-x-4">
               <label class="flex items-center space-x-2 cursor-pointer">
                 <input type="radio" v-model="form.authType" value="password"
-                  class="text-blue-600 focus:ring-blue-500 bg-gray-700 border-gray-600" />
+                  class="text-accent focus:ring-accent bg-bg-tertiary border-border-primary" />
                 <span class="text-sm">Password</span>
               </label>
               <label class="flex items-center space-x-2 cursor-pointer">
                 <input type="radio" v-model="form.authType" value="key"
-                  class="text-blue-600 focus:ring-blue-500 bg-gray-700 border-gray-600" />
+                  class="text-accent focus:ring-accent bg-bg-tertiary border-border-primary" />
                 <span class="text-sm">Private Key</span>
               </label>
             </div>
             <!-- Setup Key Auth Button -->
             <button v-if="connectionToEdit && connectionToEdit.id && form.authType === 'password'"
-              @click="showInstallKeyModal = true" class="text-xs text-blue-400 hover:text-blue-300 underline">
+              @click="showInstallKeyModal = true" class="text-xs text-accent hover:text-accent/80 underline">
               Setup Key Auth
             </button>
           </div>
         </div>
 
         <!-- Install Key Modal/Overlay -->
-        <div v-if="showInstallKeyModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-          <div class="bg-gray-800 p-6 rounded shadow-xl w-[400px] border border-gray-600">
-            <h3 class="text-lg font-bold text-white mb-4">Install SSH Key</h3>
-            <p class="text-sm text-gray-400 mb-4">
+        <div v-if="showInstallKeyModal" class="fixed inset-0 bg-bg-overlay/80 z-50 flex items-center justify-center">
+          <div class="bg-bg-elevated p-6 rounded w-[400px] border border-border-primary">
+            <h3 class="text-lg font-bold text-text-primary mb-4">Install SSH Key</h3>
+            <p class="text-sm text-text-secondary mb-4">
               This will install the public key to the server's <code>authorized_keys</code> and switch the connection to
               use Key authentication.
             </p>
 
             <div class="mb-4">
-              <label class="block text-xs text-gray-400 uppercase mb-1">Select Key to Install</label>
+              <label class="block text-xs text-text-secondary uppercase mb-1">Select Key to Install</label>
               <select v-model="keyToInstall"
-                class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none">
+                class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
                 <option :value="null" disabled>Select a key</option>
                 <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
                   {{ key.name }}
@@ -235,15 +235,15 @@ function save() {
             </div>
 
             <div v-if="installKeyResult" class="mb-4 text-sm"
-              :class="installKeyResult.success ? 'text-green-400' : 'text-red-400'">
+              :class="installKeyResult.success ? 'text-success' : 'text-error'">
               {{ installKeyResult.message }}
             </div>
 
             <div class="flex justify-end gap-2">
               <button @click="showInstallKeyModal = false" :disabled="isInstallingKey"
-                class="px-3 py-1.5 text-sm text-gray-300 hover:text-white">Cancel</button>
+                class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
               <button @click="installKey" :disabled="isInstallingKey || !keyToInstall"
-                class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded flex items-center gap-2">
+                class="px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded flex items-center gap-2">
                 <Loader2 v-if="isInstallingKey" class="w-3 h-3 animate-spin" />
                 Install & Switch
               </button>
@@ -252,12 +252,12 @@ function save() {
         </div>
 
         <div v-if="form.authType === 'password'">
-          <label class="block text-xs text-gray-400 uppercase mb-1">Password</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Password</label>
           <div class="relative">
             <input v-model="form.password" :type="showPassword ? 'text' : 'password'"
-              class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none pr-10"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none pr-10"
               placeholder="••••••" />
-            <button @click="showPassword = !showPassword" class="absolute right-2 top-2 text-gray-400 hover:text-white">
+            <button @click="showPassword = !showPassword" class="absolute right-2 top-2 text-text-secondary hover:text-text-primary">
               <Eye v-if="!showPassword" class="w-5 h-5" />
               <EyeOff v-else class="w-5 h-5" />
             </button>
@@ -265,23 +265,23 @@ function save() {
         </div>
 
         <div v-else>
-          <label class="block text-xs text-gray-400 uppercase mb-1">SSH Key</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">SSH Key</label>
           <select v-model="form.sshKeyId"
-            class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none">
+            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
             <option :value="null" disabled>Select a key</option>
             <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
               {{ key.name }}
             </option>
           </select>
-          <div v-if="sshKeyStore.keys.length === 0" class="text-xs text-yellow-500 mt-1">
+          <div v-if="sshKeyStore.keys.length === 0" class="text-xs text-warning mt-1">
             No keys found. Please add a key in Settings > SSH Keys.
           </div>
         </div>
 
         <div>
-          <label class="block text-xs text-gray-400 uppercase mb-1">Operating System</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Operating System</label>
           <select v-model="form.osType"
-            class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none">
+            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
             <option value="Linux">Linux</option>
             <option value="Windows">Windows</option>
             <option value="macOS">macOS</option>
@@ -289,9 +289,9 @@ function save() {
         </div>
 
         <div>
-          <label class="block text-xs text-gray-400 uppercase mb-1">Group</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Group</label>
           <select v-model="form.groupId"
-            class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none">
+            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
             <option :value="null">None</option>
             <option v-for="group in connectionStore.groups" :key="group.id" :value="group.id">
               {{ group.name }}
@@ -300,37 +300,37 @@ function save() {
         </div>
 
         <!-- Proxy Jump Section -->
-        <div class="border-t border-gray-700 pt-4 mt-2">
-          <h3 class="text-sm font-semibold text-gray-300 mb-2">Proxy Jump (Optional)</h3>
-          <div class="space-y-3 pl-2 border-l-2 border-gray-700">
+        <div class="border-t border-border-primary pt-4 mt-2">
+          <h3 class="text-sm font-semibold text-text-primary mb-2">Proxy Jump (Optional)</h3>
+          <div class="space-y-3 pl-2 border-l-2 border-border-primary">
             <div class="grid grid-cols-4 gap-4">
               <div class="col-span-3">
-                <label class="block text-xs text-gray-500 uppercase mb-1">Jump Host</label>
+                <label class="block text-xs text-text-tertiary uppercase mb-1">Jump Host</label>
                 <input v-model="form.jumpHost"
-                  class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
+                  class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
                   placeholder="jump.example.com" />
               </div>
               <div>
-                <label class="block text-xs text-gray-500 uppercase mb-1">Port</label>
+                <label class="block text-xs text-text-tertiary uppercase mb-1">Port</label>
                 <input v-model.number="form.jumpPort" type="number"
-                  class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
+                  class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
                   placeholder="22" />
               </div>
             </div>
             <div>
               <label class="block text-xs text-gray-500 uppercase mb-1">Jump Username</label>
               <input v-model="form.jumpUsername"
-                class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none"
+                class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
                 placeholder="jumpuser" />
             </div>
             <div>
               <label class="block text-xs text-gray-500 uppercase mb-1">Jump Password</label>
               <div class="relative">
                 <input v-model="form.jumpPassword" :type="showJumpPassword ? 'text' : 'password'"
-                  class="w-full p-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 outline-none pr-10"
+                  class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none pr-10"
                   placeholder="••••••" />
                 <button @click="showJumpPassword = !showJumpPassword"
-                  class="absolute right-2 top-2 text-gray-400 hover:text-white">
+                  class="absolute right-2 top-2 text-text-secondary hover:text-text-primary">
                   <Eye v-if="!showJumpPassword" class="w-5 h-5" />
                   <EyeOff v-else class="w-5 h-5" />
                 </button>
@@ -342,7 +342,7 @@ function save() {
 
       <!-- Test Result Feedback -->
       <div v-if="testResult" class="mt-4 p-2 rounded text-sm flex items-center gap-2"
-        :class="testResult.success ? 'bg-green-900/50 text-green-200' : 'bg-red-900/50 text-red-200'">
+        :class="testResult.success ? 'bg-success/20 text-success' : 'bg-error/20 text-error'">
         <CheckCircle v-if="testResult.success" class="w-4 h-4" />
         <XCircle v-else class="w-4 h-4" />
         <span>{{ testResult.message }}</span>
@@ -350,16 +350,16 @@ function save() {
 
       <div class="mt-6 flex justify-between items-center">
         <button @click="testConnection" :disabled="isTesting"
-          class="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+          class="px-4 py-2 bg-warning hover:bg-warning/80 text-text-primary rounded cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
           <Loader2 v-if="isTesting" class="w-4 h-4 animate-spin" />
           <span>Test Connection</span>
         </button>
 
         <div class="flex space-x-2">
           <button @click="$emit('close')"
-            class="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded cursor-pointer text-sm">Cancel</button>
+            class="px-4 py-2 bg-bg-tertiary hover:bg-bg-elevated text-text-primary rounded cursor-pointer text-sm">Cancel</button>
           <button @click="save"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded cursor-pointer text-sm">Save</button>
+            class="px-4 py-2 bg-accent hover:bg-accent/80 text-text-primary rounded cursor-pointer text-sm">Save</button>
         </div>
       </div>
     </div>
