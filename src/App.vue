@@ -535,7 +535,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
                   <div
                     class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto border border-border-primary">
+                      class="bg-bg-elevated rounded-lg shadow-md p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto border border-border-primary">
                       <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
                         Disk Mounts ({{
                           sessionStatus[session.id].mounts.length
@@ -602,7 +602,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
                   <div
                     class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
+                      class="bg-bg-elevated rounded-lg shadow-md p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
                       <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
                         Top 5 CPU Processes
                       </div>
@@ -661,7 +661,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
                   <div
                     class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
                     <div
-                      class="glass-light rounded-lg shadow-glow p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
+                      class="bg-bg-elevated rounded-lg shadow-md p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
                       <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
                         Top 5 Memory Processes
                       </div>

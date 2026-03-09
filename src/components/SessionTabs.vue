@@ -14,9 +14,9 @@ const sessionStore = useSessionStore();
 
       <!-- Status Icon -->
       <div class="mr-2 flex items-center justify-center">
-        <Loader2 v-if="session.status === 'connecting'" class="w-3 h-3 text-yellow-500 animate-spin" />
-        <Circle v-else-if="session.status === 'connected'" class="w-3 h-3 text-green-500 fill-current" />
-        <Circle v-else class="w-3 h-3 text-red-500 fill-current" />
+        <Loader2 v-if="session.status === 'connecting'" class="w-3 h-3 text-warning animate-spin" />
+        <Circle v-else-if="session.status === 'connected'" class="w-3 h-3 text-success fill-current" />
+        <Circle v-else class="w-3 h-3 text-error fill-current" />
       </div>
 
       <span class="text-xs text-text-primary truncate flex-1">{{ session.connectionName }}</span>

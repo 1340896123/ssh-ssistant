@@ -318,13 +318,13 @@ function save() {
               </div>
             </div>
             <div>
-              <label class="block text-xs text-gray-500 uppercase mb-1">Jump Username</label>
+              <label class="block text-xs text-text-tertiary uppercase mb-1">Jump Username</label>
               <input v-model="form.jumpUsername"
                 class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
                 placeholder="jumpuser" />
             </div>
             <div>
-              <label class="block text-xs text-gray-500 uppercase mb-1">Jump Password</label>
+              <label class="block text-xs text-text-tertiary uppercase mb-1">Jump Password</label>
               <div class="relative">
                 <input v-model="form.jumpPassword" :type="showJumpPassword ? 'text' : 'password'"
                   class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none pr-10"
