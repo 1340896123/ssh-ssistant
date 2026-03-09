@@ -677,8 +677,8 @@ onUnmounted(() => {
     <div class="flex flex-col bg-bg-secondary border-b border-subtle glow-border">
       <div class="flex items-center justify-between px-4 py-2">
         <div class="flex items-center space-x-2">
-          <Bot class="w-5 h-5 text-accent neon-text-accent" />
-          <span class="font-medium gradient-text">AI Assistant</span>
+          <Bot class="w-5 h-5 text-accent" />
+          <span class="font-medium text-text-primary">AI Assistant</span>
         </div>
         <div class="flex items-center space-x-1">
           <button @click="clearSession"
@@ -690,8 +690,8 @@ onUnmounted(() => {
       </div>
       <!-- Workspace Status Bar -->
       <div v-if="activeWorkspace"
-        class="px-4 py-1 bg-bg-tertiary/50 border-t border-subtle flex items-center text-xs text-text-secondary glass-light">
-        <Briefcase class="w-3 h-3 mr-1.5 neon-text" />
+        class="px-4 py-1 bg-bg-tertiary/50 border-t border-subtle flex items-center text-xs text-text-secondary">
+        <Briefcase class="w-3 h-3 mr-1.5" />
         <span class="font-mono text-primary mr-2">{{ activeWorkspace.name }}</span>
         <span class="truncate opacity-60">{{ activeWorkspace.path }}</span>
         <div class="flex-1"></div>
@@ -714,18 +714,18 @@ onUnmounted(() => {
 
         <!-- User/Assistant messages -->
         <div v-else class="flex space-x-3" :class="msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''">
-          <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 glow-border"
+          <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border border-border-primary"
             :class="msg.role === 'user' ? 'bg-primary/20 text-primary' : 'bg-accent/20 text-accent'">
             <User v-if="msg.role === 'user'" class="w-5 h-5" />
             <Bot v-else class="w-5 h-5" />
           </div>
 
-          <div class="max-w-[85%] rounded-lg p-3 text-sm glass-light" :class="msg.role === 'user' ? 'border-primary/30' : 'border-accent/30'">
+          <div class="max-w-[85%] rounded-lg p-3 text-sm bg-bg-elevated" :class="msg.role === 'user' ? 'border border-primary/30' : 'border border-accent/30'">
 
             <!-- Tool Call Display (Collapsible) -->
             <div v-if="msg.toolExecutions" class="mb-2 space-y-2">
               <div v-for="exec in msg.toolExecutions" :key="exec.id"
-                class="bg-bg-tertiary/50 rounded border border-subtle overflow-hidden glow-border hover-lift">
+                class="bg-bg-tertiary/50 rounded border border-border-primary overflow-hidden">
                 <div @click="toggleTool(exec.id)"
                   class="flex items-center p-2 cursor-pointer hover:bg-bg-secondary text-xs transition-colors">
                   <component :is="toolStates[exec.id] ? ChevronDown : ChevronRight"
@@ -804,7 +804,7 @@ onUnmounted(() => {
           <!-- Context Chips -->
           <div v-if="contextPaths.length > 0" class="flex flex-wrap gap-2 px-1">
             <div v-for="c in contextPaths" :key="c.path"
-              class="flex items-center bg-primary/10 border border-primary/30 rounded px-2 py-1 text-xs text-primary max-w-full glow-border hover-lift">
+              class="flex items-center bg-primary/10 border border-primary/30 rounded px-2 py-1 text-xs text-primary max-w-full border border-border-primary">
               <span class="truncate font-mono mr-2">{{ c.isDir ? '[DIR]' : '' }} {{ c.path }}</span>
               <button @click="removeContextPath(c.path)" class="text-primary hover:text-error">
                 &times;
@@ -899,7 +899,6 @@ onUnmounted(() => {
 
 :deep(.markdown-content a:hover) {
   color: var(--color-primary-light);
-  text-shadow: var(--glow-subtle);
 }
 
 /* Custom scrollbar for messages container */
