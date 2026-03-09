@@ -144,7 +144,7 @@ const tabs = [
         <div class="border-b border-border-primary py-2">
           <nav class="flex space-x-2 px-4 overflow-x-auto no-scrollbar" aria-label="Tabs">
             <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id" :class="[
-              'px-3 py-2 text-sm font-medium whitespace-nowrap rounded transition-all-fast hover-lift',
+              'px-3 py-2 text-sm font-medium whitespace-nowrap rounded transition-all-fast',
               activeTab === tab.id
                 ? 'bg-accent text-text-primary'
                 : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
@@ -630,7 +630,7 @@ const tabs = [
         </div>
       </div>
 
-      <div class="p-4 border-t border-subtle flex justify-end space-x-3">
+      <div class="p-4 border-t border-border-primary flex justify-end space-x-3">
         <button @click="$emit('close')"
           class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded">{{ t('settings.cancel')
           }}</button>
