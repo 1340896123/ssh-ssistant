@@ -73,24 +73,24 @@ function toggleExpand() {
 </script>
 
 <template>
-    <div v-if="visible" class="border-t border-gray-700 bg-gray-800 flex flex-col transition-all duration-300" :class="{'h-48': isExpanded, 'h-8': !isExpanded}">
+    <div v-if="visible" class="border-t border-border-primary bg-bg-secondary flex flex-col transition-all duration-300" :class="{'h-48': isExpanded, 'h-8': !isExpanded}">
         <!-- Header / Summary Bar -->
-        <div @click="toggleExpand" class="flex items-center justify-between px-2 h-8 bg-gray-900 cursor-pointer hover:bg-gray-800 select-none border-b border-gray-800">
-            <div class="flex items-center space-x-2 text-xs text-gray-300">
+        <div @click="toggleExpand" class="flex items-center justify-between px-2 h-8 bg-bg-tertiary cursor-pointer hover:bg-bg-secondary select-none border-b border-border-primary">
+            <div class="flex items-center space-x-2 text-xs text-text-secondary">
                  <ChevronDown v-if="isExpanded" class="w-4 h-4" />
                  <ChevronUp v-else class="w-4 h-4" />
                  <span class="font-bold">Transfers</span>
-                 <span class="bg-gray-700 px-1.5 rounded-full text-[10px]">{{ summary }}</span>
+                 <span class="bg-bg-tertiary px-1.5 rounded-full text-[10px]">{{ summary }}</span>
             </div>
             <div class="flex space-x-2" @click.stop>
                 <!-- 批量操作按钮 -->
-                <button v-if="isExpanded && canBatchPause" @click="store.batchPause(sessionStore.activeSessionId!)" title="Batch Pause" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                <button v-if="isExpanded && canBatchPause" @click="store.batchPause(sessionStore.activeSessionId!)" title="Batch Pause" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
                     <Pause class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchResume" @click="store.batchResume(sessionStore.activeSessionId!)" title="Batch Resume" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                <button v-if="isExpanded && canBatchResume" @click="store.batchResume(sessionStore.activeSessionId!)" title="Batch Resume" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
                     <Play class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel(sessionStore.activeSessionId!)" title="Batch Cancel" class="p-0.5 hover:bg-gray-700 rounded text-yellow-400">
+                <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel(sessionStore.activeSessionId!)" title="Batch Cancel" class="p-0.5 hover:bg-bg-tertiary rounded text-warning">
                     <Square class="w-3 h-3" />
                 </button>
                 <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete(sessionStore.activeSessionId!)" title="Batch Delete" class="p-0.5 hover:bg-gray-700 rounded text-red-400">
