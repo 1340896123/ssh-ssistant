@@ -104,11 +104,11 @@ function renderFileItem(item: FileEntry, index: number) {
         key: item.name,
         'data-file-item': 'true',
         class: [
-            'flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none h-full',
+            'flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {
-                'bg-blue-900/50': isSelected,
-                'hover:bg-gray-800': !isSelected,
-                'text-gray-400': isParentDir // Special styling for parent directory
+                'bg-accent/20': isSelected,
+                'hover:bg-bg-tertiary': !isSelected,
+                'text-text-muted': isParentDir // Special styling for parent directory
             }
         ],
         draggable: true,
@@ -142,7 +142,7 @@ function renderFileItem(item: FileEntry, index: number) {
             shouldShowInput
                 ? h('input', {
                     value: props.renameInput,
-                    class: 'bg-gray-700 text-white px-1 rounded border border-blue-500 focus:outline-none w-full',
+                    class: 'bg-bg-tertiary text-text-primary px-1 rounded border border-accent focus:outline-none w-full',
                     autofocus: true,
                     onClick: (e: MouseEvent) => e.stopPropagation(),
                     onInput: (e: Event) => emit('update:renameInput', (e.target as HTMLInputElement).value),
@@ -198,11 +198,11 @@ function renderTreeNode(node: TreeNode) {
         key: node.path,
         'data-file-item': 'true',
         class: [
-            'flex items-center p-2 cursor-pointer border-b border-gray-800/50 transition-colors select-none h-full',
+            'flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {
-                'bg-blue-900/50': isSelected,
-                'hover:bg-gray-800': !isSelected,
-                'text-gray-400': isParentDir // Special styling for parent directory
+                'bg-accent/20': isSelected,
+                'hover:bg-bg-tertiary': !isSelected,
+                'text-text-muted': isParentDir // Special styling for parent directory
             }
         ],
         draggable: true,
@@ -249,7 +249,7 @@ function renderTreeNode(node: TreeNode) {
             (props.renamingPath && props.renamingPath === node.path)
                 ? h('input', {
                     value: props.renameInput,
-                    class: 'bg-gray-700 text-white px-1 rounded border border-blue-500 focus:outline-none w-full',
+                    class: 'bg-bg-tertiary text-text-primary px-1 rounded border border-accent focus:outline-none w-full',
                     autofocus: true,
                     onClick: (e: MouseEvent) => e.stopPropagation(),
                     onInput: (e: Event) => emit('update:renameInput', (e.target as HTMLInputElement).value),

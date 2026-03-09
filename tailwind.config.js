@@ -66,7 +66,6 @@ export default {
           secondary: 'var(--border-secondary)',
           accent: 'var(--border-accent)',
           subtle: 'var(--border-subtle)',
-          light: 'var(--border-light)',
         },
       },
       fontFamily: {
@@ -107,8 +106,6 @@ export default {
         'lg': 'var(--shadow-lg)',
         'xl': 'var(--shadow-xl)',
         'inner': 'var(--shadow-inner)',
-        'card': 'var(--shadow-card)',
-        'glow': 'var(--shadow-glow)',
       },
       animation: {
         'fade-in': 'fade-in 0.25s ease-out',
