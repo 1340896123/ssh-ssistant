@@ -93,18 +93,18 @@ function toggleExpand() {
                 <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel(sessionStore.activeSessionId!)" title="Batch Cancel" class="p-0.5 hover:bg-bg-tertiary rounded text-warning">
                     <Square class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete(sessionStore.activeSessionId!)" title="Batch Delete" class="p-0.5 hover:bg-gray-700 rounded text-red-400">
+                <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete(sessionStore.activeSessionId!)" title="Batch Delete" class="p-0.5 hover:bg-bg-tertiary rounded text-error">
                     <Trash2 class="w-3 h-3" />
                 </button>
                 <!-- 原有的清除已完成按钮 -->
-                <button v-if="isExpanded" @click="store.clearHistory(sessionStore.activeSessionId!)" title="Clear Completed" class="p-0.5 hover:bg-gray-700 rounded text-gray-400">
+                <button v-if="isExpanded" @click="store.clearHistory(sessionStore.activeSessionId!)" title="Clear Completed" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
                     <Trash2 class="w-3 h-3" />
                 </button>
             </div>
         </div>
 
         <!-- List -->
-        <div v-if="isExpanded" ref="virtualizerContainerRef" class="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-900/50">
+        <div v-if="isExpanded" ref="virtualizerContainerRef" class="flex-1 overflow-y-auto p-2 space-y-2 bg-bg-tertiary/50">
             <div 
                 :style="{ height: virtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }"
             >
@@ -120,14 +120,14 @@ function toggleExpand() {
                         transform: `translateY(${virtualItem.start}px)`,
                     }"
                 >
-                    <div class="bg-gray-800 border border-gray-700 rounded p-2 text-xs h-full">
+                    <div class="bg-bg-secondary border border-border-primary rounded p-2 text-xs h-full">
                         <div class="flex items-center justify-between mb-1">
                             <div class="flex items-center space-x-2 truncate">
-                                <FileUp v-if="visibleItems[virtualItem.index].type === 'upload'" class="w-3 h-3 text-blue-400" />
-                                <FileDown v-else-if="!visibleItems[virtualItem.index].isDirectory" class="w-3 h-3 text-green-400" />
-                                <Folder v-else class="w-3 h-3 text-yellow-400" />
-                                <span class="truncate font-medium text-gray-200" :title="visibleItems[virtualItem.index].name">{{ visibleItems[virtualItem.index].name }}</span>
-                                <span v-if="visibleItems[virtualItem.index].isDirectory" class="text-xs text-gray-400">({{ visibleItems[virtualItem.index].completedFiles || 0 }}/{{ visibleItems[virtualItem.index].childFiles || 0 }} files)</span>
+                                <FileUp v-if="visibleItems[virtualItem.index].type === 'upload'" class="w-3 h-3 text-accent" />
+                                <FileDown v-else-if="!visibleItems[virtualItem.index].isDirectory" class="w-3 h-3 text-success" />
+                                <Folder v-else class="w-3 h-3 text-warning" />
+                                <span class="truncate font-medium text-text-primary" :title="visibleItems[virtualItem.index].name">{{ visibleItems[virtualItem.index].name }}</span>
+                                <span v-if="visibleItems[virtualItem.index].isDirectory" class="text-xs text-text-muted">({{ visibleItems[virtualItem.index].completedFiles || 0 }}/{{ visibleItems[virtualItem.index].childFiles || 0 }} files)</span>
                             </div>
                             <span class="text-gray-400 whitespace-nowrap ml-2">
                                 {{ visibleItems[virtualItem.index].status }}
