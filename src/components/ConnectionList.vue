@@ -314,26 +314,26 @@ function getItemKey(item: Connection | ConnectionGroup) {
 <template>
   <div ref="containerRef" class="flex flex-col h-full relative" @contextmenu.prevent="handleContextMenu">
     <div v-if="isDragOver"
-      class="absolute inset-0 bg-blue-500/10 border-2 border-blue-500 z-50 rounded pointer-events-none flex items-center justify-center">
-      <div class="bg-gray-800 text-blue-400 px-4 py-2 rounded shadow-lg font-medium">
+      class="absolute inset-0 bg-primary/10 border-2 border-primary z-50 rounded pointer-events-none flex items-center justify-center glow-border">
+      <div class="glass text-primary px-4 py-2 rounded shadow-lg font-medium neon-text">
         Drop JSON to Import
       </div>
     </div>
     <!-- Root Node -->
-    <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none"
+    <div class="group flex items-center justify-between p-2 hover:bg-bg-tertiary rounded cursor-pointer select-none transition-all duration-200 hover-lift"
       @click="isRootExpanded = !isRootExpanded" @contextmenu.stop.prevent="handleContextMenu">
       <div class="flex items-center space-x-2 overflow-hidden flex-1">
-        <button class="p-0.5 hover:bg-gray-600 rounded text-gray-400">
+        <button class="p-0.5 hover:bg-bg-elevated rounded text-text-muted hover:text-primary transition-all">
           <ChevronDown v-if="isRootExpanded" class="w-3 h-3" />
           <ChevronRight v-else class="w-3 h-3" />
         </button>
-        <FolderOpen v-if="isRootExpanded" class="w-4 h-4 text-yellow-400" />
-        <Folder v-else class="w-4 h-4 text-yellow-400" />
-        <span class="text-sm text-gray-200 font-bold">Root</span>
+        <FolderOpen v-if="isRootExpanded" class="w-4 h-4 text-secondary" />
+        <Folder v-else class="w-4 h-4 text-secondary" />
+        <span class="text-sm text-text-primary font-bold">Root</span>
       </div>
 
       <div class="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-        <button @click.stop="handleCreateGroup()" class="p-1 text-gray-500 hover:text-green-400 cursor-pointer"
+        <button @click.stop="handleCreateGroup()" class="btn-retro p-1 text-text-muted hover:text-success cursor-pointer"
           title="New Group">
           <FolderPlus class="w-3 h-3" />
         </button>
@@ -345,7 +345,7 @@ function getItemKey(item: Connection | ConnectionGroup) {
       @contextmenu="handleContextMenu">
       <!-- Root Drop Zone Indicator -->
       <div v-if="isDragOver"
-        class="mx-2 mb-2 p-3 border-2 border-dashed border-blue-500 rounded bg-blue-500/10 text-blue-400 text-sm text-center">
+        class="mx-2 mb-2 p-3 border-2 border-dashed border-primary rounded bg-primary/10 text-primary text-sm text-center glow-border neon-text">
         拖放到此处以移动到根目录
       </div>
       <div class="space-y-0.5 min-h-[50px]">
@@ -354,7 +354,7 @@ function getItemKey(item: Connection | ConnectionGroup) {
           @delete-group="handleDeleteGroup" @drag-start="onDragStart" @drop-item="onDrop"
           @context-menu="handleItemContextMenu" />
       </div>
-      <div v-if="treeData.length === 0" class="text-center text-gray-500 text-sm py-4 ml-4">
+      <div v-if="treeData.length === 0" class="text-center text-text-muted text-sm py-4 ml-4">
         (Empty)
       </div>
     </div>
@@ -367,12 +367,12 @@ function getItemKey(item: Connection | ConnectionGroup) {
 <style scoped>
 .ghost {
   opacity: 0.5;
-  background: #374151;
-  border: 1px dashed #6b7280;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-subtle);
 }
 
 .drag {
   opacity: 1;
-  background: #1f2937;
+  background: var(--bg-elevated);
 }
 </style>

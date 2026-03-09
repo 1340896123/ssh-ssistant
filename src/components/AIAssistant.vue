@@ -672,17 +672,17 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-900 text-white" ref="containerRef">
+  <div class="flex flex-col h-full bg-bg-primary text-text-primary" ref="containerRef">
     <!-- Header -->
-    <div class="flex flex-col bg-gray-800 border-b border-gray-700">
+    <div class="flex flex-col bg-bg-secondary border-b border-subtle glow-border">
       <div class="flex items-center justify-between px-4 py-2">
         <div class="flex items-center space-x-2">
-          <Bot class="w-5 h-5 text-purple-400" />
-          <span class="font-medium">AI Assistant</span>
+          <Bot class="w-5 h-5 text-accent neon-text-accent" />
+          <span class="font-medium gradient-text">AI Assistant</span>
         </div>
         <div class="flex items-center space-x-1">
           <button @click="clearSession"
-            class="text-gray-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-700"
+            class="text-text-muted hover:text-error transition-colors p-1 rounded hover:bg-bg-tertiary"
             title="Clear Session">
             <Trash2 class="w-4 h-4" />
           </button>
@@ -690,13 +690,13 @@ onUnmounted(() => {
       </div>
       <!-- Workspace Status Bar -->
       <div v-if="activeWorkspace"
-        class="px-4 py-1 bg-gray-900/50 border-t border-gray-700 flex items-center text-xs text-gray-400">
-        <Briefcase class="w-3 h-3 mr-1.5 text-blue-400" />
-        <span class="font-mono text-blue-300 mr-2">{{ activeWorkspace.name }}</span>
+        class="px-4 py-1 bg-bg-tertiary/50 border-t border-subtle flex items-center text-xs text-text-secondary glass-light">
+        <Briefcase class="w-3 h-3 mr-1.5 neon-text" />
+        <span class="font-mono text-primary mr-2">{{ activeWorkspace.name }}</span>
         <span class="truncate opacity-60">{{ activeWorkspace.path }}</span>
         <div class="flex-1"></div>
-        <span v-if="activeWorkspace.isIndexed" class="text-green-500">Indexed</span>
-        <span v-else class="text-yellow-500 flex items-center">
+        <span v-if="activeWorkspace.isIndexed" class="status-online">Indexed</span>
+        <span v-else class="status-warning flex items-center">
           <Loader2 class="w-3 h-3 animate-spin mr-1" /> Indexing
         </span>
       </div>
@@ -704,73 +704,73 @@ onUnmounted(() => {
 
     <!-- Messages Area -->
     <div class="flex-1 overflow-y-auto p-4 space-y-4" ref="messagesContainer">
-      <div v-for="(msg, index) in displayMessages" :key="index" class="space-y-1">
+      <div v-for="(msg, index) in displayMessages" :key="index" class="space-y-1 fade-in">
 
         <!-- System messages (Optional visibility) -->
-        <div v-if="msg.role === 'system'" class="flex items-start space-x-2 text-gray-400 text-xs pl-8">
-          <TerminalSquare class="w-3 h-3 mt-0.5" />
-          <pre class="whitespace-pre-wrap bg-gray-800 p-1 rounded flex-1 overflow-x-auto">{{ msg.content }}</pre>
+        <div v-if="msg.role === 'system'" class="flex items-start space-x-2 text-text-muted text-xs pl-8">
+          <TerminalSquare class="w-3 h-3 mt-0.5 text-info" />
+          <pre class="whitespace-pre-wrap bg-bg-secondary p-2 rounded flex-1 overflow-x-auto border border-subtle">{{ msg.content }}</pre>
         </div>
 
         <!-- User/Assistant messages -->
         <div v-else class="flex space-x-3" :class="msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''">
-          <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-            :class="msg.role === 'user' ? 'bg-blue-600' : 'bg-purple-600'">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 glow-border"
+            :class="msg.role === 'user' ? 'bg-primary/20 text-primary' : 'bg-accent/20 text-accent'">
             <User v-if="msg.role === 'user'" class="w-5 h-5" />
             <Bot v-else class="w-5 h-5" />
           </div>
 
-          <div class="max-w-[85%] rounded-lg p-3 text-sm" :class="msg.role === 'user' ? 'bg-blue-700' : 'bg-gray-800'">
+          <div class="max-w-[85%] rounded-lg p-3 text-sm glass-light" :class="msg.role === 'user' ? 'border-primary/30' : 'border-accent/30'">
 
             <!-- Tool Call Display (Collapsible) -->
             <div v-if="msg.toolExecutions" class="mb-2 space-y-2">
               <div v-for="exec in msg.toolExecutions" :key="exec.id"
-                class="bg-gray-900/50 rounded border border-gray-700 overflow-hidden">
+                class="bg-bg-tertiary/50 rounded border border-subtle overflow-hidden glow-border hover-lift">
                 <div @click="toggleTool(exec.id)"
-                  class="flex items-center p-2 cursor-pointer hover:bg-gray-800 text-xs transition-colors">
+                  class="flex items-center p-2 cursor-pointer hover:bg-bg-secondary text-xs transition-colors">
                   <component :is="toolStates[exec.id] ? ChevronDown : ChevronRight"
-                    class="w-4 h-4 text-gray-400 mr-1" />
-                  <TerminalSquare class="w-3 h-3 mr-2 text-purple-400" />
-                  <span class="font-mono flex-1 truncate text-gray-300">{{ exec.command }}</span>
+                    class="w-4 h-4 text-text-muted mr-1" />
+                  <TerminalSquare class="w-3 h-3 mr-2 text-accent" />
+                  <span class="font-mono flex-1 truncate text-text-primary">{{ exec.command }}</span>
 
                   <!-- Status indicator -->
-                  <span v-if="!exec.output" class="flex items-center text-yellow-500 ml-2">
+                  <span v-if="!exec.output" class="flex items-center text-warning ml-2">
                     <Loader2 class="w-3 h-3 animate-spin mr-1" />
                     Running
                   </span>
                   <span v-else-if="exec.output === 'Command execution stopped by user'"
-                    class="text-red-500 ml-2 text-[10px] uppercase">
+                    class="text-error ml-2 text-[10px] uppercase">
                     Stopped
                   </span>
-                  <span v-else class="text-green-500 ml-2 text-[10px] uppercase">Done</span>
+                  <span v-else class="text-success ml-2 text-[10px] uppercase">Done</span>
 
                   <!-- Action buttons -->
                   <div class="flex items-center gap-1 ml-2">
                     <!-- Copy command button -->
                     <button @click.stop="copyCommand(exec.command)"
-                      class="p-1 text-gray-400 hover:text-blue-400 hover:bg-gray-700 rounded transition-colors"
+                      class="p-1 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded transition-colors"
                       title="Copy command">
                       <ClipboardPlus class="w-3 h-3" />
                     </button>
 
                     <!-- Rerun button (only for completed commands) -->
                     <button v-if="exec.output" @click.stop="rerunCommand(exec.command)"
-                      class="p-1 text-gray-400 hover:text-green-400 hover:bg-gray-700 rounded transition-colors"
+                      class="p-1 text-text-muted hover:text-success hover:bg-bg-tertiary rounded transition-colors"
                       title="Rerun command">
                       <Loader2 class="w-3 h-3" />
                     </button>
 
                     <!-- Stop button (only for running commands) -->
                     <button v-if="!exec.output && isLoading" @click.stop="stopMessage()"
-                      class="p-1 text-red-500 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                      class="p-1 text-error hover:text-error hover:bg-bg-tertiary rounded transition-colors"
                       title="Stop command">
                       <Square class="w-3 h-3 fill-current" />
                     </button>
                   </div>
                 </div>
                 <div v-if="toolStates[exec.id]"
-                  class="p-2 border-t border-gray-700 bg-black/30 overflow-y-auto max-h-64">
-                  <pre class="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto font-mono">
+                  class="p-2 border-t border-subtle bg-bg-primary/80 overflow-y-auto max-h-64">
+                  <pre class="text-xs text-text-secondary whitespace-pre-wrap overflow-x-auto font-mono">
                     <!-- Show real-time output if running, otherwise show final output -->
                     <template v-if="exec.isRunning && exec.realTimeOutput && exec.realTimeOutput.length > 0">
                       {{ exec.realTimeOutput.join('') }}
@@ -790,23 +790,23 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-if="isLoading" class="flex items-center space-x-2 text-gray-500 text-sm pl-12">
-        <Loader2 class="w-4 h-4 animate-spin" />
+      <div v-if="isLoading" class="flex items-center space-x-2 text-text-muted text-sm pl-12 fade-in">
+        <Loader2 class="w-4 h-4 animate-spin text-primary" />
         <span>AI is thinking...</span>
       </div>
     </div>
 
     <!-- Input Area -->
-    <div class="p-4 bg-gray-800 border-t border-gray-700" @dragover="onInputDragOver" @dragleave="onInputDragLeave"
+    <div class="p-4 bg-bg-secondary border-t border-subtle" @dragover="onInputDragOver" @dragleave="onInputDragLeave"
       @drop="onInputDrop">
-      <div class="w-full" :class="{ 'opacity-50 border-2 border-dashed border-blue-500 rounded-lg': isDragOverInput }">
+      <div class="w-full" :class="{ 'opacity-50 border-2 border-dashed border-primary rounded-lg': isDragOverInput }">
         <div class="flex flex-col space-y-2">
           <!-- Context Chips -->
           <div v-if="contextPaths.length > 0" class="flex flex-wrap gap-2 px-1">
             <div v-for="c in contextPaths" :key="c.path"
-              class="flex items-center bg-blue-900/50 border border-blue-700/50 rounded px-2 py-1 text-xs text-blue-200 max-w-full">
+              class="flex items-center bg-primary/10 border border-primary/30 rounded px-2 py-1 text-xs text-primary max-w-full glow-border hover-lift">
               <span class="truncate font-mono mr-2">{{ c.isDir ? '[DIR]' : '' }} {{ c.path }}</span>
-              <button @click="removeContextPath(c.path)" class="text-blue-400 hover:text-red-400">
+              <button @click="removeContextPath(c.path)" class="text-primary hover:text-error">
                 &times;
               </button>
             </div>
@@ -814,23 +814,23 @@ onUnmounted(() => {
 
           <div class="relative flex items-center">
             <button @click="emit('refresh-context')"
-              class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
+              class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-primary transition-colors"
               title="Import terminal context">
               <ClipboardPlus class="w-5 h-5" />
             </button>
             <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage"
-              class="w-full bg-gray-900 border border-gray-700 rounded-lg pl-12 pr-12 py-3 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+              class="input-retro w-full rounded-lg pl-12 pr-12 py-3 resize-none"
               placeholder="Ask AI to help..." rows="1" :disabled="isLoading"></textarea>
             <button @click="isLoading ? stopMessage() : sendMessage()" :disabled="!isLoading && !input.trim()"
-              class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors"
-              :class="{ 'hover:text-red-400 text-red-500': isLoading }" :title="isLoading ? 'Stop' : 'Send'">
+              class="absolute right-2 top-1/2 -translate-y-1/2 btn-retro p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              :class="{ 'text-error hover:text-error hover:border-error': isLoading }" :title="isLoading ? 'Stop' : 'Send'">
               <Square v-if="isLoading" class="w-5 h-5 fill-current" />
               <Send v-else class="w-5 h-5" />
             </button>
           </div>
         </div>
       </div>
-      <div class="mt-2 text-xs text-gray-500 text-center">
+      <div class="mt-2 text-xs text-text-muted text-center">
         AI can execute commands. Exercise caution.
       </div>
     </div>
@@ -852,29 +852,32 @@ onUnmounted(() => {
 }
 
 :deep(.markdown-content pre) {
-  background-color: #111827;
-  /* gray-900 */
-  padding: 0.5rem;
-  border-radius: 0.375rem;
+  background-color: var(--bg-tertiary);
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
   overflow-x: auto;
   margin-top: 0.5em;
   margin-bottom: 0.5em;
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-inner-glow);
 }
 
 :deep(.markdown-content code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  background-color: rgba(0, 0, 0, 0.3);
-  padding: 0.1rem 0.3rem;
-  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  background-color: var(--bg-tertiary);
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-xs);
   font-size: 0.9em;
+  border: 1px solid var(--border-subtle);
+  color: var(--color-primary-light);
 }
 
 :deep(.markdown-content pre code) {
   background-color: transparent;
   padding: 0;
   font-size: 0.9em;
-  color: #e5e7eb;
-  /* gray-200 */
+  color: var(--text-primary);
+  border: none;
 }
 
 :deep(.markdown-content ul),
@@ -889,8 +892,38 @@ onUnmounted(() => {
 }
 
 :deep(.markdown-content a) {
-  color: #60a5fa;
-  /* blue-400 */
+  color: var(--color-primary);
   text-decoration: underline;
+  transition: color var(--transition-fast);
+}
+
+:deep(.markdown-content a:hover) {
+  color: var(--color-primary-light);
+  text-shadow: var(--glow-subtle);
+}
+
+/* Custom scrollbar for messages container */
+:deep(div[ref='messagesContainer']) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-tertiary) var(--bg-secondary);
+}
+
+:deep(div[ref='messagesContainer'])::-webkit-scrollbar {
+  width: 6px;
+}
+
+:deep(div[ref='messagesContainer'])::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-full);
+}
+
+:deep(div[ref='messagesContainer'])::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+}
+
+:deep(div[ref='messagesContainer'])::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-dark);
 }
 </style>

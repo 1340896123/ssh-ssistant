@@ -2,7 +2,9 @@ use super::connection::{ManagedSession, SessionSshPool};
 use super::heartbeat::{HeartbeatAction, HeartbeatManager, HeartbeatResult};
 use super::network_monitor::NetworkMonitor;
 use super::ShellMsg;
-use crate::models::{DiskUsage, FileEntry, HeartbeatSettings, NetworkAdaptiveSettings, ServerStatus};
+use crate::models::{
+    DiskUsage, FileEntry, HeartbeatSettings, NetworkAdaptiveSettings, ServerStatus,
+};
 
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
@@ -151,10 +153,8 @@ impl SshManager {
         shutdown_signal: Arc<AtomicBool>,
         heartbeat_settings: HeartbeatSettings,
     ) -> Self {
-        let heartbeat_manager = HeartbeatManager::with_shutdown(
-            heartbeat_settings,
-            shutdown_signal.clone(),
-        );
+        let heartbeat_manager =
+            HeartbeatManager::with_shutdown(heartbeat_settings, shutdown_signal.clone());
         let network_monitor = Arc::new(Mutex::new(NetworkMonitor::with_default_settings()));
 
         Self {
@@ -189,7 +189,38 @@ impl SshManager {
 
     /// Get recommended adaptive parameters
     pub fn get_adaptive_params(&self) -> crate::models::AdaptiveParams {
-        self.network_monitor.lock().unwrap().get_recommended_params()
+        self.network_monitor
+            .lock()
+            .unwrap()
+            .get_recommended_params()
+    }
+
+    /// Dedicated loop for non-interactive SSH operations.
+    /// This loop is intentionally isolated from terminal I/O to avoid head-of-line blocking.
+    pub fn run_ops_loop(
+        pool: SessionSshPool,
+        receiver: Receiver<SshCommand>,
+        shutdown_signal: Arc<AtomicBool>,
+    ) {
+        loop {
+            if shutdown_signal.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let cmd = match receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok(cmd) => cmd,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+
+            match cmd {
+                SshCommand::Shutdown => {
+                    shutdown_signal.store(true, Ordering::Relaxed);
+                    break;
+                }
+                other => Self::handle_ops_command(pool.clone(), other),
+            }
+        }
     }
 
     pub fn run(&mut self) {
@@ -203,7 +234,7 @@ impl SshManager {
 
             // 2. Process Incoming Commands (Batch process up to a limit to avoid starving I/O)
             // We use try_recv to avoid blocking, since we also need to poll SSH socket
-            for _ in 0..10 {
+            for _ in 0..64 {
                 match self.receiver.try_recv() {
                     Ok(cmd) => {
                         self.handle_command(cmd);
@@ -257,78 +288,86 @@ impl SshManager {
                 self.shell_sender = None;
             }
 
-            // 4. Perform Layered Heartbeat Check
-            let heartbeat_result = self.heartbeat_manager.perform_heartbeat(&self.session);
+            // 4. Maintenance checks.
+            // Important: when terminal is active, avoid running potentially blocking heartbeat checks
+            // in this loop to keep command input responsive.
+            if self.shell_channel.is_none() {
+                let heartbeat_result = self.heartbeat_manager.perform_heartbeat(&self.session);
 
-            self.tick_network_monitor();
+                self.tick_network_monitor();
 
-            // 5. Handle Heartbeat Result
-            match heartbeat_result {
-                HeartbeatResult::Success => {
-                    // Connection is healthy, also check pool
-                    let _ = self.pool.heartbeat_check();
-                }
-                HeartbeatResult::Timeout => {
-                    // Log timeout but don't take action yet
-                    let status = self.heartbeat_manager.get_status();
-                    if status.consecutive_failures > 0 {
-                        eprintln!(
-                            "[Heartbeat] Timeout detected (failures: {})",
-                            status.consecutive_failures
-                        );
+                match heartbeat_result {
+                    HeartbeatResult::Success => {
+                        // Connection is healthy, also check pool
+                        let _ = self.pool.heartbeat_check();
+                    }
+                    HeartbeatResult::Timeout => {
+                        // Log timeout but don't take action yet
+                        let status = self.heartbeat_manager.get_status();
+                        if status.consecutive_failures > 0 {
+                            eprintln!(
+                                "[Heartbeat] Timeout detected (failures: {})",
+                                status.consecutive_failures
+                            );
+                        }
+                    }
+                    HeartbeatResult::Failed(msg) => {
+                        eprintln!("[Heartbeat] Check failed: {}", msg);
+                    }
+                    HeartbeatResult::SessionDead => {
+                        eprintln!("[Heartbeat] Session appears dead");
                     }
                 }
-                HeartbeatResult::Failed(msg) => {
-                    eprintln!("[Heartbeat] Check failed: {}", msg);
-                }
-                HeartbeatResult::SessionDead => {
-                    eprintln!("[Heartbeat] Session appears dead");
-                }
-            }
 
-            // 6. Take Action Based on Heartbeat Status
-            let action = self.heartbeat_manager.get_recommended_action();
-            match action {
-                HeartbeatAction::None => {
-                    // All good
-                }
-                HeartbeatAction::SendKeepalive => {
-                    // Send immediate keepalive
-                    let _ = crate::ssh::utils::ssh2_retry(|| self.session.keepalive_send());
-                }
-                HeartbeatAction::ReconnectBackground => {
-                    eprintln!("[Heartbeat] Attempting background reconnection...");
-                    // Try to rebuild pool connections silently
-                    if let Err(e) = self.pool.rebuild_all() {
-                        eprintln!("[Heartbeat] Background reconnect failed: {}", e);
-                    } else {
-                        // Reset heartbeat status on successful reconnect
+                let action = self.heartbeat_manager.get_recommended_action();
+                match action {
+                    HeartbeatAction::None => {
+                        // All good
+                    }
+                    HeartbeatAction::SendKeepalive => {
+                        // Send immediate keepalive
+                        let _ = crate::ssh::utils::ssh2_retry(|| self.session.keepalive_send());
+                    }
+                    HeartbeatAction::ReconnectBackground => {
+                        eprintln!("[Heartbeat] Attempting background reconnection...");
+                        // Try to rebuild pool connections silently
+                        if let Err(e) = self.pool.rebuild_all() {
+                            eprintln!("[Heartbeat] Background reconnect failed: {}", e);
+                        } else {
+                            // Reset heartbeat status on successful reconnect
+                            self.heartbeat_manager.reset();
+                        }
+                    }
+                    HeartbeatAction::NotifyUser => {
+                        // In a real implementation, this would emit an event to the frontend
+                        eprintln!(
+                            "[Heartbeat] Connection unstable - user notification recommended"
+                        );
+                        // Still try to reconnect
+                        if let Err(e) = self.pool.rebuild_all() {
+                            eprintln!("[Heartbeat] Reconnect attempt failed: {}", e);
+                        }
+                    }
+                    HeartbeatAction::ForceReconnect => {
+                        eprintln!("[Heartbeat] Force reconnecting...");
+                        // Force rebuild all connections
+                        let _ = self.pool.rebuild_all();
+                        // Reset heartbeat status
                         self.heartbeat_manager.reset();
                     }
                 }
-                HeartbeatAction::NotifyUser => {
-                    // In a real implementation, this would emit an event to the frontend
-                    eprintln!(
-                        "[Heartbeat] Connection unstable - user notification recommended"
-                    );
-                    // Still try to reconnect
-                    if let Err(e) = self.pool.rebuild_all() {
-                        eprintln!("[Heartbeat] Reconnect attempt failed: {}", e);
-                    }
-                }
-                HeartbeatAction::ForceReconnect => {
-                    eprintln!("[Heartbeat] Force reconnecting...");
-                    // Force rebuild all connections
-                    let _ = self.pool.rebuild_all();
-                    // Reset heartbeat status
-                    self.heartbeat_manager.reset();
-                }
             }
 
-            // 7. Sleep if idle - use dynamic sleep based on heartbeat settings
+            // 5. Sleep if idle
             if !activity {
-                let sleep_duration = self.heartbeat_manager.get_min_check_interval()
-                    .min(Duration::from_millis(100)); // Cap at 100ms for responsiveness
+                let sleep_duration = if self.shell_channel.is_some() {
+                    // Active terminal loop should stay highly responsive.
+                    Duration::from_millis(5)
+                } else {
+                    self.heartbeat_manager
+                        .get_min_check_interval()
+                        .min(Duration::from_millis(100))
+                };
                 thread::sleep(sleep_duration);
             }
         }
@@ -393,17 +432,23 @@ impl SshManager {
                 }
                 self.shell_sender = None;
             }
+            other => Self::handle_ops_command(self.pool.clone(), other),
+        }
+    }
+
+    fn handle_ops_command(pool: SessionSshPool, cmd: SshCommand) {
+        match cmd {
             SshCommand::Exec {
                 command,
                 listener,
                 cancel_flag,
                 is_ai,
             } => {
-                let res = Self::bg_exec(self.pool.clone(), &command, cancel_flag.as_ref(), is_ai);
+                let res = Self::bg_exec(pool.clone(), &command, cancel_flag.as_ref(), is_ai);
                 let _ = listener.send(res);
             }
             SshCommand::SftpLs { path, listener } => {
-                let res = Self::bg_sftp_ls(self.pool.clone(), &path);
+                let res = Self::bg_sftp_ls(pool.clone(), &path);
                 let _ = listener.send(res);
             }
             SshCommand::SftpRead {
@@ -411,7 +456,7 @@ impl SshManager {
                 max_len,
                 listener,
             } => {
-                let res = Self::bg_sftp_read(self.pool.clone(), &path, max_len);
+                let res = Self::bg_sftp_read(pool.clone(), &path, max_len);
                 let _ = listener.send(res);
             }
             SshCommand::SftpWrite {
@@ -420,17 +465,17 @@ impl SshManager {
                 mode,
                 listener,
             } => {
-                let res = Self::bg_sftp_write(self.pool.clone(), &path, &content, mode.as_deref());
+                let res = Self::bg_sftp_write(pool.clone(), &path, &content, mode.as_deref());
                 let _ = listener.send(res);
             }
             SshCommand::SftpMkdir { path, listener } => {
-                let res = Self::bg_sftp_simple(self.pool.clone(), &path, |sftp, p| {
+                let res = Self::bg_sftp_simple(pool.clone(), &path, |sftp, p| {
                     sftp.mkdir(p, 0o755).map_err(|e| e.to_string())
                 });
                 let _ = listener.send(res);
             }
             SshCommand::SftpCreate { path, listener } => {
-                let res = Self::bg_sftp_simple(self.pool.clone(), &path, |sftp, p| {
+                let res = Self::bg_sftp_simple(pool.clone(), &path, |sftp, p| {
                     sftp.create(p).map_err(|e| e.to_string()).map(|_| ())
                 });
                 let _ = listener.send(res);
@@ -440,7 +485,7 @@ impl SshManager {
                 mode,
                 listener,
             } => {
-                let res = Self::bg_sftp_simple(self.pool.clone(), &path, move |sftp, p| {
+                let res = Self::bg_sftp_simple(pool.clone(), &path, move |sftp, p| {
                     sftp.setstat(
                         p,
                         ssh2::FileStat {
@@ -461,7 +506,7 @@ impl SshManager {
                 is_dir,
                 listener,
             } => {
-                let res = Self::bg_sftp_delete(self.pool.clone(), &path, is_dir);
+                let res = Self::bg_sftp_delete(pool.clone(), &path, is_dir);
                 let _ = listener.send(res);
             }
             SshCommand::SftpRename {
@@ -469,7 +514,7 @@ impl SshManager {
                 new_path,
                 listener,
             } => {
-                let res = Self::bg_sftp_rename(self.pool.clone(), &old_path, &new_path);
+                let res = Self::bg_sftp_rename(pool.clone(), &old_path, &new_path);
                 let _ = listener.send(res);
             }
             SshCommand::SftpDownload {
@@ -480,7 +525,7 @@ impl SshManager {
                 listener,
                 cancel_flag,
             } => {
-                let pool = self.pool.clone();
+                let pool = pool.clone();
                 thread::spawn(move || {
                     let res = Self::bg_sftp_download_with_pool(
                         pool,
@@ -501,7 +546,7 @@ impl SshManager {
                 listener,
                 cancel_flag,
             } => {
-                let pool = self.pool.clone();
+                let pool = pool.clone();
                 thread::spawn(move || {
                     let res = Self::bg_sftp_upload_with_pool(
                         pool,
@@ -515,12 +560,19 @@ impl SshManager {
                 });
             }
             SshCommand::GetServerStatus { listener } => {
-                let res = Self::bg_get_server_status(self.pool.clone());
+                let res = Self::bg_get_server_status(pool.clone());
                 let _ = listener.send(res);
             }
             SshCommand::GetDiskUsage { path, listener } => {
-                let res = Self::bg_get_disk_usage(self.pool.clone(), &path);
+                let res = Self::bg_get_disk_usage(pool.clone(), &path);
                 let _ = listener.send(res);
+            }
+            SshCommand::Shutdown => {}
+            // Shell commands should not be routed to the ops loop.
+            SshCommand::ShellOpen { sender, .. } => {
+                let _ = sender.send(ShellMsg::Exit);
+            }
+            SshCommand::ShellWrite(_) | SshCommand::ShellResize { .. } | SshCommand::ShellClose => {
             }
         }
     }
@@ -538,8 +590,9 @@ impl SshManager {
             return;
         }
 
-        let session_mutex = match self.pool.get_transfer_session() {
-            Ok(s) => s,
+        let session_mutex = match self.pool.try_get_transfer_session() {
+            Ok(Some(s)) => s,
+            Ok(None) => return,
             Err(e) => {
                 eprintln!("[NetworkMonitor] Failed to get transfer session: {}", e);
                 return;
@@ -814,7 +867,10 @@ impl SshManager {
         use crate::ssh::ProgressPayload;
         use tauri::Emitter;
 
-        eprintln!("[DEBUG] bg_sftp_download_with_pool ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
+        eprintln!(
+            "[DEBUG] bg_sftp_download_with_pool ENTER: transfer_id={}, remote={}",
+            transfer_id, remote_path
+        );
 
         // Timeout configuration (default 5 minutes)
         let sftp_timeout = Duration::from_secs(300); // 5 minutes default
@@ -823,7 +879,10 @@ impl SshManager {
         // 关键修复：使用传输专用会话池，而不是后台会话池
         // 这样大文件传输不会阻塞目录浏览等普通操作
         let session_mutex = pool.get_transfer_session()?;
-        eprintln!("[DEBUG] bg_sftp_download_with_pool: Got transfer session for transfer_id={}", transfer_id);
+        eprintln!(
+            "[DEBUG] bg_sftp_download_with_pool: Got transfer session for transfer_id={}",
+            transfer_id
+        );
 
         let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
 
@@ -950,7 +1009,10 @@ impl SshManager {
         use crate::ssh::ProgressPayload;
         use tauri::Emitter;
 
-        eprintln!("[DEBUG] bg_sftp_upload_with_pool ENTER: transfer_id={}, remote={}", transfer_id, remote_path);
+        eprintln!(
+            "[DEBUG] bg_sftp_upload_with_pool ENTER: transfer_id={}, remote={}",
+            transfer_id, remote_path
+        );
 
         // Timeout configuration (default 5 minutes)
         let sftp_timeout = Duration::from_secs(300); // 5 minutes default
@@ -959,7 +1021,10 @@ impl SshManager {
         // 关键修复：使用传输专用会话池，而不是后台会话池
         // 这样大文件传输不会阻塞目录浏览等普通操作
         let session_mutex = pool.get_transfer_session()?;
-        eprintln!("[DEBUG] bg_sftp_upload_with_pool: Got transfer session for transfer_id={}", transfer_id);
+        eprintln!(
+            "[DEBUG] bg_sftp_upload_with_pool: Got transfer session for transfer_id={}",
+            transfer_id
+        );
 
         let session_guard = session_mutex.lock().map_err(|e| e.to_string())?;
 
@@ -1018,10 +1083,7 @@ impl SshManager {
 
             // Check overall timeout
             if transfer_start.elapsed() > sftp_timeout {
-                return Err(format!(
-                    "Upload timeout after {}s",
-                    sftp_timeout.as_secs()
-                ));
+                return Err(format!("Upload timeout after {}s", sftp_timeout.as_secs()));
             }
 
             // Check no-progress timeout
@@ -1096,7 +1158,14 @@ impl SshManager {
         cancel_flag: &Arc<AtomicBool>,
     ) -> Result<(), String> {
         // Delegate to the new transfer pool implementation
-        Self::bg_sftp_download_with_pool(pool, remote_path, local_path, transfer_id, app, cancel_flag)
+        Self::bg_sftp_download_with_pool(
+            pool,
+            remote_path,
+            local_path,
+            transfer_id,
+            app,
+            cancel_flag,
+        )
     }
 
     fn bg_sftp_upload(
@@ -1158,9 +1227,11 @@ impl SshManager {
         };
 
         // Get CPU usage
-        let cpu_usage = run_command("top -bn1 | grep \"Cpu(s)\" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//'")
-            .ok()
-            .and_then(|s| s.trim().parse::<f32>().ok());
+        let cpu_usage = run_command(
+            "top -bn1 | grep \"Cpu(s)\" | awk '{print $2}' | sed 's/%us,//' | sed 's/%id,.*//'",
+        )
+        .ok()
+        .and_then(|s| s.trim().parse::<f32>().ok());
 
         // Get memory info from /proc/meminfo
         let memory_output = run_command(
@@ -1228,11 +1299,19 @@ impl SshManager {
         // Parse df output: filesystem total used avail percent mount
         let parts: Vec<&str> = output.split_whitespace().collect();
         if parts.len() >= 6 {
-            let total: u64 = parts[1].parse().map_err(|_| "Failed to parse total".to_string())?;
-            let used: u64 = parts[2].parse().map_err(|_| "Failed to parse used".to_string())?;
-            let available: u64 = parts[3].parse().map_err(|_| "Failed to parse available".to_string())?;
+            let total: u64 = parts[1]
+                .parse()
+                .map_err(|_| "Failed to parse total".to_string())?;
+            let used: u64 = parts[2]
+                .parse()
+                .map_err(|_| "Failed to parse used".to_string())?;
+            let available: u64 = parts[3]
+                .parse()
+                .map_err(|_| "Failed to parse available".to_string())?;
             let percent_str = parts[4].trim_end_matches('%');
-            let usage_percent: f32 = percent_str.parse().map_err(|_| "Failed to parse percent".to_string())?;
+            let usage_percent: f32 = percent_str
+                .parse()
+                .map_err(|_| "Failed to parse percent".to_string())?;
 
             Ok(DiskUsage {
                 path: path.to_string(),

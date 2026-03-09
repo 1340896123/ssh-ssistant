@@ -44,8 +44,8 @@ pub async fn read_remote_file(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -98,8 +98,8 @@ pub async fn write_remote_file(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
 
@@ -157,8 +157,8 @@ pub async fn list_files(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -224,8 +224,8 @@ pub async fn create_directory(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -261,8 +261,8 @@ pub async fn create_file(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -300,8 +300,8 @@ pub async fn delete_item(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -348,8 +348,8 @@ pub async fn rename_item(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -391,8 +391,8 @@ pub async fn change_file_permission(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -519,8 +519,8 @@ pub async fn download_file(
 
     // Spawn the operation
     let _ = match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             let app_handle = app.clone();
             let cancel_flag = transfer_state_ssh.cancel_flag.clone();
             let transfer_id = t_id_ssh;
@@ -751,8 +751,8 @@ pub async fn upload_file(
     let transfer_state_wsl = transfer_state.clone();
 
     let _ = match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             let app_handle = app.clone();
             let cancel_flag = transfer_state_ssh.cancel_flag.clone();
             let transfer_id = t_id_ssh;
@@ -955,8 +955,8 @@ pub async fn search_remote_files(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 // Escape single quotes in path and query to prevent command injection

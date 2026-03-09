@@ -66,23 +66,26 @@ pub struct SessionStats {
 // Helper to run command on SSH session
 fn run_ssh_command(sender: &Sender<SshCommand>, cmd: &str) -> Result<String, String> {
     let (tx, rx) = std::sync::mpsc::channel();
-    sender.send(SshCommand::Exec {
-        command: cmd.to_string(),
-        listener: tx,
-        cancel_flag: None,
-        is_ai: false,
-    }).map_err(|e| format!("Failed to send command: {}", e))?;
-    
-    rx.recv().map_err(|_| "Failed to receive response from SSH Manager".to_string())?
+    sender
+        .send(SshCommand::Exec {
+            command: cmd.to_string(),
+            listener: tx,
+            cancel_flag: None,
+            is_ai: false,
+        })
+        .map_err(|e| format!("Failed to send command: {}", e))?;
+
+    rx.recv()
+        .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
 }
 
 // Helper to run command on WSL
 fn run_wsl_command(distro: &str, cmd: &str) -> Result<String, String> {
-     let mut command = std::process::Command::new("wsl");
-     #[cfg(target_os = "windows")]
-     command.creation_flags(CREATE_NO_WINDOW);
+    let mut command = std::process::Command::new("wsl");
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
 
-     let output = command
+    let output = command
         .arg("-d")
         .arg(distro)
         .arg("bash")
@@ -90,7 +93,7 @@ fn run_wsl_command(distro: &str, cmd: &str) -> Result<String, String> {
         .arg(cmd)
         .output()
         .map_err(|e| e.to_string())?;
-    
+
     // We treat stderr as potential non-fatal or just mix it, but for stats we usually want clean output.
     // However, some commands might output to stderr on non-error (unlikely for these standard tools).
     if output.status.success() {
@@ -98,7 +101,7 @@ fn run_wsl_command(distro: &str, cmd: &str) -> Result<String, String> {
     } else {
         // If failed, return empty or error message?
         // Return empty string to allow fallback handling or partial stats
-        Ok("".to_string()) 
+        Ok("".to_string())
     }
 }
 
@@ -125,7 +128,12 @@ fn parse_cpu_stats(line: &str) -> Option<(u64, u64)> {
     }
     // parts[0] is "cpu"
     // user: 1, nice: 2, system: 3, idle: 4, iowait: 5, irq: 6, softirq: 7, steal: 8
-    let parse = |i| parts.get(i).and_then(|s: &&str| s.parse::<u64>().ok()).unwrap_or(0);
+    let parse = |i| {
+        parts
+            .get(i)
+            .and_then(|s: &&str| s.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
 
     let user = parse(1);
     let nice = parse(2);
@@ -154,10 +162,11 @@ pub async fn get_remote_system_status(
     };
 
     // Execute commands in steps
-    let (uptime_str, mounts_str, ip_str, cpu_str, memory_str, proc_cpu_str, proc_mem_str) = match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
-            execute_ssh_operation(move || {
+    let (uptime_str, mounts_str, ip_str, cpu_str, memory_str, proc_cpu_str, proc_mem_str) =
+        match &client.client_type {
+            ClientType::Ssh(senders) => {
+                let sender = senders.ops.clone();
+                execute_ssh_operation(move || {
                 // 1. Uptime
                 let uptime = run_ssh_command(
                     &sender,
@@ -178,7 +187,7 @@ pub async fn get_remote_system_status(
 
                 // 4. CPU
                 let cpu_stat1 = run_ssh_command(&sender, "cat /proc/stat | grep '^cpu '").ok();
-                
+
                 let cpu = if let Some(stat1) = cpu_stat1 {
                     thread::sleep(Duration::from_millis(500));
                     if let Ok(stat2) = run_ssh_command(&sender, "cat /proc/stat | grep '^cpu '") {
@@ -213,19 +222,19 @@ pub async fn get_remote_system_status(
 
                 Ok((uptime, mounts, ip, cpu, memory, proc_cpu, proc_mem))
             }).await?
-        }
-        ClientType::Wsl(distro) => {
-            let distro = distro.clone();
-            tokio::task::spawn_blocking(move || {
+            }
+            ClientType::Wsl(distro) => {
+                let distro = distro.clone();
+                tokio::task::spawn_blocking(move || {
                 // 1. Uptime
                 let uptime = run_wsl_command(&distro, "export LC_ALL=C; (uptime -p 2>/dev/null || uptime 2>/dev/null)")?;
-                
+
                 // 2. Mounts
                 let mounts = run_wsl_command(&distro, "export LC_ALL=C; df -Ph 2>/dev/null | awk 'NR>1 {print $1 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5 \"|\" $6}'")?;
-                
+
                 // 3. IP
                 let ip = run_wsl_command(&distro, "export LC_ALL=C; (hostname -I 2>/dev/null || echo 'n/a')")?;
-                
+
                 // 4. CPU
                 let cpu_stat1 = run_wsl_command(&distro, "cat /proc/stat | grep '^cpu '").ok();
                 let cpu = if let Some(stat1) = cpu_stat1 {
@@ -244,22 +253,22 @@ pub async fn get_remote_system_status(
                         } else { "0".to_string() }
                     }
                 } else { "0".to_string() };
-                
+
                 // 5. Memory
                 let mem_cmd = r#"export LC_ALL=C; awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {if(total>0){used=total-avail; printf "%.1f%%|%.1fGB|%.1fGB|%.1fGB", (used/total)*100, total/1024/1024, used/1024/1024, avail/1024/1024} else {print "0%|0|0|0"}}' /proc/meminfo 2>/dev/null"#;
                 let memory = run_wsl_command(&distro, mem_cmd)?;
-                
+
                 // 6. Processes
                 let proc_cpu_cmd = r#"export LC_ALL=C; ps aux --sort=-%cpu --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
                 let proc_cpu = run_wsl_command(&distro, proc_cpu_cmd)?;
-                
+
                 let proc_mem_cmd = r#"export LC_ALL=C; ps aux --sort=-%mem --no-headers 2>/dev/null | head -5 | awk '{printf "%s|%s|%s|%s|%.1fMB\n", $2, $11, $3"%", $4"%", $6/1024}'"#;
                 let proc_mem = run_wsl_command(&distro, proc_mem_cmd)?;
-                
+
                 Ok::<_, String>((uptime, mounts, ip, cpu, memory, proc_cpu, proc_mem))
             }).await.map_err(|e| format!("Task join error: {}", e))??
-        }
-    };
+            }
+        };
 
     // --- Parsing ---
 
@@ -360,8 +369,8 @@ pub async fn get_server_status(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             let result = execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -401,8 +410,8 @@ pub async fn get_disk_usage(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             let result = execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
@@ -431,4 +440,3 @@ pub async fn get_disk_usage(
         }
     }
 }
-

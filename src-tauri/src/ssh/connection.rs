@@ -1,18 +1,18 @@
 use crate::models::{Connection as SshConnConfig, ConnectionTimeoutSettings, ReconnectSettings};
 use crate::ssh::{
-    ssh2_retry, SshErrorClassifier, SshErrorType, ReconnectManager,
-    get_connection_timeout, get_jump_host_timeout, get_local_forward_timeout,
-    HealthAction, PoolHealthChecker, PoolHealthReport, SessionHealth, SessionHealthMetadata,
+    get_connection_timeout, get_jump_host_timeout, get_local_forward_timeout, ssh2_retry,
+    HealthAction, PoolHealthChecker, PoolHealthReport, ReconnectManager, SessionHealth,
+    SessionHealthMetadata, SshErrorClassifier, SshErrorType,
 };
 use socket2::{Domain, Protocol, Socket, Type};
 use ssh2::Session;
+use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
 use tauri::AppHandle;
 
 /// 心跳检测结果缓存，避免频繁检测同一会话
@@ -48,9 +48,8 @@ impl HealthCheckCache {
 
     fn cleanup_expired(&mut self) {
         let now = Instant::now();
-        self.results.retain(|_, (_, timestamp)| {
-            now.duration_since(*timestamp) < self.cache_duration
-        });
+        self.results
+            .retain(|_, (_, timestamp)| now.duration_since(*timestamp) < self.cache_duration);
     }
 }
 
@@ -127,18 +126,22 @@ pub struct SessionSshPool {
     file_browser_pool: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 文件浏览器会话池（用于快速SFTP操作）
     transfer_pool: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 文件传输会话池（用于大文件上传/下载）
     status_pool: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // 状态栏专用会话（懒加载单例）
-    max_file_browser_sessions: usize,           // 最大文件浏览器会话数量
-    max_transfer_sessions: usize,             // 最大传输会话数量
-    next_bg_index: Arc<Mutex<usize>>,         // 轮询索引
-    created_at: Arc<Mutex<Instant>>,          // 主会话建立时间，用于延迟后台连接
-    health_cache: Arc<Mutex<HealthCheckCache>>, // 心跳检测结果缓存
-    connection_stagger_count: Arc<Mutex<u32>>, // 连接交错计数器，用于指数退避
-    timeout_settings: Option<ConnectionTimeoutSettings>, // 超时设置
-    reconnect_settings: Option<ReconnectSettings>,       // 重连设置
+    max_file_browser_sessions: usize,                           // 最大文件浏览器会话数量
+    max_transfer_sessions: usize,                               // 最大传输会话数量
+    next_bg_index: Arc<Mutex<usize>>,                           // 轮询索引
+    created_at: Arc<Mutex<Instant>>,                            // 主会话建立时间，用于延迟后台连接
+    health_cache: Arc<Mutex<HealthCheckCache>>,                 // 心跳检测结果缓存
+    connection_stagger_count: Arc<Mutex<u32>>,                  // 连接交错计数器，用于指数退避
+    timeout_settings: Option<ConnectionTimeoutSettings>,        // 超时设置
+    reconnect_settings: Option<ReconnectSettings>,              // 重连设置
 }
 
 impl SessionSshPool {
-    pub fn new(config: SshConnConfig, max_file_browser_sessions: usize, timeout_settings: Option<ConnectionTimeoutSettings>) -> Result<Self, String> {
+    pub fn new(
+        config: SshConnConfig,
+        max_file_browser_sessions: usize,
+        timeout_settings: Option<ConnectionTimeoutSettings>,
+    ) -> Result<Self, String> {
         Self::with_reconnect_settings(config, max_file_browser_sessions, timeout_settings, None)
     }
 
@@ -149,7 +152,11 @@ impl SessionSshPool {
         reconnect_settings: Option<ReconnectSettings>,
     ) -> Result<Self, String> {
         // 创建主会话
-        let main_session = establish_connection_with_retry(&config, timeout_settings.as_ref(), reconnect_settings.as_ref())?;
+        let main_session = establish_connection_with_retry(
+            &config,
+            timeout_settings.as_ref(),
+            reconnect_settings.as_ref(),
+        )?;
 
         // Don't create background session immediately to save resources and avoid rate limits
         // It will be created on demand when get_file_browser_session is called
@@ -181,18 +188,38 @@ impl SessionSshPool {
         self.get_transfer_session_with_timeout(Duration::from_secs(30))
     }
 
+    /// 非阻塞获取传输会话（仅尝试复用现有空闲会话，不等待、不新建）
+    /// 适用于网络监控等旁路任务，避免与上传/下载抢占资源导致主循环卡顿。
+    pub fn try_get_transfer_session(&self) -> Result<Option<Arc<Mutex<ManagedSession>>>, String> {
+        let sessions = self.transfer_pool.lock().map_err(|e| e.to_string())?;
+
+        for session in sessions.iter() {
+            if let Ok(_guard) = session.try_lock() {
+                return Ok(Some(session.clone()));
+            }
+        }
+
+        Ok(None)
+    }
+
     /// 获取传输专用会话（带超时保护）
-    pub fn get_transfer_session_with_timeout(&self, timeout: Duration) -> Result<Arc<Mutex<ManagedSession>>, String> {
+    pub fn get_transfer_session_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<Arc<Mutex<ManagedSession>>, String> {
         let start = Instant::now();
         let check_interval = Duration::from_millis(100);
 
         loop {
             // 检查超时
             if start.elapsed() > timeout {
-                return Err("Timeout waiting for available transfer session. Please try again later.".to_string());
+                return Err(
+                    "Timeout waiting for available transfer session. Please try again later."
+                        .to_string(),
+                );
             }
 
-            let mut sessions = self.transfer_pool.lock().map_err(|e| e.to_string())?;
+            let sessions = self.transfer_pool.lock().map_err(|e| e.to_string())?;
 
             // 1. 尝试寻找当前没有被其它线程锁定的"空闲"会话
             for session in sessions.iter() {
@@ -206,7 +233,10 @@ impl SessionSshPool {
             if sessions.len() < self.max_transfer_sessions {
                 // 使用指数退避策略替代固定延迟
                 let delay_ms = if !sessions.is_empty() {
-                    let mut count = self.connection_stagger_count.lock().map_err(|e| e.to_string())?;
+                    let mut count = self
+                        .connection_stagger_count
+                        .lock()
+                        .map_err(|e| e.to_string())?;
                     let delay_ms = 10_u64.saturating_pow((*count).min(5)); // 指数退避：10ms, 100ms, 1s, 10s
                     *count = count.saturating_add(1);
                     Some(delay_ms)
@@ -223,7 +253,11 @@ impl SessionSshPool {
                 }
 
                 // 建立新连接
-                let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
+                let new_session = establish_connection_with_retry(
+                    &self.config,
+                    self.timeout_settings.as_ref(),
+                    self.reconnect_settings.as_ref(),
+                )?;
                 let session_arc = Arc::new(Mutex::new(new_session));
 
                 // 重新获取锁，添加新会话
@@ -253,7 +287,11 @@ impl SessionSshPool {
         }
 
         // Establish new
-        let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
+        let new_session = establish_connection_with_retry(
+            &self.config,
+            self.timeout_settings.as_ref(),
+            self.reconnect_settings.as_ref(),
+        )?;
         let shared_session = Arc::new(Mutex::new(new_session));
         *session_opt = Some(shared_session.clone());
 
@@ -267,17 +305,23 @@ impl SessionSshPool {
     }
 
     /// 获取文件浏览器会话（带超时保护）
-    pub fn get_file_browser_session_with_timeout(&self, timeout: Duration) -> Result<Arc<Mutex<ManagedSession>>, String> {
+    pub fn get_file_browser_session_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<Arc<Mutex<ManagedSession>>, String> {
         let start = Instant::now();
         let check_interval = Duration::from_millis(50);
 
         loop {
             // 检查超时
             if start.elapsed() > timeout {
-                return Err("Timeout waiting for available SFTP session. Please try again later.".to_string());
+                return Err(
+                    "Timeout waiting for available SFTP session. Please try again later."
+                        .to_string(),
+                );
             }
 
-            let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
+            let sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
 
             // 1. 尝试寻找当前没有被其它线程锁定的"空闲"会话
             for session in sessions.iter() {
@@ -291,7 +335,10 @@ impl SessionSshPool {
             if sessions.len() < self.max_file_browser_sessions {
                 // 使用指数退避策略替代固定延迟
                 let delay_ms = if !sessions.is_empty() {
-                    let mut count = self.connection_stagger_count.lock().map_err(|e| e.to_string())?;
+                    let mut count = self
+                        .connection_stagger_count
+                        .lock()
+                        .map_err(|e| e.to_string())?;
                     let delay_ms = 10_u64.saturating_pow((*count).min(5)); // 指数退避：10ms, 100ms, 1s, 10s
                     *count = count.saturating_add(1);
                     Some(delay_ms)
@@ -309,7 +356,11 @@ impl SessionSshPool {
                 }
 
                 // 建立新连接（可能需要较长时间，因为有重试机制）
-                let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
+                let new_session = establish_connection_with_retry(
+                    &self.config,
+                    self.timeout_settings.as_ref(),
+                    self.reconnect_settings.as_ref(),
+                )?;
                 let session_arc = Arc::new(Mutex::new(new_session));
 
                 // 重新获取锁，添加新会话
@@ -338,7 +389,10 @@ impl SessionSshPool {
 
     /// 获取后台会话（带超时保护，已弃用，请使用 get_file_browser_session_with_timeout）
     #[deprecated(note = "Use get_file_browser_session_with_timeout instead")]
-    pub fn get_background_session_with_timeout(&self, timeout: Duration) -> Result<Arc<Mutex<ManagedSession>>, String> {
+    pub fn get_background_session_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<Arc<Mutex<ManagedSession>>, String> {
         self.get_file_browser_session_with_timeout(timeout)
     }
 
@@ -350,7 +404,11 @@ impl SessionSshPool {
         let mut pool = self.status_pool.lock().map_err(|e| e.to_string())?;
 
         if pool.is_none() {
-            let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
+            let new_session = establish_connection_with_retry(
+                &self.config,
+                self.timeout_settings.as_ref(),
+                self.reconnect_settings.as_ref(),
+            )?;
             let session_arc = Arc::new(Mutex::new(new_session));
             *pool = Some(session_arc.clone());
             return Ok(session_arc);
@@ -380,7 +438,11 @@ impl SessionSshPool {
             if sessions.is_empty() {
                 // 先释放锁，再建立连接，避免阻塞其他操作
                 drop(sessions);
-                if let Ok(new_session) = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref()) {
+                if let Ok(new_session) = establish_connection_with_retry(
+                    &self.config,
+                    self.timeout_settings.as_ref(),
+                    self.reconnect_settings.as_ref(),
+                ) {
                     if let Ok(mut sessions) = self.file_browser_pool.lock() {
                         // 再次检查是否为空（其他线程可能已经创建了）
                         if sessions.is_empty() {
@@ -496,15 +558,13 @@ impl SessionSshPool {
             Err(_) => {
                 // keepalive 失败，使用更可靠的 channel 检测
                 match ssh2_retry(|| session.channel_session()) {
-                    Ok(mut channel) => {
-                        match ssh2_retry(|| channel.exec("true")) {
-                            Ok(_) => {
-                                let _ = channel.close();
-                                true
-                            }
-                            Err(_) => false,
+                    Ok(mut channel) => match ssh2_retry(|| channel.exec("true")) {
+                        Ok(_) => {
+                            let _ = channel.close();
+                            true
                         }
-                    }
+                        Err(_) => false,
+                    },
                     Err(_) => false,
                 }
             }
@@ -616,7 +676,11 @@ impl SessionSshPool {
 
     fn rebuild_main(&self) -> Result<(), String> {
         // 在锁之外建立连接，避免阻塞其他持有锁的操作
-        let new_session = establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref())?;
+        let new_session = establish_connection_with_retry(
+            &self.config,
+            self.timeout_settings.as_ref(),
+            self.reconnect_settings.as_ref(),
+        )?;
 
         {
             let mut main_sess = self.main_session.lock().map_err(|e| e.to_string())?;
@@ -684,23 +748,30 @@ impl SessionSshPool {
         };
 
         // Collect file browser sessions metadata
-        let background_metadata: Vec<SessionHealthMetadata> = if let Ok(sessions) = self.file_browser_pool.lock() {
-            sessions
-                .iter()
-                .filter_map(|s| s.lock().ok().map(|sess| sess.health_metadata.clone()))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let background_metadata: Vec<SessionHealthMetadata> =
+            if let Ok(sessions) = self.file_browser_pool.lock() {
+                sessions
+                    .iter()
+                    .filter_map(|s| s.lock().ok().map(|sess| sess.health_metadata.clone()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         // Collect AI session metadata
         let ai_metadata = if let Ok(ai_opt) = self.ai_session.lock() {
-            ai_opt.as_ref().and_then(|s| s.lock().ok().map(|sess| sess.health_metadata.clone()))
+            ai_opt
+                .as_ref()
+                .and_then(|s| s.lock().ok().map(|sess| sess.health_metadata.clone()))
         } else {
             None
         };
 
-        checker.generate_report_from_metadata(&main_metadata, &background_metadata, ai_metadata.as_ref())
+        checker.generate_report_from_metadata(
+            &main_metadata,
+            &background_metadata,
+            ai_metadata.as_ref(),
+        )
     }
 
     /// 预热备用会话
@@ -719,7 +790,11 @@ impl SessionSshPool {
                 thread::sleep(Duration::from_millis(100));
             }
 
-            match establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref()) {
+            match establish_connection_with_retry(
+                &self.config,
+                self.timeout_settings.as_ref(),
+                self.reconnect_settings.as_ref(),
+            ) {
                 Ok(new_session) => {
                     sessions.push(Arc::new(Mutex::new(new_session)));
                 }
@@ -789,12 +864,19 @@ impl SessionSshPool {
 
             // Create a new session if we're below the limit
             if sessions.len() < self.max_file_browser_sessions {
-                match establish_connection_with_retry(&self.config, self.timeout_settings.as_ref(), self.reconnect_settings.as_ref()) {
+                match establish_connection_with_retry(
+                    &self.config,
+                    self.timeout_settings.as_ref(),
+                    self.reconnect_settings.as_ref(),
+                ) {
                     Ok(new_session) => {
                         sessions.push(Arc::new(Mutex::new(new_session)));
                     }
                     Err(e) => {
-                        return Err(format!("Failed to rebuild background session {}: {}", idx, e));
+                        return Err(format!(
+                            "Failed to rebuild background session {}: {}",
+                            idx, e
+                        ));
                     }
                 }
             }
@@ -856,7 +938,9 @@ pub fn establish_connection_with_retry(
                     };
                     return Err(format!(
                         "{}: {} (attempts: {})",
-                        error_desc, e, reconnect_manager.attempt_count()
+                        error_desc,
+                        e,
+                        reconnect_manager.attempt_count()
                     ));
                 }
 
@@ -872,7 +956,8 @@ pub fn establish_connection_with_retry(
                 } else {
                     return Err(format!(
                         "Failed to establish connection after {} attempts: {}",
-                        reconnect_manager.attempt_count(), e
+                        reconnect_manager.attempt_count(),
+                        e
                     ));
                 }
             }
@@ -880,7 +965,10 @@ pub fn establish_connection_with_retry(
     }
 }
 
-fn establish_connection_internal(config: &SshConnConfig, timeout_settings: Option<&ConnectionTimeoutSettings>) -> Result<ManagedSession, String> {
+fn establish_connection_internal(
+    config: &SshConnConfig,
+    timeout_settings: Option<&ConnectionTimeoutSettings>,
+) -> Result<ManagedSession, String> {
     let mut sess = Session::new().map_err(|e| e.to_string())?;
     let mut jump_session_holder = None;
     let mut listener_holder = None;
@@ -1096,7 +1184,10 @@ fn establish_connection_internal(config: &SshConnConfig, timeout_settings: Optio
 
             impl TempFileGuard {
                 fn new(key_path: std::path::PathBuf, pub_key_path: std::path::PathBuf) -> Self {
-                    Self { key_path, pub_key_path }
+                    Self {
+                        key_path,
+                        pub_key_path,
+                    }
                 }
             }
 
@@ -1136,9 +1227,8 @@ fn establish_connection_internal(config: &SshConnConfig, timeout_settings: Optio
                     )
                 })?;
 
-            std::fs::write(&pub_key_path, &public_key_content).map_err(|e| {
-                format!("Failed to write temporary public key file: {}", e)
-            })?;
+            std::fs::write(&pub_key_path, &public_key_content)
+                .map_err(|e| format!("Failed to write temporary public key file: {}", e))?;
 
             // Create RAII guard to ensure cleanup
             let _guard = TempFileGuard::new(key_path.clone(), pub_key_path.clone());
@@ -1293,9 +1383,6 @@ fn connect_with_timeout(addr_str: &str, timeout: Duration) -> Result<TcpStream, 
     let keepalive_conf = socket2::TcpKeepalive::new()
         .with_time(Duration::from_secs(60))
         .with_interval(Duration::from_secs(10));
-
-    #[cfg(not(target_os = "windows"))]
-    let keepalive_conf = keepalive_conf.with_retries(3);
 
     if let Err(e) = socket.set_tcp_keepalive(&keepalive_conf) {
         // 如果高级设置失败，尝试基本的启用

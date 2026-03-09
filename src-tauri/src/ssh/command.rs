@@ -40,8 +40,8 @@ pub async fn exec_command(
     let is_ai = tool_call_id_clone.is_some();
 
     let result = match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             let command = command.clone();
             let cancel_flag = cancel_flag.clone();
 
@@ -133,8 +133,8 @@ pub async fn get_working_directory(
     };
 
     match &client.client_type {
-        ClientType::Ssh(sender) => {
-            let sender = sender.clone();
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender

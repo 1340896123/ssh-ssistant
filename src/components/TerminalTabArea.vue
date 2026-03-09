@@ -139,17 +139,17 @@ defineExpose({
 </script>
 
 <template>
-  <div class="h-full w-full flex flex-col bg-gray-900">
+  <div class="h-full w-full flex flex-col bg-bg-primary">
     <!-- Tab Headers -->
-    <div class="bg-gray-800 border-b border-gray-700 flex-shrink-0">
+    <div class="bg-bg-secondary border-b border-subtle flex-shrink-0">
       <!-- Wrappable Tab Container -->
       <div class="flex flex-wrap items-center min-h-8">
         <!-- Terminal Tab -->
         <button @click="activeTab = 'terminal'" :class="[
-          'flex items-center px-3 py-1 text-xs border-r border-gray-700 transition-colors whitespace-nowrap flex-shrink-0',
+          'flex items-center px-3 py-1 text-xs border-r border-subtle transition-all duration-normal whitespace-nowrap flex-shrink-0',
           activeTab === 'terminal'
-            ? 'bg-gray-900 text-white'
-            : 'text-gray-400 hover:text-white hover:bg-gray-700'
+            ? 'bg-bg-tertiary text-text-primary border-l border-l-primary shadow-glow-subtle'
+            : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
         ]">
           <Terminal class="w-3 h-3 mr-1" />
           Terminal
@@ -158,15 +158,15 @@ defineExpose({
         <!-- Editor Tabs -->
         <button v-for="file in editorFiles" :key="file.id" @click="activeTab = 'editor'; activeEditorId = file.id"
           :class="[
-            'flex items-center px-2 py-1 text-xs border-r border-gray-700 transition-colors group whitespace-nowrap flex-shrink-0 max-w-[200px]',
+            'flex items-center px-2 py-1 text-xs border-r border-subtle transition-all duration-normal group whitespace-nowrap flex-shrink-0 max-w-[200px]',
             activeTab === 'editor' && activeEditorId === file.id
-              ? 'bg-gray-900 text-white'
-              : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              ? 'bg-bg-tertiary text-text-primary border-l border-l-primary shadow-glow-subtle'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
           ]" :title="file.path">
           <FileText class="w-3 h-3 mr-1 flex-shrink-0" />
           <span class="truncate">{{ file.name }}</span>
           <button @click.stop="closeEditor(file.id)"
-            class="ml-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-600 transition-all flex-shrink-0"
+            class="ml-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-bg-elevated transition-all duration-normal flex-shrink-0"
             :class="activeTab === 'editor' && activeEditorId === file.id ? 'opacity-100' : ''">
             <X class="w-3 h-3" />
           </button>
@@ -174,9 +174,9 @@ defineExpose({
       </div>
 
       <!-- Close All Editors Button (on the right, aligned to last row) -->
-      <div v-if="editorFiles.length > 0" class="flex-shrink-0 ml-auto border-l border-gray-700">
+      <div v-if="editorFiles.length > 0" class="flex-shrink-0 ml-auto border-l border-subtle">
         <button @click="closeAllEditors"
-          class="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          class="px-2 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-all duration-normal"
           title="Close All Editors">
           Close All
         </button>

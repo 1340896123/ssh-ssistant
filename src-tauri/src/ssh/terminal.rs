@@ -58,8 +58,8 @@ pub fn start_shell_thread(
 ) -> Result<Sender<ShellMsg>, String> {
     // Determine connection type
     match &client.client_type {
-        crate::ssh::client::ClientType::Ssh(ssh_sender) => {
-            let ssh_sender = ssh_sender.clone();
+        crate::ssh::client::ClientType::Ssh(senders) => {
+            let ssh_sender = senders.shell.clone();
             let shell_id = id.clone();
 
             // 1. Create callback channel for data FROM SSH to UI

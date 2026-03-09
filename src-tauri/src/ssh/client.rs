@@ -12,9 +12,15 @@ use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 #[derive(Clone)]
+pub struct SshCommandSenders {
+    pub shell: Sender<SshCommand>,
+    pub ops: Sender<SshCommand>,
+}
+
+#[derive(Clone)]
 pub enum ClientType {
-    Ssh(Sender<SshCommand>), // Changed from Arc<SessionSshPool>
-    Wsl(String),             // Distro name
+    Ssh(SshCommandSenders),
+    Wsl(String),
 }
 
 #[derive(Clone)]
@@ -37,9 +43,9 @@ pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
     pub transfers: Mutex<HashMap<String, Arc<TransferState>>>, // ID -> TransferState
     pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Command ID -> CancelFlag
-    // Note: TransferManager is integrated but not stored in AppState
-    // Each transfer operation can optionally use the new TransferManager
-    // For backward compatibility, we maintain the existing transfer structure
+                                                               // Note: TransferManager is integrated but not stored in AppState
+                                                               // Each transfer operation can optionally use the new TransferManager
+                                                               // For backward compatibility, we maintain the existing transfer structure
 }
 
 impl AppState {
@@ -77,7 +83,8 @@ pub async fn test_connection(app: AppHandle, config: SshConnConfig) -> Result<St
     }
 
     execute_ssh_operation(move || {
-        let session = super::connection::establish_connection_with_retry(&populated_config, None, None)?;
+        let session =
+            super::connection::establish_connection_with_retry(&populated_config, None, None)?;
         // Disconnect immediately as we only wanted to test credentials/reachability
         let _ = session.session.disconnect(None, "Connection Test", None);
         Ok("Connection successful".to_string())
@@ -147,24 +154,47 @@ pub async fn connect(
             .max(2);
 
         // Establish connection and spawn manager thread
-        let sender = tokio::task::spawn_blocking(move || {
-            let session = super::connection::establish_connection_with_retry(&config_clone, timeout_settings.as_ref(), reconnect_settings.as_ref())?;
-            let pool = super::connection::SessionSshPool::with_reconnect_settings(config_clone.clone(), max_background_sessions, timeout_settings, reconnect_settings)
-                .map_err(|e| e.to_string())?;
+        let senders = tokio::task::spawn_blocking(move || {
+            let session = super::connection::establish_connection_with_retry(
+                &config_clone,
+                timeout_settings.as_ref(),
+                reconnect_settings.as_ref(),
+            )?;
+            let pool = super::connection::SessionSshPool::with_reconnect_settings(
+                config_clone.clone(),
+                max_background_sessions,
+                timeout_settings,
+                reconnect_settings,
+            )
+            .map_err(|e| e.to_string())?;
 
-            let (tx, rx) = std::sync::mpsc::channel();
-            let mut manager = SshManager::new(session, pool, rx, shutdown_signal_clone);
+            let (shell_tx, shell_rx) = std::sync::mpsc::channel();
+            let (ops_tx, ops_rx) = std::sync::mpsc::channel();
+            let mut manager = SshManager::new(
+                session,
+                pool.clone(),
+                shell_rx,
+                shutdown_signal_clone.clone(),
+            );
 
             std::thread::spawn(move || {
                 manager.run();
             });
 
-            Ok::<Sender<SshCommand>, String>(tx)
+            let shutdown_for_ops = shutdown_signal_clone.clone();
+            std::thread::spawn(move || {
+                SshManager::run_ops_loop(pool, ops_rx, shutdown_for_ops);
+            });
+
+            Ok::<SshCommandSenders, String>(SshCommandSenders {
+                shell: shell_tx,
+                ops: ops_tx,
+            })
         })
         .await
         .map_err(|e| format!("Task join error: {}", e))??;
 
-        ClientType::Ssh(sender)
+        ClientType::Ssh(senders)
     };
 
     // Create mutable client reference for terminal initialization
@@ -212,8 +242,9 @@ pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), St
 
         // 3. 关闭连接
         match &client.client_type {
-            ClientType::Ssh(sender) => {
-                let _ = sender.send(SshCommand::Shutdown);
+            ClientType::Ssh(senders) => {
+                let _ = senders.shell.send(SshCommand::Shutdown);
+                let _ = senders.ops.send(SshCommand::Shutdown);
             }
             ClientType::Wsl(_) => {}
         }
