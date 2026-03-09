@@ -320,7 +320,7 @@ function getItemKey(item: Connection | ConnectionGroup) {
       </div>
     </div>
     <!-- Root Node -->
-    <div class="group flex items-center justify-between p-2 hover:bg-bg-tertiary rounded cursor-pointer select-none transition-all duration-200"
+    <div class="group shadow-interactive flex items-center justify-between p-2 hover:bg-bg-tertiary rounded cursor-pointer select-none transition-all duration-200"
       @click="isRootExpanded = !isRootExpanded" @contextmenu.stop.prevent="handleContextMenu">
       <div class="flex items-center space-x-2 overflow-hidden flex-1">
         <button class="p-0.5 hover:bg-bg-elevated rounded text-text-secondary hover:text-text-primary transition-all">
@@ -345,7 +345,7 @@ function getItemKey(item: Connection | ConnectionGroup) {
       @contextmenu="handleContextMenu">
       <!-- Root Drop Zone Indicator -->
       <div v-if="isDragOver"
-        class="mx-2 mb-2 p-3 border-2 border-dashed border-accent rounded bg-bg-secondary text-text-primary text-sm text-center">
+        class="shadow-interactive mx-2 mb-2 p-3 border-2 border-dashed border-accent rounded bg-bg-secondary text-text-primary text-sm text-center">
         拖放到此处以移动到根目录
       </div>
       <div class="space-y-0.5 min-h-[50px]">

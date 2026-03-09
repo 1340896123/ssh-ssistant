@@ -104,7 +104,7 @@ function renderFileItem(item: FileEntry, index: number) {
         key: item.name,
         'data-file-item': 'true',
         class: [
-            'flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
+            'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {
                 'bg-accent/20': isSelected,
                 'hover:bg-bg-tertiary': !isSelected,
@@ -198,7 +198,7 @@ function renderTreeNode(node: TreeNode) {
         key: node.path,
         'data-file-item': 'true',
         class: [
-            'flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
+            'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {
                 'bg-accent/20': isSelected,
                 'hover:bg-bg-tertiary': !isSelected,

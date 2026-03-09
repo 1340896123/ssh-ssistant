@@ -703,7 +703,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Messages Area -->
-    <div class="flex-1 overflow-y-auto p-4 space-y-4" ref="messagesContainer">
+    <div class="shadow-interactive flex-1 overflow-y-auto p-4 space-y-4" ref="messagesContainer">
       <div v-for="(msg, index) in displayMessages" :key="index" class="space-y-1 fade-in">
 
         <!-- System messages (Optional visibility) -->
@@ -720,7 +720,7 @@ onUnmounted(() => {
             <Bot v-else class="w-5 h-5" />
           </div>
 
-          <div class="max-w-[85%] rounded-lg p-3 text-sm bg-bg-elevated" :class="msg.role === 'user' ? 'border border-primary/30' : 'border border-accent/30'">
+          <div class="shadow-interactive max-w-[85%] rounded-lg p-3 text-sm bg-bg-elevated" :class="msg.role === 'user' ? 'border border-primary/30' : 'border border-accent/30'">
 
             <!-- Tool Call Display (Collapsible) -->
             <div v-if="msg.toolExecutions" class="mb-2 space-y-2">
@@ -797,7 +797,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Input Area -->
-    <div class="p-4 bg-bg-secondary border-t border-subtle" @dragover="onInputDragOver" @dragleave="onInputDragLeave"
+    <div class="shadow-interactive p-4 bg-bg-secondary border-t border-subtle" @dragover="onInputDragOver" @dragleave="onInputDragLeave"
       @drop="onInputDrop">
       <div class="w-full" :class="{ 'opacity-50 border-2 border-dashed border-primary rounded-lg': isDragOverInput }">
         <div class="flex flex-col space-y-2">

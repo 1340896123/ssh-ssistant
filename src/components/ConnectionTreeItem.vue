@@ -133,7 +133,7 @@ const isWsl = computed(() => {
 
 <template>
     <div :draggable="true" @dragstart.stop="onDragStart" @dragend="onDragEnd" :class="{ 'opacity-50': isDragging }">
-        <div class="group flex items-center justify-between p-2 hover:bg-bg-tertiary rounded cursor-pointer select-none transition-colors duration-200"
+        <div class="group shadow-interactive flex items-center justify-between p-2 hover:bg-bg-tertiary rounded cursor-pointer select-none transition-colors duration-200"
             :class="{ 'bg-accent/20 border border-accent': isDragOver, 'border-2 border-dashed border-accent': isDragOver && isGroup }"
             :style="{ paddingLeft }" @click="toggleExpand" @dblclick="handleConnect" @dragover="onDragOver"
             @dragleave="onDragLeave" @drop="onDrop" @contextmenu.stop.prevent="handleContextMenu">

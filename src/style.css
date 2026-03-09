@@ -503,6 +503,54 @@ code, kbd, samp {
   white-space: nowrap;
 }
 
+/* ========================================
+   Interactive Shadow Effects
+   ======================================== */
+
+/* 微妙阴影变化 - 适用于卡片、面板等布局组件 */
+.shadow-interactive {
+  transition: all var(--transition-fast) ease;
+}
+
+.shadow-interactive:hover {
+  box-shadow: 0 2px 8px rgba(199, 91, 91, 0.15);
+}
+
+.shadow-interactive:focus {
+  box-shadow: 0 4px 12px rgba(199, 91, 91, 0.2);
+  outline: none;
+}
+
+/* 卡片悬停效果 - 适用于文件列表、连接列表等 */
+.card-hover {
+  transition: all var(--transition-normal) ease;
+}
+
+.card-hover:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* 面板容器效果 - 适用于主布局区域 */
+.panel-interactive {
+  transition: all var(--transition-fast) ease;
+}
+
+.panel-interactive:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  background-color: var(--bg-elevated);
+}
+
+/* 列表项效果 - 适用于列表中的每一项 */
+.list-item-interactive {
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast) ease;
+}
+
+.list-item-interactive:hover {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  background-color: var(--bg-secondary);
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;
