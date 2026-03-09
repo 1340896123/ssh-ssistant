@@ -157,15 +157,15 @@ function toggleExpand() {
                                 <button v-if="(visibleItems[virtualItem.index].status === 'paused' || visibleItems[virtualItem.index].status === 'error' || visibleItems[virtualItem.index].status === 'cancelled') && !visibleItems[virtualItem.index].isDirectory" @click="store.resumeTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-white" title="Resume/Retry">
                                     <RefreshCw class="w-3 h-3" />
                                 </button>
-                                <button v-if="['running', 'paused', 'pending'].includes(visibleItems[virtualItem.index].status) && !visibleItems[virtualItem.index].isDirectory" @click="store.cancelTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-red-400" title="Cancel">
+                                <button v-if="['running', 'paused', 'pending'].includes(visibleItems[virtualItem.index].status) && !visibleItems[virtualItem.index].isDirectory" @click="store.cancelTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-error" title="Cancel">
                                     <X class="w-3 h-3" />
                                 </button>
-                                <button v-if="['completed', 'cancelled', 'error'].includes(visibleItems[virtualItem.index].status)" @click="store.removeTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-red-400" title="Remove">
+                                <button v-if="['completed', 'cancelled', 'error'].includes(visibleItems[virtualItem.index].status)" @click="store.removeTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-error" title="Remove">
                                      <X class="w-3 h-3" />
                                 </button>
                             </div>
                         </div>
-                        <div v-if="visibleItems[virtualItem.index].error" class="text-red-400 mt-1 truncate" :title="visibleItems[virtualItem.index].error">
+                        <div v-if="visibleItems[virtualItem.index].error" class="text-error mt-1 truncate" :title="visibleItems[virtualItem.index].error">
                             {{ visibleItems[virtualItem.index].error }}
                         </div>
                     </div>

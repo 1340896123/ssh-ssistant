@@ -934,7 +934,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 
       <!-- Input Box -->
       <div class="relative flex items-center">
-        <div class="absolute left-3 text-green-500 font-mono text-sm select-none">➜</div>
+        <div class="absolute left-3 text-success font-mono text-sm select-none">➜</div>
 
         <!-- Input with Preview -->
         <div class="relative flex-1">

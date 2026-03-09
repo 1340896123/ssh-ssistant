@@ -43,10 +43,10 @@ const icons = {
 };
 
 const colors = {
-  success: 'text-green-500',
-  error: 'text-red-500',
-  warning: 'text-yellow-500',
-  info: 'text-blue-500'
+  success: 'text-success',
+  error: 'text-error',
+  warning: 'text-warning',
+  info: 'text-accent'
 };
 </script>
 

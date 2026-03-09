@@ -133,37 +133,37 @@ const isWsl = computed(() => {
 
 <template>
     <div :draggable="true" @dragstart.stop="onDragStart" @dragend="onDragEnd" :class="{ 'opacity-50': isDragging }">
-        <div class="group flex items-center justify-between p-2 hover:bg-gray-700 rounded cursor-pointer select-none transition-colors duration-200"
-            :class="{ 'bg-blue-500/20 border border-blue-500': isDragOver, 'border-2 border-dashed border-blue-400': isDragOver && isGroup }"
+        <div class="group flex items-center justify-between p-2 hover:bg-bg-tertiary rounded cursor-pointer select-none transition-colors duration-200"
+            :class="{ 'bg-accent/20 border border-accent': isDragOver, 'border-2 border-dashed border-accent': isDragOver && isGroup }"
             :style="{ paddingLeft }" @click="toggleExpand" @dblclick="handleConnect" @dragover="onDragOver"
             @dragleave="onDragLeave" @drop="onDrop" @contextmenu.stop.prevent="handleContextMenu">
             <div class="flex items-center space-x-2 overflow-hidden flex-1">
                 <template v-if="isGroup">
-                    <button class="p-0.5 hover:bg-gray-600 rounded text-gray-400">
+                    <button class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
                         <ChevronDown v-if="isExpanded" class="w-3 h-3" />
                         <ChevronRight v-else class="w-3 h-3" />
                     </button>
-                    <FolderOpen v-if="isExpanded" class="w-4 h-4 text-yellow-400" />
-                    <Folder v-else class="w-4 h-4 text-yellow-400" />
+                    <FolderOpen v-if="isExpanded" class="w-4 h-4 text-warning" />
+                    <Folder v-else class="w-4 h-4 text-warning" />
                 </template>
                 <template v-else>
                     <span class="w-4"></span> <!-- Spacer for alignment -->
-                    <Terminal v-if="isWsl" class="w-4 h-4 text-purple-400" />
-                    <Monitor v-else class="w-4 h-4 text-blue-400" />
+                    <Terminal v-if="isWsl" class="w-4 h-4 text-accent" />
+                    <Monitor v-else class="w-4 h-4 text-info" />
                 </template>
-                <span class="text-sm text-gray-200 truncate" :title="item.name">{{ item.name }}</span>
+                <span class="text-sm text-text-primary truncate" :title="item.name">{{ item.name }}</span>
             </div>
 
             <div class="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <button v-if="isGroup" @click.stop="handleCreateSubGroup"
-                    class="p-1 text-gray-500 hover:text-green-400 cursor-pointer mr-1" title="New Subgroup">
+                    class="p-1 text-text-muted hover:text-success cursor-pointer mr-1" title="New Subgroup">
                     <Plus class="w-3 h-3" />
                 </button>
-                <button @click.stop="handleEdit" class="p-1 text-gray-500 hover:text-blue-400 cursor-pointer mr-1"
+                <button @click.stop="handleEdit" class="p-1 text-text-muted hover:text-info cursor-pointer mr-1"
                     :title="t('connections.edit')">
                     <Pencil class="w-3 h-3" />
                 </button>
-                <button @click.stop="handleDelete" class="p-1 text-gray-500 hover:text-red-400 cursor-pointer"
+                <button @click.stop="handleDelete" class="p-1 text-text-muted hover:text-error cursor-pointer"
                     :title="t('connections.delete')">
                     <Trash2 class="w-3 h-3" />
                 </button>
@@ -179,7 +179,7 @@ const isWsl = computed(() => {
                     @drag-start="(e, i) => $emit('drag-start', e, i)" @drop-item="(e, id) => $emit('drop-item', e, id)"
                     @context-menu="(e, i) => $emit('context-menu', e, i)" />
             </div>
-            <div v-if="!(item as ConnectionGroup).children?.length" class="text-xs text-gray-500 py-1"
+            <div v-if="!(item as ConnectionGroup).children?.length" class="text-xs text-text-muted py-1"
                 :style="{ paddingLeft: `${(level + 1) * 16 + 24}px` }">
                 (Empty)
             </div>

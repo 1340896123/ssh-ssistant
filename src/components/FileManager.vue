@@ -1583,19 +1583,19 @@ function formatSize(size: number): string {
         <div class="flex flex-col space-y-2 mb-2 bg-bg-secondary p-2 rounded border border-subtle hover:border-primary/30 transition-all duration-fast">
             <!-- Path Bar -->
             <div class="flex items-center space-x-2">
-                <button @click="goUp" class="p-1 hover:bg-bg-tertiary rounded text-text-secondary hover:text-primary transition-all duration-fast hover:shadow-glow-sm"
+                <button @click="goUp" class="p-1 hover:bg-bg-tertiary rounded text-text-secondary hover:text-primary transition-all duration-fast "
                     :title="t('fileManager.toolbar.upLevel')">
                     <ArrowUp class="w-4 h-4" />
                 </button>
                 <div class="flex-1 relative">
                     <input v-model="pathInput" @input="handlePathInput" @keydown="handlePathInputKeydown"
                         @blur="handlePathInputBlur"
-                        class="w-full bg-bg-primary border border-subtle rounded px-2 py-1 text-sm font-mono text-text-secondary focus:outline-none focus:border-primary focus:shadow-glow-sm transition-all duration-fast"
+                        class="w-full bg-bg-primary border border-subtle rounded px-2 py-1 text-sm font-mono text-text-secondary focus:outline-none focus:border-primary focus: transition-all duration-fast"
                         :placeholder="t('fileManager.toolbar.pathPlaceholder')" />
 
                     <!-- Suggestions List -->
                     <div v-if="showSuggestions && suggestions.length > 0" id="path-suggestions-list"
-                        class="absolute top-full left-0 w-full bg-bg-secondary border border-subtle rounded shadow-lg z-50 max-h-60 overflow-y-auto mt-1 shadow-glow-md">
+                        class="absolute top-full left-0 w-full bg-bg-secondary border border-subtle rounded shadow-lg z-50 max-h-60 overflow-y-auto mt-1 ">
                         <div v-for="(path, index) in suggestions" :key="path" @click="selectSuggestion(path)"
                             class="px-2 py-1 text-sm cursor-pointer hover:bg-bg-tertiary font-mono truncate transition-all duration-fast"
                             :class="{ 'bg-bg-tertiary text-primary': index === activeSuggestionIndex, 'text-text-secondary': index !== activeSuggestionIndex }">
@@ -1603,7 +1603,7 @@ function formatSize(size: number): string {
                         </div>
                     </div>
                 </div>
-                <button @click="refresh" class="p-1 hover:bg-bg-tertiary rounded text-text-secondary hover:text-primary transition-all duration-fast hover:shadow-glow-sm"
+                <button @click="refresh" class="p-1 hover:bg-bg-tertiary rounded text-text-secondary hover:text-primary transition-all duration-fast "
                     :title="t('fileManager.toolbar.refresh')">
                     <RefreshCw class="w-4 h-4" />
                 </button>
@@ -1612,27 +1612,27 @@ function formatSize(size: number): string {
             <!-- Action Buttons -->
             <div class="flex items-center space-x-2 border-t border-subtle pt-2">
                 <button @click="createFile"
-                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-bg-tertiary hover:bg-bg-hover rounded text-text-primary transition-all duration-fast hover:shadow-glow-sm"
+                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-bg-tertiary hover:bg-bg-hover rounded text-text-primary transition-all duration-fast "
                     :title="t('fileManager.toolbar.newFile')">
                     <FilePlus class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.newFile') }}</span>
                 </button>
                 <button @click="createFolder"
-                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-bg-tertiary hover:bg-bg-hover rounded text-text-primary transition-all duration-fast hover:shadow-glow-sm"
+                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-bg-tertiary hover:bg-bg-hover rounded text-text-primary transition-all duration-fast "
                     :title="t('fileManager.toolbar.newFolder')">
                     <FolderPlus class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.newFolder') }}</span>
                 </button>
                 <div class="w-px h-4 bg-subtle mx-1"></div>
                 <button @click="handleUpload"
-                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast hover:shadow-glow-md"
+                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast "
                     :title="t('fileManager.toolbar.uploadFile')">
                     <Upload class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.uploadFile') }}</span>
                 </button>
                 <!-- Upload Directory placeholder -->
                 <button @click="handleUploadDirectory"
-                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast hover:shadow-glow-md"
+                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast "
                     :title="t('fileManager.toolbar.uploadDirectory')">
                     <FolderPlus class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.uploadDirectory') }}</span>
@@ -1648,17 +1648,17 @@ function formatSize(size: number): string {
                 class="flex items-center p-2 text-xs text-text-tertiary border-b border-subtle bg-bg-secondary/50 font-bold select-none">
                 <div class="flex items-center px-2" :style="{ width: columnWidths.name + 'px' }">
                     <span>{{ t('fileManager.headers.name') }}</span>
-                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast hover:shadow-glow-sm"
+                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast "
                         @mousedown.stop="startResize('name', $event)"></span>
                 </div>
                 <div class="flex items-center px-2" :style="{ width: columnWidths.size + 'px' }">
                     <span>{{ t('fileManager.headers.size') }}</span>
-                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast hover:shadow-glow-sm"
+                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast "
                         @mousedown.stop="startResize('size', $event)"></span>
                 </div>
                 <div class="flex items-center px-2" :style="{ width: columnWidths.date + 'px' }">
                     <span>{{ t('fileManager.headers.dateModified') }}</span>
-                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast hover:shadow-glow-sm"
+                    <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast "
                         @mousedown.stop="startResize('date', $event)"></span>
                 </div>
                 <div class="flex items-center px-2" :style="{ width: columnWidths.owner + 'px' }">
@@ -1698,14 +1698,14 @@ function formatSize(size: number): string {
 
         <!-- Opening File Indicator -->
         <div v-if="isOpeningFile"
-            class="fixed bottom-4 right-4 bg-bg-secondary/90 text-text-primary text-xs px-3 py-2 rounded shadow-lg border border-subtle z-50 backdrop-blur-sm shadow-glow-md">
+            class="fixed bottom-4 right-4 bg-bg-secondary/90 text-text-primary text-xs px-3 py-2 rounded shadow-lg border border-subtle z-50 backdrop-blur-sm ">
             姝ｅ湪鎵撳紑...
         </div>
 
         <!-- Context Menu -->
         <div v-if="contextMenu.show" ref="contextMenuRef"
             :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-            class="fixed bg-bg-secondary border border-subtle shadow-xl rounded z-50 py-1 min-w-[150px] shadow-glow-lg backdrop-blur-md">
+            class="fixed bg-bg-secondary border border-subtle shadow-xl rounded z-50 py-1 min-w-[150px]  backdrop-blur-md">
 
             <template v-if="contextMenu.isBackground">
                 <button @click.stop="refresh(); closeContextMenu()"
@@ -1737,7 +1737,7 @@ function formatSize(size: number): string {
                 </button>
                 <div class="border-t border-subtle my-1"></div>
                 <button @click.stop="handleSetWorkspace()"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center text-primary transition-all duration-fast hover:shadow-glow-sm">
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center text-primary transition-all duration-fast ">
                     <Briefcase class="w-4 h-4 mr-2" />
                     Set as AI Workspace
                 </button>
@@ -1770,13 +1770,13 @@ function formatSize(size: number): string {
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">{{ t('fileManager.contextMenu.rename')
                     }}</button>
                 <button @click.stop="handleDelete(contextMenu.file!)"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary text-error hover:shadow-glow-sm transition-all duration-fast">
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary text-error  transition-all duration-fast">
                     {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : ''
                     }}
                 </button>
                 <div class="border-t border-subtle my-1"></div>
                 <button v-if="contextMenu.file?.isDir" @click.stop="handleSetWorkspace()"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center text-primary hover:shadow-glow-sm transition-all duration-fast">
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center text-primary  transition-all duration-fast">
                     <Briefcase class="w-4 h-4 mr-2" />
                     Set as AI Workspace
                 </button>

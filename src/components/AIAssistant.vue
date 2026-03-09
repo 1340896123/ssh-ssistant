@@ -674,7 +674,7 @@ onUnmounted(() => {
 <template>
   <div class="flex flex-col h-full bg-bg-primary text-text-primary" ref="containerRef">
     <!-- Header -->
-    <div class="flex flex-col bg-bg-secondary border-b border-subtle border border-border-primary">
+    <div class="flex flex-col bg-bg-secondary border-b border-subtle">
       <div class="flex items-center justify-between px-4 py-2">
         <div class="flex items-center space-x-2">
           <Bot class="w-5 h-5 text-accent" />
