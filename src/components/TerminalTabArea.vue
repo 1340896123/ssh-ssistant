@@ -148,7 +148,7 @@ defineExpose({
         <button @click="activeTab = 'terminal'" :class="[
           'flex items-center px-3 py-1 text-xs border-r border-subtle transition-all duration-normal whitespace-nowrap flex-shrink-0',
           activeTab === 'terminal'
-            ? 'bg-bg-tertiary text-text-primary border-l border-l-primary shadow-glow-subtle'
+            ? 'bg-bg-tertiary text-text-primary border-l border-l-primary'
             : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
         ]">
           <Terminal class="w-3 h-3 mr-1" />
@@ -160,7 +160,7 @@ defineExpose({
           :class="[
             'flex items-center px-2 py-1 text-xs border-r border-subtle transition-all duration-normal group whitespace-nowrap flex-shrink-0 max-w-[200px]',
             activeTab === 'editor' && activeEditorId === file.id
-              ? 'bg-bg-tertiary text-text-primary border-l border-l-primary shadow-glow-subtle'
+              ? 'bg-bg-tertiary text-text-primary border-l border-l-primary'
               : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
           ]" :title="file.path">
           <FileText class="w-3 h-3 mr-1 flex-shrink-0" />

@@ -44,16 +44,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div ref="menuRef" class="fixed z-[100] bg-[#1f2937] border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]"
+    <div ref="menuRef" class="fixed z-[100] bg-bg-elevated border border-border-primary rounded-lg shadow-xl py-1 min-w-[160px]"
         :style="{ top: `${y}px`, left: `${x}px` }" @contextmenu.prevent>
         <template v-for="(item, index) in items" :key="index">
-            <div v-if="item.separator" class="my-1 border-t border-gray-700"></div>
+            <div v-if="item.separator" class="my-1 border-t border-border-secondary"></div>
             <button v-else
-                class="w-full text-left px-4 py-2 text-sm flex items-center space-x-2 transition-colors hover:bg-gray-700"
+                class="w-full text-left px-4 py-2 text-sm flex items-center space-x-2 transition-colors hover:bg-bg-tertiary"
                 :class="{
-                    'text-gray-400 cursor-not-allowed': item.disabled,
-                    'text-red-400 hover:text-red-300': item.danger,
-                    'text-gray-200': !item.disabled && !item.danger
+                    'text-text-muted cursor-not-allowed': item.disabled,
+                    'text-error hover:text-error/80': item.danger,
+                    'text-text-primary': !item.disabled && !item.danger
                 }" @click="handleItemClick(item)" :disabled="item.disabled">
                 <component :is="item.icon" v-if="item.icon" class="w-4 h-4" />
                 <span>{{ item.label }}</span>

@@ -122,20 +122,20 @@ function renderFileItem(item: FileEntry, index: number) {
             style: { width: props.columnWidths.name + 'px' }
         }, [
             item.isDir
-                ? h('svg', { 
+                ? h('svg', {
                     class: [
                         'w-4 h-4 mr-2 flex-shrink-0',
-                        isParentDir ? 'text-gray-500' : 'text-yellow-400'
-                    ], 
-                    fill: 'none', 
-                    stroke: 'currentColor', 
-                    viewBox: '0 0 24 24' 
+                        isParentDir ? 'text-text-muted' : 'text-warning'
+                    ],
+                    fill: 'none',
+                    stroke: 'currentColor',
+                    viewBox: '0 0 24 24'
                 }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' })
                 ])
-                : (base64Icon 
+                : (base64Icon
                     ? h('img', { src: base64Icon, class: 'w-4 h-4 mr-2 flex-shrink-0' })
-                    : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
+                    : h('svg', { class: 'w-4 h-4 mr-2 text-accent flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
                         h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
                     ])
                 ),
@@ -170,15 +170,15 @@ function renderFileItem(item: FileEntry, index: number) {
                 }, item.name)
         ]),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono',
+            class: 'text-xs text-text-muted font-mono',
             style: { width: props.columnWidths.size + 'px', paddingLeft: '8px' }
         }, isParentDir ? '-' : props.formatSize(item.size)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono',
+            class: 'text-xs text-text-muted font-mono',
             style: { width: props.columnWidths.date + 'px', paddingLeft: '8px' }
         }, isParentDir ? '-' : props.formatDate(item.mtime)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono',
+            class: 'text-xs text-text-muted font-mono',
             style: { width: props.columnWidths.owner + 'px', paddingLeft: '8px' }
         }, isParentDir ? '-' : (item.owner || '-'))
     ]);
@@ -221,7 +221,7 @@ function renderTreeNode(node: TreeNode) {
             node.entry.isDir ? h('button', {
                 class: [
                     'mr-1 w-3 h-3 flex items-center justify-center text-xs',
-                    isParentDir ? 'text-gray-500' : 'text-gray-400'
+                    isParentDir ? 'text-text-muted' : 'text-text-secondary'
                 ],
                 onClick: (e: MouseEvent) => {
                     e.stopPropagation();
@@ -229,20 +229,20 @@ function renderTreeNode(node: TreeNode) {
                 }
             }, isParentDir ? '↖' : (isExpanded ? '-' : '+')) : h('span', { class: 'mr-4' }),
             node.entry.isDir
-                ? h('svg', { 
+                ? h('svg', {
                     class: [
                         'w-4 h-4 mr-2 flex-shrink-0',
-                        isParentDir ? 'text-gray-500' : 'text-yellow-400'
-                    ], 
-                    fill: 'none', 
-                    stroke: 'currentColor', 
-                    viewBox: '0 0 24 24' 
+                        isParentDir ? 'text-text-muted' : 'text-warning'
+                    ],
+                    fill: 'none',
+                    stroke: 'currentColor',
+                    viewBox: '0 0 24 24'
                 }, [
                     h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' })
                 ])
                 : (base64Icon
                     ? h('img', { src: base64Icon, class: 'w-4 h-4 mr-2 flex-shrink-0' })
-                    : h('svg', { class: 'w-4 h-4 mr-2 text-blue-400 flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
+                    : h('svg', { class: 'w-4 h-4 mr-2 text-accent flex-shrink-0', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' }, [
                         h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
                     ])
                 ),
@@ -277,15 +277,15 @@ function renderTreeNode(node: TreeNode) {
                 }, node.entry.name)
         ]),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono',
+            class: 'text-xs text-text-muted font-mono',
             style: { width: props.columnWidths.size + 'px', paddingLeft: '8px' }
         }, node.entry.isDir ? (isParentDir ? '-' : '') : props.formatSize(node.entry.size)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono',
+            class: 'text-xs text-text-muted font-mono',
             style: { width: props.columnWidths.date + 'px', paddingLeft: '8px' }
         }, isParentDir ? '-' : props.formatDate(node.entry.mtime)),
         h('span', {
-            class: 'text-xs text-gray-500 font-mono',
+            class: 'text-xs text-text-muted font-mono',
             style: { width: props.columnWidths.owner + 'px', paddingLeft: '8px' }
         }, isParentDir ? '-' : (node.entry.owner || '-'))
     ]);

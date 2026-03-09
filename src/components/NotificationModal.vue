@@ -63,15 +63,15 @@ const colors = {
       <!-- Backdrop (optional, maybe transparent) -->
       
       <!-- Modal Content -->
-      <div class="bg-gray-800 border border-gray-700 shadow-2xl rounded-lg p-6 min-w-[300px] max-w-md pointer-events-auto flex flex-col items-center space-y-4">
-        
+      <div class="bg-bg-elevated border border-border-primary shadow-lg rounded-lg p-6 min-w-[300px] max-w-md pointer-events-auto flex flex-col items-center space-y-4">
+
         <!-- Icon -->
         <component :is="icons[type || 'info']" class="w-12 h-12" :class="colors[type || 'info']" />
 
         <!-- Text Content -->
         <div class="text-center space-y-1">
-          <h3 v-if="title" class="text-lg font-medium text-white">{{ title }}</h3>
-          <p class="text-gray-400 text-sm">{{ message }}</p>
+          <h3 v-if="title" class="text-lg font-medium text-text-primary">{{ title }}</h3>
+          <p class="text-text-secondary text-sm">{{ message }}</p>
         </div>
 
         <!-- Close Button (Optional for manual close) -->

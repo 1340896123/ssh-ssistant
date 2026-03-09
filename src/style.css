@@ -438,7 +438,6 @@ code, kbd, samp {
 .tab.active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
-  text-shadow: 0 0 8px var(--color-primary-dim);
 }
 
 /* Badge */
@@ -458,8 +457,8 @@ code, kbd, samp {
 }
 
 .badge-secondary {
-  background: var(--color-secondary-dim);
-  color: var(--color-secondary-light);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   border: 1px solid var(--border-secondary);
 }
 
@@ -478,14 +477,14 @@ code, kbd, samp {
 /* Divider */
 .divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+  background: var(--border-subtle);
   border: none;
   margin: var(--spacing-md) 0;
 }
 
 .divider-vertical {
   width: 1px;
-  background: linear-gradient(180deg, transparent, var(--border-subtle), transparent);
+  background: var(--border-subtle);
   border: none;
   margin: 0 var(--spacing-md);
 }
@@ -499,7 +498,7 @@ code, kbd, samp {
   background: var(--bg-elevated);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg), var(--glow-subtle);
+  box-shadow: var(--shadow-md);
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -509,17 +508,17 @@ code, kbd, samp {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal-backdrop);
-  background: rgba(3, 7, 18, 0.85);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
 }
 
 .modal-content {
   position: relative;
   z-index: var(--z-modal);
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl), var(--glow-intense);
+  box-shadow: var(--shadow-xl);
   animation: scale-in var(--transition-normal) ease-out;
 }
 

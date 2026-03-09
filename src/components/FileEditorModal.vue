@@ -432,30 +432,30 @@ defineExpose({
 </script>
 
 <template>
-  <div v-if="show" class="h-full w-full flex flex-col bg-gray-900 text-white">
+  <div v-if="show" class="h-full w-full flex flex-col bg-bg-primary text-text-primary">
     <!-- Header -->
-    <div class="h-12 border-b border-gray-700 flex items-center justify-between px-4 bg-gray-800 flex-shrink-0">
+    <div class="h-12 border-b border-border-primary flex items-center justify-between px-4 bg-bg-secondary flex-shrink-0">
       <div class="flex items-center space-x-4">
-        <span class="font-bold text-sm text-gray-300">{{ fileName }}</span>
-        <span v-if="isDirty" class="text-xs text-yellow-500 italic">(Modified)</span>
-        <span class="text-xs text-gray-500">{{ filePath }}</span>
+        <span class="font-bold text-sm text-text-primary">{{ fileName }}</span>
+        <span v-if="isDirty" class="text-xs text-warning italic">(Modified)</span>
+        <span class="text-xs text-text-muted">{{ filePath }}</span>
       </div>
       <div class="flex items-center space-x-2">
         <!-- Language Selector -->
         <select v-model="selectedLanguage" @change="handleLanguageChange"
-          class="px-3 py-1.5 text-sm bg-gray-700 text-white border border-gray-600 rounded focus:outline-none focus:border-blue-500">
+          class="px-3 py-1.5 text-sm bg-bg-tertiary text-text-primary border border-border-primary rounded focus:outline-none focus:border-accent">
           <option v-for="lang in availableLanguages" :key="lang.value" :value="lang.value">
             {{ lang.label }}
           </option>
         </select>
         <button @click="saveFile" :disabled="isSaving || !isDirty"
-          class="flex items-center px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
+          class="flex items-center px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-white">
           <Loader2 v-if="isSaving" class="w-4 h-4 mr-2 animate-spin" />
           <Save v-else class="w-4 h-4 mr-2" />
           Save
         </button>
         <button @click="handleClose"
-          class="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors">
+          class="p-1.5 hover:bg-bg-tertiary rounded text-text-muted hover:text-text-primary transition-colors">
           <X class="w-5 h-5" />
         </button>
       </div>
@@ -463,30 +463,30 @@ defineExpose({
 
     <!-- Editor Body -->
     <div class="flex-1 relative overflow-hidden">
-      <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
-        <Loader2 class="w-8 h-8 text-blue-500 animate-spin" />
+      <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-bg-primary z-10">
+        <Loader2 class="w-8 h-8 text-accent animate-spin" />
       </div>
       <div ref="editorContainer" class="w-full h-full"></div>
     </div>
 
     <!-- Confirmation Dialog -->
-    <div v-if="showConfirmDialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div class="bg-gray-800 text-white rounded-lg p-6 max-w-md mx-4">
+    <div v-if="showConfirmDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-bg-elevated text-text-primary rounded-lg p-6 max-w-md mx-4">
         <h3 class="text-lg font-semibold mb-4">Unsaved Changes</h3>
-        <p class="text-gray-300 mb-6">
+        <p class="text-text-secondary mb-6">
           Do you want to save the changes to "{{ fileName }}" before closing?
         </p>
         <div class="flex justify-end space-x-3">
           <button @click="confirmCloseWithoutSave"
-            class="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors">
+            class="px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-tertiary/80 rounded transition-colors">
             Don't Save
           </button>
           <button @click="cancelClose"
-            class="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors">
+            class="px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-tertiary/80 rounded transition-colors">
             Cancel
           </button>
           <button @click="saveAndClose" :disabled="isSaving"
-            class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors flex items-center">
+            class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors flex items-center text-white">
             <Loader2 v-if="isSaving" class="w-4 h-4 mr-2 animate-spin" />
             Save & Close
           </button>

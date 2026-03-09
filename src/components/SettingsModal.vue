@@ -530,14 +530,14 @@ const tabs = [
             </div>
 
             <div v-if="showAddKeyForm" class="bg-bg-elevated p-4 rounded mb-6 border border-border-primary">
-              <div class="flex gap-4 border-b border-subtle mb-4 pb-2">
+              <div class="flex gap-4 border-b border-border-primary mb-4 pb-2">
                 <button @click="keyInputMode = 'import'" :class="[
                   'text-sm font-medium pb-1 transition-colors-fast',
-                  keyInputMode === 'import' ? 'text-primary border-b-2 border-primary neon-text' : 'text-muted hover:text-primary'
+                  keyInputMode === 'import' ? 'text-accent border-b-2 border-accent' : 'text-text-secondary hover:text-text-primary'
                 ]">Import Existing Key</button>
                 <button @click="keyInputMode = 'generate'" :class="[
                   'text-sm font-medium pb-1 transition-colors-fast',
-                  keyInputMode === 'generate' ? 'text-primary border-b-2 border-primary neon-text' : 'text-muted hover:text-primary'
+                  keyInputMode === 'generate' ? 'text-accent border-b-2 border-accent' : 'text-text-secondary hover:text-text-primary'
                 ]">Generate New Key</button>
               </div>
 
@@ -565,7 +565,7 @@ const tabs = [
                   <button @click="showAddKeyForm = false"
                     class="px-3 py-1.5 text-sm text-muted hover:text-primary btn-retro">Cancel</button>
                   <button @click="addKey"
-                    class="px-3 py-1.5 text-sm bg-success hover:bg-success-light text-bg-primary rounded btn-retro glow-border">Import Key</button>
+                    class="px-3 py-1.5 text-sm bg-success hover:bg-success/80 text-text-primary rounded">Import Key</button>
                 </div>
               </div>
 
@@ -595,7 +595,7 @@ const tabs = [
                   <button @click="showAddKeyForm = false"
                     class="px-3 py-1.5 text-sm text-muted hover:text-primary btn-retro">Cancel</button>
                   <button @click="generateKey" :disabled="isGenerating"
-                    class="px-3 py-1.5 text-sm bg-primary hover:bg-primary-light text-bg-primary rounded disabled:opacity-50 flex items-center gap-2 btn-retro glow-border">
+                    class="px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded disabled:opacity-50 flex items-center gap-2">
                     <div v-if="isGenerating"
                       class="w-3 h-3 border-2 border-bg-primary border-t-transparent rounded-full animate-spin"></div>
                     Generate & Save
@@ -605,13 +605,13 @@ const tabs = [
             </div>
 
             <div class="space-y-2">
-              <div v-if="sshKeyStore.keys.length === 0" class="text-muted text-center py-8">
+              <div v-if="sshKeyStore.keys.length === 0" class="text-text-secondary text-center py-8">
                 No SSH keys found. Add one to get started.
               </div>
               <div v-else v-for="key in sshKeyStore.keys" :key="key.id"
-                class="flex items-center justify-between p-3 bg-bg-elevated/50 rounded border border-subtle hover:border-primary hover-lift transition-all-fast">
+                class="flex items-center justify-between p-3 bg-bg-elevated/50 rounded border border-border-primary hover:border-accent transition-all-fast">
                 <div class="flex items-center gap-3">
-                  <div class="w-8 h-8 rounded bg-bg-tertiary flex items-center justify-center text-primary glow-border">
+                  <div class="w-8 h-8 rounded bg-bg-tertiary flex items-center justify-center text-accent border border-border-primary">
                     <Key class="w-4 h-4" />
                   </div>
                   <div>
@@ -620,7 +620,7 @@ const tabs = [
                   </div>
                 </div>
                 <button @click="deleteKey(key.id)"
-                  class="p-2 text-muted hover:text-error hover:bg-bg-tertiary rounded transition-colors-fast">
+                  class="p-2 text-text-secondary hover:text-error hover:bg-bg-tertiary rounded transition-colors-fast">
                   <Trash2 class="w-4 h-4" />
                 </button>
               </div>
@@ -632,9 +632,9 @@ const tabs = [
 
       <div class="p-4 border-t border-subtle flex justify-end space-x-3">
         <button @click="$emit('close')"
-          class="px-4 py-2 text-sm text-muted hover:text-primary hover:bg-bg-elevated rounded btn-retro">{{ t('settings.cancel')
+          class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded">{{ t('settings.cancel')
           }}</button>
-        <button @click="save" class="px-4 py-2 text-sm bg-primary hover:bg-primary-light text-bg-primary rounded btn-retro glow-border">{{
+        <button @click="save" class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded">{{
           t('settings.saveChanges') }}</button>
       </div>
     </div>
