@@ -8,24 +8,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Warm Minimalist theme colors
+        // Minimalist theme colors
         primary: {
           DEFAULT: 'var(--color-primary)',
           light: 'var(--color-primary-light)',
           dark: 'var(--color-primary-dark)',
           dim: 'var(--color-primary-dim)',
         },
-        secondary: {
-          DEFAULT: 'var(--color-secondary)',
-          light: 'var(--color-secondary-light)',
-          dark: 'var(--color-secondary-dark)',
-          dim: 'var(--color-secondary-dim)',
-        },
         accent: {
           DEFAULT: 'var(--color-accent)',
           light: 'var(--color-accent-light)',
           dark: 'var(--color-accent-dark)',
-          dim: 'var(--color-accent-dim)',
         },
         success: {
           DEFAULT: 'var(--color-success)',

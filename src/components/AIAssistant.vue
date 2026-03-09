@@ -804,7 +804,7 @@ onUnmounted(() => {
           <!-- Context Chips -->
           <div v-if="contextPaths.length > 0" class="flex flex-wrap gap-2 px-1">
             <div v-for="c in contextPaths" :key="c.path"
-              class="flex items-center bg-primary/10 border border-primary/30 rounded px-2 py-1 text-xs text-primary max-w-full border border-border-primary">
+              class="flex items-center bg-primary/10 border border-primary/30 rounded px-2 py-1 text-xs text-primary max-w-full">
               <span class="truncate font-mono mr-2">{{ c.isDir ? '[DIR]' : '' }} {{ c.path }}</span>
               <button @click="removeContextPath(c.path)" class="text-primary hover:text-error">
                 &times;

@@ -141,7 +141,7 @@ const tabs = [
       </div>
 
       <div class="flex-grow flex flex-col overflow-hidden">
-        <div class="border-b border-subtle py-2">
+        <div class="border-b border-border-primary py-2">
           <nav class="flex space-x-2 px-4 overflow-x-auto no-scrollbar" aria-label="Tabs">
             <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id" :class="[
               'px-3 py-2 text-sm font-medium whitespace-nowrap rounded transition-all-fast hover-lift',
@@ -552,7 +552,7 @@ const tabs = [
                 <div>
                   <label class="block text-xs uppercase text-text-secondary mb-1">Private Key Content</label>
                   <textarea v-model="newKey.content" rows="4"
-                    class="w-full p-2 bg-bg-tertiary border border-subtle rounded text-primary focus:border-primary focus:shadow-glow-subtle outline-none transition-all-fast input-retro font-mono text-xs"
+                    class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast font-mono text-xs"
                     placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..." />
                 </div>
                 <div>
