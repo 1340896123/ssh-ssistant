@@ -840,16 +840,16 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 <template>
   <div class="h-full w-full flex flex-col bg-black overflow-hidden">
     <!-- Toolbar -->
-    <div class="h-8 bg-gray-800 border-b border-gray-700 flex items-center px-2 space-x-2 flex-shrink-0">
+    <div class="h-8 bg-bg-secondary border-b border-border-primary flex items-center px-2 space-x-2 flex-shrink-0">
       <button v-if="currentSession && currentSession.status === 'disconnected'" @click="handleReconnect"
-        class="flex items-center px-2 py-1 text-xs text-green-400 hover:bg-gray-700 rounded transition-colors"
+        class="flex items-center px-2 py-1 text-xs text-success hover:bg-bg-tertiary rounded transition-colors"
         title="Reconnect">
         <RotateCw class="w-3 h-3 mr-1" />
         Reconnect
       </button>
 
       <button v-if="currentSession && currentSession.status === 'connected'" @click="handleDisconnect"
-        class="flex items-center px-2 py-1 text-xs text-red-400 hover:bg-gray-700 rounded transition-colors"
+        class="flex items-center px-2 py-1 text-xs text-error hover:bg-bg-tertiary rounded transition-colors"
         title="Disconnect">
         <Unplug class="w-3 h-3 mr-1" />
         Disconnect
@@ -858,7 +858,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
       <div class="flex-1"></div>
 
       <button @click="handleClearLog"
-        class="flex items-center px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+        class="flex items-center px-2 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors"
         title="Clear Log">
         <Eraser class="w-3 h-3 mr-1" />
         Clear Log
@@ -871,23 +871,23 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 
       <!-- Search Bar -->
       <div v-if="showSearch"
-        class="absolute top-2 right-4 z-10 flex items-center bg-gray-800 border border-gray-600 rounded shadow-lg p-1 animate-fade-in">
-        <div class="flex items-center bg-gray-900 rounded border border-gray-700 mr-1">
-          <Search class="w-3 h-3 text-gray-500 ml-2" />
+        class="absolute top-2 right-4 z-10 flex items-center bg-bg-secondary border border-border-primary rounded shadow-lg p-1 animate-fade-in">
+        <div class="flex items-center bg-bg-primary rounded border border-border-secondary mr-1">
+          <Search class="w-3 h-3 text-text-muted ml-2" />
           <input ref="searchInputRef" v-model="searchText" type="text"
-            class="bg-transparent text-white text-xs px-2 py-1 focus:outline-none w-40 font-mono" placeholder="Find..."
+            class="bg-transparent text-text-primary text-xs px-2 py-1 focus:outline-none w-40 font-mono" placeholder="Find..."
             @keydown.enter="searchNext" @keydown.esc="closeSearch" />
         </div>
-        <div class="flex items-center border-l border-gray-700 pl-1">
-          <button @click="searchPrev" class="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
+        <div class="flex items-center border-l border-border-secondary pl-1">
+          <button @click="searchPrev" class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded"
             title="Previous (Shift+Enter)">
             <ArrowUp class="w-4 h-4" />
           </button>
-          <button @click="searchNext" class="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
+          <button @click="searchNext" class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded"
             title="Next (Enter)">
             <ArrowDown class="w-4 h-4" />
           </button>
-          <button @click="closeSearch" class="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded ml-1"
+          <button @click="closeSearch" class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded ml-1"
             title="Close (Esc)">
             <X class="w-4 h-4" />
           </button>
@@ -896,14 +896,14 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
     </div>
 
     <!-- Input Area -->
-    <div class="bg-gray-800 border-t border-gray-700 p-2 relative">
+    <div class="bg-bg-secondary border-t border-border-primary p-2 relative">
 
       <!-- Completions Popup -->
       <div v-if="traditionalCompletions.length > 0 && !showAiCompletions"
-        class="absolute bottom-full left-0 mb-1 bg-gray-800 border border-gray-600 rounded shadow-lg max-h-40 overflow-y-auto min-w-[200px] z-20">
+        class="absolute bottom-full left-0 mb-1 bg-bg-secondary border border-border-primary rounded shadow-lg max-h-40 overflow-y-auto min-w-[200px] z-20">
         <div v-for="(item, index) in traditionalCompletions" :key="item"
           class="px-3 py-1 text-sm cursor-pointer flex items-center"
-          :class="index === selectedTraditionalIndex ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'"
+          :class="index === selectedTraditionalIndex ? 'bg-accent text-white' : 'text-text-secondary hover:bg-bg-tertiary'"
           @click="selectedTraditionalIndex = index; applyTraditionalCompletion()">
           <TerminalIcon class="w-3 h-3 mr-2 opacity-50" />
           {{ item }}
@@ -912,22 +912,22 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 
       <!-- AI Completions Popup -->
       <div v-if="showAiCompletions"
-        class="absolute bottom-full left-0 mb-1 bg-gray-800 border border-purple-500 rounded shadow-lg max-h-60 overflow-y-auto min-w-[300px] z-20">
-        <div v-if="isAiLoading" class="p-2 text-gray-400 text-sm flex items-center">
+        class="absolute bottom-full left-0 mb-1 bg-bg-secondary border border-accent rounded shadow-lg max-h-60 overflow-y-auto min-w-[300px] z-20">
+        <div v-if="isAiLoading" class="p-2 text-text-muted text-sm flex items-center">
           <Sparkles class="w-3 h-3 mr-2 animate-pulse" />
           AI Thinking...
         </div>
         <div v-else v-for="(item, index) in aiCompletions" :key="index"
-          class="px-3 py-2 text-sm cursor-pointer border-b border-gray-700 last:border-0"
-          :class="index === selectedAiIndex ? 'bg-purple-900/50 text-white' : 'text-gray-300 hover:bg-gray-700'"
+          class="px-3 py-2 text-sm cursor-pointer border-b border-border-secondary last:border-0"
+          :class="index === selectedAiIndex ? 'bg-accent/30 text-text-primary' : 'text-text-secondary hover:bg-bg-tertiary'"
           @click="selectedAiIndex = index; applyAiCompletion()">
           <div class="flex items-center justify-between w-full">
             <div class="flex items-center">
-              <Sparkles class="w-3 h-3 mr-2 text-purple-400" />
+              <Sparkles class="w-3 h-3 mr-2 text-accent" />
               <span>{{ item }}</span>
             </div>
             <span
-              class="text-[10px] text-purple-400 bg-purple-900/30 px-1 rounded border border-purple-500/30">AI推荐</span>
+              class="text-[10px] text-accent bg-accent/20 px-1 rounded border border-accent/30">AI推荐</span>
           </div>
         </div>
       </div>
@@ -941,28 +941,28 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
           <!-- Invisible text to size the preview? No, we overlay preview on top or right? -->
           <!-- Easier: Input background transparent, preview behind it? -->
           <!-- Or: Input text color normal, preview text appended? -->
-          <!-- We can use a span for the input part and a span for the preview part in a container, 
+          <!-- We can use a span for the input part and a span for the preview part in a container,
                      and a transparent input on top. -->
 
           <div
             class="absolute inset-0 flex items-center pl-8 pr-12 pointer-events-none overflow-hidden whitespace-pre font-mono text-sm">
             <span class="text-transparent">{{ commandInput }}</span>
-            <span class="text-gray-500">{{ previewText }}</span>
+            <span class="text-text-muted">{{ previewText }}</span>
           </div>
 
           <input ref="inputRef" v-model="commandInput" type="text"
-            class="w-full bg-gray-900/50 border border-gray-600 rounded pl-8 pr-12 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            class="w-full bg-bg-primary/50 border border-border-primary rounded pl-8 pr-12 py-2 text-sm text-text-primary font-mono focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             placeholder="Type a command..." @keydown="handleKeyDown" spellcheck="false" autocomplete="off" />
         </div>
 
-        <button @click="sendCommand" class="absolute right-2 p-1 text-gray-400 hover:text-white transition-colors"
+        <button @click="sendCommand" class="absolute right-2 p-1 text-text-muted hover:text-text-primary transition-colors"
           title="Send Command">
           <Send class="w-4 h-4" />
         </button>
       </div>
 
       <!-- Helper Text -->
-      <div class="mt-1 flex justify-between text-[10px] text-gray-500 px-1">
+      <div class="mt-1 flex justify-between text-[10px] text-text-muted px-1">
         <span>Tab: AI Completion</span>
         <span>↑/↓: History/Select</span>
       </div>
