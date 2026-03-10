@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { useDebounceFn } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from 'xterm';
@@ -420,14 +421,136 @@ onUnmounted(() => {
 
 // --- Input Box Logic ---
 
-// Watch input for traditional completion
-// Watch input for traditional completion
-watch(commandInput, async (newValue) => {
+const COMPLETION_DEBOUNCE_MS = 150;
+let completionNonce = 0;
+
+const debouncedCompletion = useDebounceFn(
+  async (newValue: string, nonce: number) => {
+    if (nonce !== completionNonce) return;
+    if (!newValue) {
+      traditionalCompletions.value = [];
+      previewText.value = '';
+      return;
+    }
+
+    if (currentSession.value?.status !== 'connected') {
+      traditionalCompletions.value = [];
+      previewText.value = '';
+      return;
+    }
+
+    const words = newValue.split(' ');
+    let lastWord = words[words.length - 1];
+
+    // Determine if we are completing a command or a file
+    // Simple heuristic: if it's the first word, it's a command.
+    // If it's not the first word, it's likely a file/argument.
+    // Exception: pipe |, semicolon ;, etc. start new commands.
+
+    // For simplicity, let's assume > 1 word is file completion.
+    const isCommand = words.length === 1;
+
+    try {
+      let matches: string[] = [];
+
+      if (isCommand) {
+        // Command Completion
+        // Use shell-specific logic, running in the currentDir context
+        const cmd = getShellCompletionCommand(remoteShell.value, lastWord, currentDir.value);
+        if (cmd) {
+          const result = await invoke<string>('exec_command', {
+            id: props.sessionId,
+            command: cmd
+          });
+          if (nonce !== completionNonce) return;
+          matches = result.split('\n').filter(line => line.trim() !== '');
+        }
+      } else {
+        // File Completion using SFTP (More robust)
+        // We need to determine the directory to list.
+        // If lastWord is "/var/lo", dir is "/var", prefix is "lo".
+        // If lastWord is "lo", dir is currentDir, prefix is "lo".
+
+        let searchDir = currentDir.value;
+        let filePrefix = lastWord;
+
+        if (lastWord.includes('/')) {
+          const lastSlash = lastWord.lastIndexOf('/');
+          const dirPart = lastWord.substring(0, lastSlash);
+          filePrefix = lastWord.substring(lastSlash + 1);
+
+          // Resolve dirPart relative to currentDir
+          searchDir = resolvePath(currentDir.value, dirPart, homeDir.value);
+        }
+
+        try {
+          const files = await invoke<FileEntry[]>('list_files', {
+            id: props.sessionId,
+            path: searchDir
+          });
+          if (nonce !== completionNonce) return;
+
+          matches = files
+            .filter(f => f.name.startsWith(filePrefix))
+            .map(f => {
+              // If we are completing a path, we want to append the name to the dirPart
+              // But the UI expects the full replacement for the last word?
+              // Or just the completion?
+              // The UI replaces `lastWord` with `completion`.
+              // So if lastWord is "/var/lo", completion should be "/var/log".
+
+              if (lastWord.includes('/')) {
+                const lastSlash = lastWord.lastIndexOf('/');
+                const dirPart = lastWord.substring(0, lastSlash);
+                return `${dirPart}/${f.name}${f.is_dir ? '/' : ''}`;
+              }
+              return f.name + (f.is_dir ? '/' : '');
+            });
+        } catch (e) {
+          // SFTP failed (maybe permission denied or path invalid), ignore
+        }
+      }
+
+      if (nonce !== completionNonce) return;
+
+      // Filter matches again just in case (for command completion)
+      if (isCommand) {
+        matches = matches.filter(l => l.startsWith(lastWord));
+      }
+
+      // Sort matches
+      matches.sort((a, b) => {
+        if (a === lastWord) return -1;
+        if (b === lastWord) return 1;
+        if (a.length !== b.length) return a.length - b.length;
+        return a.localeCompare(b);
+      });
+
+      traditionalCompletions.value = matches;
+      selectedTraditionalIndex.value = 0;
+
+      if (matches.length > 0) {
+        updatePreview(matches[0], lastWord);
+      } else {
+        previewText.value = '';
+      }
+    } catch (e) {
+      console.error("Completion error:", e);
+      traditionalCompletions.value = [];
+      previewText.value = '';
+    }
+  },
+  COMPLETION_DEBOUNCE_MS
+);
+
+watch(commandInput, (newValue) => {
   // Reset AI completions when typing
   if (showAiCompletions.value) {
     showAiCompletions.value = false;
     aiCompletions.value = [];
   }
+
+  completionNonce += 1;
 
   if (!newValue) {
     traditionalCompletions.value = [];
@@ -435,102 +558,7 @@ watch(commandInput, async (newValue) => {
     return;
   }
 
-  const words = newValue.split(' ');
-  let lastWord = words[words.length - 1];
-
-  // Determine if we are completing a command or a file
-  // Simple heuristic: if it's the first word, it's a command.
-  // If it's not the first word, it's likely a file/argument.
-  // Exception: pipe |, semicolon ;, etc. start new commands.
-
-  // For simplicity, let's assume > 1 word is file completion.
-  const isCommand = words.length === 1;
-
-  try {
-    let matches: string[] = [];
-
-    if (isCommand) {
-      // Command Completion
-      // Use shell-specific logic, running in the currentDir context
-      const cmd = getShellCompletionCommand(remoteShell.value, lastWord, currentDir.value);
-      if (cmd) {
-        const result = await invoke<string>('exec_command', {
-          id: props.sessionId,
-          command: cmd
-        });
-        matches = result.split('\n').filter(line => line.trim() !== '');
-      }
-    } else {
-      // File Completion using SFTP (More robust)
-      // We need to determine the directory to list.
-      // If lastWord is "/var/lo", dir is "/var", prefix is "lo".
-      // If lastWord is "lo", dir is currentDir, prefix is "lo".
-
-      let searchDir = currentDir.value;
-      let filePrefix = lastWord;
-
-      if (lastWord.includes('/')) {
-        const lastSlash = lastWord.lastIndexOf('/');
-        const dirPart = lastWord.substring(0, lastSlash);
-        filePrefix = lastWord.substring(lastSlash + 1);
-
-        // Resolve dirPart relative to currentDir
-        searchDir = resolvePath(currentDir.value, dirPart, homeDir.value);
-      }
-
-      try {
-        const files = await invoke<FileEntry[]>('list_files', {
-          id: props.sessionId,
-          path: searchDir
-        });
-
-        matches = files
-          .filter(f => f.name.startsWith(filePrefix))
-          .map(f => {
-            // If we are completing a path, we want to append the name to the dirPart
-            // But the UI expects the full replacement for the last word?
-            // Or just the completion?
-            // The UI replaces `lastWord` with `completion`.
-            // So if lastWord is "/var/lo", completion should be "/var/log".
-
-            if (lastWord.includes('/')) {
-              const lastSlash = lastWord.lastIndexOf('/');
-              const dirPart = lastWord.substring(0, lastSlash);
-              return `${dirPart}/${f.name}${f.is_dir ? '/' : ''}`;
-            }
-            return f.name + (f.is_dir ? '/' : '');
-          });
-      } catch (e) {
-        // SFTP failed (maybe permission denied or path invalid), ignore
-      }
-    }
-
-    // Filter matches again just in case (for command completion)
-    if (isCommand) {
-      matches = matches.filter(l => l.startsWith(lastWord));
-    }
-
-    // Sort matches
-    matches.sort((a, b) => {
-      if (a === lastWord) return -1;
-      if (b === lastWord) return 1;
-      if (a.length !== b.length) return a.length - b.length;
-      return a.localeCompare(b);
-    });
-
-    traditionalCompletions.value = matches;
-    selectedTraditionalIndex.value = 0;
-
-    if (matches.length > 0) {
-      updatePreview(matches[0], lastWord);
-    } else {
-      previewText.value = '';
-    }
-  } catch (e) {
-    console.error("Completion error:", e);
-    traditionalCompletions.value = [];
-    previewText.value = '';
-  }
+  debouncedCompletion(newValue, completionNonce);
 });
 
 function updatePreview(completion: string, lastWord: string) {

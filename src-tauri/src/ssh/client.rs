@@ -58,6 +58,25 @@ impl AppState {
     }
 }
 
+fn shutdown_client(client: SshClient) {
+    // 1. 发送停止信号
+    client.shutdown_signal.store(true, Ordering::Relaxed);
+
+    // 2. 关闭 Shell / Manager
+    if let Some(tx) = client.shell_tx {
+        let _ = tx.send(ShellMsg::Exit);
+    }
+
+    // 3. 关闭连接
+    match &client.client_type {
+        ClientType::Ssh(senders) => {
+            let _ = senders.shell.send(SshCommand::Shutdown);
+            let _ = senders.ops.send(SshCommand::Shutdown);
+        }
+        ClientType::Wsl(_) => {}
+    }
+}
+
 #[tauri::command]
 pub async fn test_connection(app: AppHandle, config: SshConnConfig) -> Result<String, String> {
     let mut populated_config = config.clone();
@@ -106,6 +125,14 @@ pub async fn connect(
         .unwrap_or_else(|| "Linux".to_string());
     println!("Using OS type from config: {}", os_info);
     let id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    // If the session ID already exists, gracefully shut it down before reconnecting
+    if let Some(existing) = {
+        let mut clients = state.clients.lock().map_err(|e| e.to_string())?;
+        clients.remove(&id)
+    } {
+        shutdown_client(existing);
+    }
 
     // Define shutdown_signal early
     let shutdown_signal = Arc::new(AtomicBool::new(false));
@@ -232,22 +259,7 @@ pub async fn disconnect(state: State<'_, AppState>, id: String) -> Result<(), St
     };
 
     if let Some(client) = client {
-        // 1. 发送停止信号
-        client.shutdown_signal.store(true, Ordering::Relaxed);
-
-        // 2. 关闭 Shell / Manager
-        if let Some(tx) = client.shell_tx {
-            let _ = tx.send(ShellMsg::Exit);
-        }
-
-        // 3. 关闭连接
-        match &client.client_type {
-            ClientType::Ssh(senders) => {
-                let _ = senders.shell.send(SshCommand::Shutdown);
-                let _ = senders.ops.send(SshCommand::Shutdown);
-            }
-            ClientType::Wsl(_) => {}
-        }
+        shutdown_client(client);
     }
 
     Ok(())

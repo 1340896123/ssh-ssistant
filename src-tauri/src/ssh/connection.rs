@@ -1364,38 +1364,65 @@ fn connect_with_timeout(addr_str: &str, timeout: Duration) -> Result<TcpStream, 
         return Err("No valid addresses found".to_string());
     }
 
-    let addr = addrs[0];
+    let start = Instant::now();
+    let mut errors: Vec<String> = Vec::new();
 
-    let domain = match addr {
-        SocketAddr::V4(_) => Domain::IPV4,
-        SocketAddr::V6(_) => Domain::IPV6,
-    };
+    for (index, addr) in addrs.iter().enumerate() {
+        let remaining = match timeout.checked_sub(start.elapsed()) {
+            Some(remaining) if !remaining.is_zero() => remaining,
+            _ => break,
+        };
 
-    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
-        .map_err(|e| format!("Failed to create socket: {}", e))?;
+        let remaining_ms = remaining.as_millis().max(1) as u64;
+        let addrs_left = (addrs.len() - index).max(1) as u64;
+        let per_timeout_ms = (remaining_ms / addrs_left).max(200).min(remaining_ms);
+        let per_timeout = Duration::from_millis(per_timeout_ms);
 
-    // 设置 TCP_NODELAY
-    if let Err(e) = socket.set_nodelay(true) {
-        eprintln!("Warning: Failed to set TCP_NODELAY: {}", e);
+        let domain = match addr {
+            SocketAddr::V4(_) => Domain::IPV4,
+            SocketAddr::V6(_) => Domain::IPV6,
+        };
+
+        let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
+            .map_err(|e| format!("Failed to create socket: {}", e))?;
+
+        // 设置 TCP_NODELAY
+        if let Err(e) = socket.set_nodelay(true) {
+            eprintln!("Warning: Failed to set TCP_NODELAY: {}", e);
+        }
+
+        // 设置 TCP Keepalive (底层 TCP 协议保活)
+        let keepalive_conf = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(60))
+            .with_interval(Duration::from_secs(10));
+
+        if let Err(e) = socket.set_tcp_keepalive(&keepalive_conf) {
+            // 如果高级设置失败，尝试基本的启用
+            let _ = socket.set_keepalive(true);
+            eprintln!("Warning: Failed to set detailed TCP Keepalive: {}", e);
+        }
+
+        // 连接
+        match socket.connect_timeout(&(*addr).into(), per_timeout) {
+            Ok(_) => return Ok(socket.into()),
+            Err(e) => {
+                errors.push(format!("{}: {}", addr, e));
+            }
+        }
     }
 
-    // 设置 TCP Keepalive (底层 TCP 协议保活)
-    let keepalive_conf = socket2::TcpKeepalive::new()
-        .with_time(Duration::from_secs(60))
-        .with_interval(Duration::from_secs(10));
-
-    if let Err(e) = socket.set_tcp_keepalive(&keepalive_conf) {
-        // 如果高级设置失败，尝试基本的启用
-        let _ = socket.set_keepalive(true);
-        eprintln!("Warning: Failed to set detailed TCP Keepalive: {}", e);
+    if errors.is_empty() {
+        return Err(format!(
+            "Failed to connect to '{}': timeout after {:?}",
+            addr_str, timeout
+        ));
     }
 
-    // 连接
-    if let Err(e) = socket.connect_timeout(&addr.into(), timeout) {
-        return Err(format!("Failed to connect to '{}': {}", addr_str, e));
-    }
-
-    Ok(socket.into())
+    Err(format!(
+        "Failed to connect to '{}': {}",
+        addr_str,
+        errors.join("; ")
+    ))
 }
 
 // Helper to install public key
