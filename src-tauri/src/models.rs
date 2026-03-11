@@ -60,6 +60,7 @@ pub struct AIConfig {
     pub api_url: String,
     pub api_key: String,
     pub model_name: String,
+    pub provider_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

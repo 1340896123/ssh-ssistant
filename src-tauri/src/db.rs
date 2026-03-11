@@ -40,6 +40,7 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
             ai_api_url TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
             ai_api_key TEXT NOT NULL DEFAULT '',
             ai_model_name TEXT NOT NULL DEFAULT 'gpt-3.5-turbo',
+            ai_provider_type TEXT NOT NULL DEFAULT 'openai',
             terminal_font_size INTEGER NOT NULL DEFAULT 14,
             terminal_font_family TEXT NOT NULL DEFAULT 'Menlo, Monaco, "Courier New", monospace',
             terminal_cursor_style TEXT NOT NULL DEFAULT 'block',
@@ -50,6 +51,12 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
 
     // Ensure default row exists
     conn.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)", [])?;
+
+    // Migration: Add AI provider type
+    let _ = conn.execute(
+        r#"ALTER TABLE settings ADD COLUMN ai_provider_type TEXT NOT NULL DEFAULT 'openai'"#,
+        [],
+    );
 
     // Migrations: Add jump host columns if they don't exist
     let _ = conn.execute("ALTER TABLE connections ADD COLUMN jump_host TEXT", []);
@@ -435,7 +442,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, file_manager_layout, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes, file_manager_sftp_buffer_size, connection_timeout_secs, jump_host_timeout_secs, local_forward_timeout_secs, command_timeout_secs, sftp_operation_timeout_secs, reconnect_max_attempts, reconnect_initial_delay_ms, reconnect_max_delay_ms, reconnect_backoff_multiplier, reconnect_enabled, heartbeat_tcp_keepalive_interval_secs, heartbeat_ssh_keepalive_interval_secs, heartbeat_app_heartbeat_interval_secs, heartbeat_timeout_secs, heartbeat_failed_heartbeats_before_action, pool_health_check_interval_secs, pool_session_warmup_count, pool_max_session_age_minutes, pool_unhealthy_threshold, network_adaptive_enabled, network_latency_check_interval_secs, network_high_latency_threshold_ms, network_low_bandwidth_threshold_kbps FROM settings WHERE id = 1")
+    let mut stmt = conn.prepare("SELECT theme, language, ai_api_url, ai_api_key, ai_model_name, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, file_manager_layout, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes, file_manager_sftp_buffer_size, connection_timeout_secs, jump_host_timeout_secs, local_forward_timeout_secs, command_timeout_secs, sftp_operation_timeout_secs, reconnect_max_attempts, reconnect_initial_delay_ms, reconnect_max_delay_ms, reconnect_backoff_multiplier, reconnect_enabled, heartbeat_tcp_keepalive_interval_secs, heartbeat_ssh_keepalive_interval_secs, heartbeat_app_heartbeat_interval_secs, heartbeat_timeout_secs, heartbeat_failed_heartbeats_before_action, pool_health_check_interval_secs, pool_session_warmup_count, pool_max_session_age_minutes, pool_unhealthy_threshold, network_adaptive_enabled, network_latency_check_interval_secs, network_high_latency_threshold_ms, network_low_bandwidth_threshold_kbps, ai_provider_type FROM settings WHERE id = 1")
         .map_err(|e| e.to_string())?;
 
     let mut rows = stmt
@@ -447,6 +454,9 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
                     api_url: row.get(2)?,
                     api_key: row.get(3)?,
                     model_name: row.get(4)?,
+                    provider_type: row
+                        .get::<_, Option<String>>(38)?
+                        .unwrap_or_else(|| "openai".to_string()),
                 },
                 terminal_appearance: TerminalAppearanceSettings {
                     font_size: row.get::<_, Option<i32>>(5)?.unwrap_or(14),
@@ -522,7 +532,7 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     conn.execute(
-        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, file_manager_layout=?11, ssh_max_background_sessions=?12, ssh_enable_auto_cleanup=?13, ssh_cleanup_interval_minutes=?14, file_manager_sftp_buffer_size=?15, connection_timeout_secs=?16, jump_host_timeout_secs=?17, local_forward_timeout_secs=?18, command_timeout_secs=?19, sftp_operation_timeout_secs=?20, reconnect_max_attempts=?21, reconnect_initial_delay_ms=?22, reconnect_max_delay_ms=?23, reconnect_backoff_multiplier=?24, reconnect_enabled=?25, heartbeat_tcp_keepalive_interval_secs=?26, heartbeat_ssh_keepalive_interval_secs=?27, heartbeat_app_heartbeat_interval_secs=?28, heartbeat_timeout_secs=?29, heartbeat_failed_heartbeats_before_action=?30, pool_health_check_interval_secs=?31, pool_session_warmup_count=?32, pool_max_session_age_minutes=?33, pool_unhealthy_threshold=?34, network_adaptive_enabled=?35, network_latency_check_interval_secs=?36, network_high_latency_threshold_ms=?37, network_low_bandwidth_threshold_kbps=?38 WHERE id = 1",
+        "UPDATE settings SET theme=?1, language=?2, ai_api_url=?3, ai_api_key=?4, ai_model_name=?5, terminal_font_size=?6, terminal_font_family=?7, terminal_cursor_style=?8, terminal_line_height=?9, file_manager_view_mode=?10, file_manager_layout=?11, ssh_max_background_sessions=?12, ssh_enable_auto_cleanup=?13, ssh_cleanup_interval_minutes=?14, file_manager_sftp_buffer_size=?15, connection_timeout_secs=?16, jump_host_timeout_secs=?17, local_forward_timeout_secs=?18, command_timeout_secs=?19, sftp_operation_timeout_secs=?20, reconnect_max_attempts=?21, reconnect_initial_delay_ms=?22, reconnect_max_delay_ms=?23, reconnect_backoff_multiplier=?24, reconnect_enabled=?25, heartbeat_tcp_keepalive_interval_secs=?26, heartbeat_ssh_keepalive_interval_secs=?27, heartbeat_app_heartbeat_interval_secs=?28, heartbeat_timeout_secs=?29, heartbeat_failed_heartbeats_before_action=?30, pool_health_check_interval_secs=?31, pool_session_warmup_count=?32, pool_max_session_age_minutes=?33, pool_unhealthy_threshold=?34, network_adaptive_enabled=?35, network_latency_check_interval_secs=?36, network_high_latency_threshold_ms=?37, network_low_bandwidth_threshold_kbps=?38, ai_provider_type=?39 WHERE id = 1",
         params![
             settings.theme,
             settings.language,
@@ -562,6 +572,7 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
             settings.network_adaptive.latency_check_interval_secs,
             settings.network_adaptive.high_latency_threshold_ms,
             settings.network_adaptive.low_bandwidth_threshold_kbps,
+            settings.ai.provider_type,
         ],
     ).map_err(|e| e.to_string())?;
 

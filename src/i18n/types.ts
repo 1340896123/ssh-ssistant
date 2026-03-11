@@ -34,8 +34,13 @@ export interface I18nMessages {
     apiUrl: string
     apiKey: string
     modelName: string
+    providerType: string
     saveChanges: string
     cancel: string
+  }
+  aiProviders: {
+    openai: string
+    anthropic: string
   }
   fileManager: {
     toolbar: {

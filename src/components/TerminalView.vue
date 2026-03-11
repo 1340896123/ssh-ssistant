@@ -61,6 +61,23 @@ const sessionStore = useSessionStore();
 
 const currentSession = computed(() => sessionStore.sessions.find(s => s.id === props.sessionId));
 
+const ANTHROPIC_VERSION = '2023-06-01';
+
+function normalizeApiBaseUrl(url: string) {
+  return url.replace(/\/+$/, '');
+}
+
+function extractAnthropicText(data: any) {
+  const blocks = Array.isArray(data?.content) ? data.content : [];
+  let text = '';
+  for (const block of blocks) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      text += block.text;
+    }
+  }
+  return text;
+}
+
 function handleReconnect() {
   if (props.sessionId) {
     term?.clear();
@@ -615,30 +632,68 @@ async function triggerAiCompletion() {
   previewText.value = ''; // Clear traditional preview
 
   try {
-    const response = await fetch(`${settingsStore.ai.apiUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settingsStore.ai.apiKey}`
-      },
-      body: JSON.stringify({
-        model: settingsStore.ai.modelName,
-        messages: [
-          {
-            role: 'assistant',
-            content: `你是一名Linux专家，用户给定一个Linux命令，给出3-5个可能的补全方式，例如用户输入"ls",你必须直接返回JSON数组，例如：["ls -la", "ls -lh"],绝对禁止返回其他内容`
-          },
-          {
-            role: 'user',
-            content: `"${commandInput.value}"`
-          }],
-        max_tokens: 500,
-        temperature: 0
-      })
-    });
+    const providerType = settingsStore.ai.providerType || 'openai';
+    const apiBaseUrl = normalizeApiBaseUrl(settingsStore.ai.apiUrl);
+    const systemPrompt = `你是一名Linux专家，用户给定一个Linux命令，给出3-5个可能的补全方式，例如用户输入"ls",你必须直接返回JSON数组，例如：["ls -la", "ls -lh"],绝对禁止返回其他内容`;
+    let response: Response;
+    let content = '';
+
+    if (providerType === 'anthropic') {
+      response = await fetch(`${apiBaseUrl}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': settingsStore.ai.apiKey,
+          'anthropic-version': ANTHROPIC_VERSION
+        },
+        body: JSON.stringify({
+          model: settingsStore.ai.modelName,
+          max_tokens: 500,
+          temperature: 0,
+          system: systemPrompt,
+          messages: [
+            {
+              role: 'user',
+              content: `"${commandInput.value}"`
+            }
+          ]
+        })
+      });
+    } else {
+      response = await fetch(`${apiBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${settingsStore.ai.apiKey}`
+        },
+        body: JSON.stringify({
+          model: settingsStore.ai.modelName,
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: `"${commandInput.value}"`
+            }],
+          max_tokens: 500,
+          temperature: 0
+        })
+      });
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`API Error: ${response.status} - ${errText}`);
+    }
 
     const data = await response.json();
-    const content = data.choices[0].message.content.trim();
+    if (providerType === 'anthropic') {
+      content = extractAnthropicText(data).trim();
+    } else {
+      content = data.choices?.[0]?.message?.content?.trim() ?? '';
+    }
 
     // Try to parse JSON
     let suggestions: string[] = [];

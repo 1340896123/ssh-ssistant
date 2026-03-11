@@ -199,6 +199,14 @@ const tabs = [
               <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.aiAssistant') }}</h3>
               <div class="space-y-4">
                 <div>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.providerType') }}</label>
+                  <select v-model="form.ai.providerType"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
+                    <option value="openai">{{ t('aiProviders.openai') }}</option>
+                    <option value="anthropic">{{ t('aiProviders.anthropic') }}</option>
+                  </select>
+                </div>
+                <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.apiUrl') }}</label>
                   <input v-model="form.ai.apiUrl" type="text"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"

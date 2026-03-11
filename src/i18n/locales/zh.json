@@ -49,6 +49,7 @@
     "apiUrl": "API 基础地址",
     "apiKey": "API 密钥",
     "modelName": "模型名称",
+    "providerType": "提供商类型",
     "saveChanges": "保存更改",
     "cancel": "取消",
     "general": "通用",
@@ -69,6 +70,10 @@
     "cacheManagement": "缓存管理",
     "clearCache": "清除缓存",
     "clearCacheDesc": "清除侧边栏宽度等界面布局缓存"
+  },
+  "aiProviders": {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic"
   },
   "terminal": {
     "cursor": {

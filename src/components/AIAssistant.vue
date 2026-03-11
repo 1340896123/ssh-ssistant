@@ -235,6 +235,132 @@ const tools = [
   }
 ];
 
+const ANTHROPIC_VERSION = '2023-06-01';
+const ANTHROPIC_MAX_TOKENS = 1024;
+
+function normalizeApiBaseUrl(url: string) {
+  return url.replace(/\/+$/, '');
+}
+
+function safeJsonParse(input: string) {
+  try {
+    return JSON.parse(input);
+  } catch (e) {
+    return {};
+  }
+}
+
+function buildAnthropicMessages(apiMessages: Message[]) {
+  const result: any[] = [];
+
+  for (let i = 0; i < apiMessages.length; i += 1) {
+    const msg = apiMessages[i];
+    if (msg.role === 'system') continue;
+
+    if (msg.role === 'user') {
+      result.push({
+        role: 'user',
+        content: [{ type: 'text', text: msg.content }]
+      });
+      continue;
+    }
+
+    if (msg.role === 'assistant') {
+      const contentBlocks: any[] = [];
+      if (msg.content && msg.content.trim().length > 0) {
+        contentBlocks.push({ type: 'text', text: msg.content });
+      }
+
+      if (msg.tool_calls) {
+        for (const toolCall of msg.tool_calls) {
+          const input = safeJsonParse(toolCall.function?.arguments ?? '{}');
+          contentBlocks.push({
+            type: 'tool_use',
+            id: toolCall.id,
+            name: toolCall.function?.name,
+            input
+          });
+        }
+      }
+
+      if (contentBlocks.length === 0) {
+        contentBlocks.push({ type: 'text', text: '' });
+      }
+
+      result.push({
+        role: 'assistant',
+        content: contentBlocks
+      });
+      continue;
+    }
+
+    if (msg.role === 'tool') {
+      const toolBlocks: any[] = [];
+      let j = i;
+      while (j < apiMessages.length && apiMessages[j].role === 'tool') {
+        const toolMsg = apiMessages[j];
+        if (toolMsg.tool_call_id) {
+          const content = toolMsg.content ?? '';
+          toolBlocks.push({
+            type: 'tool_result',
+            tool_use_id: toolMsg.tool_call_id,
+            content,
+            is_error: content.startsWith('Error')
+          });
+        }
+        j += 1;
+      }
+
+      if (toolBlocks.length > 0) {
+        result.push({
+          role: 'user',
+          content: toolBlocks
+        });
+      }
+
+      i = j - 1;
+    }
+  }
+
+  return result;
+}
+
+function buildAnthropicTools() {
+  return tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    input_schema: tool.function.parameters
+  }));
+}
+
+function parseAnthropicMessage(data: any) {
+  const blocks = Array.isArray(data?.content) ? data.content : [];
+  let text = '';
+  const toolCalls: any[] = [];
+
+  for (const block of blocks) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      text += block.text;
+      continue;
+    }
+    if (block?.type === 'tool_use') {
+      toolCalls.push({
+        id: block.id,
+        type: 'function',
+        function: {
+          name: block.name,
+          arguments: JSON.stringify(block.input ?? {})
+        }
+      });
+    }
+  }
+
+  return {
+    content: text,
+    tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+  };
+}
+
 async function sendMessage() {
   if (!input.value.trim() || isLoading.value) return;
 
@@ -363,20 +489,46 @@ ${activeWorkspace.value.context}
 
 
   try {
-    const response = await fetch(`${settingsStore.ai.apiUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settingsStore.ai.apiKey}`
-      },
-      body: JSON.stringify({
-        model: settingsStore.ai.modelName,
-        messages: apiMessages,
-        tools: tools,
-        tool_choice: "auto"
-      }),
-      signal: abortController.value?.signal
-    });
+    const providerType = settingsStore.ai.providerType || 'openai';
+    const apiBaseUrl = normalizeApiBaseUrl(settingsStore.ai.apiUrl);
+    let response: Response;
+    let message: any;
+
+    if (providerType === 'anthropic') {
+      const anthropicMessages = buildAnthropicMessages(apiMessages);
+      response = await fetch(`${apiBaseUrl}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': settingsStore.ai.apiKey,
+          'anthropic-version': ANTHROPIC_VERSION
+        },
+        body: JSON.stringify({
+          model: settingsStore.ai.modelName,
+          max_tokens: ANTHROPIC_MAX_TOKENS,
+          system: systemContent,
+          messages: anthropicMessages,
+          tools: buildAnthropicTools(),
+          tool_choice: { type: 'auto' }
+        }),
+        signal: abortController.value?.signal
+      });
+    } else {
+      response = await fetch(`${apiBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${settingsStore.ai.apiKey}`
+        },
+        body: JSON.stringify({
+          model: settingsStore.ai.modelName,
+          messages: apiMessages,
+          tools: tools,
+          tool_choice: "auto"
+        }),
+        signal: abortController.value?.signal
+      });
+    }
 
     if (!response.ok) {
       const errText = await response.text();
@@ -384,8 +536,15 @@ ${activeWorkspace.value.context}
     }
 
     const data = await response.json();
-    const choice = data.choices[0];
-    const message = choice.message;
+    if (providerType === 'anthropic') {
+      message = parseAnthropicMessage(data);
+    } else {
+      const choice = data.choices?.[0];
+      if (!choice?.message) {
+        throw new Error('API Error: Missing message in response');
+      }
+      message = choice.message;
+    }
 
     if (message.tool_calls) {
       messages.value.push({

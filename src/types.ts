@@ -43,10 +43,13 @@ export interface FileEntry {
 
 export type ColumnKey = "name" | "size" | "date" | "owner";
 
+export type AIProviderType = "openai" | "anthropic";
+
 export interface AIConfig {
   apiUrl: string;
   apiKey: string;
   modelName: string;
+  providerType: AIProviderType;
 }
 
 export type TerminalCursorStyle = "block" | "underline" | "bar";
