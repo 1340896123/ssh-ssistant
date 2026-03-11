@@ -67,6 +67,21 @@ function normalizeApiBaseUrl(url: string) {
   return url.replace(/\/+$/, '');
 }
 
+function resolveAnthropicEndpoint(apiUrl: string) {
+  const trimmed = apiUrl.trim();
+  if (!trimmed || trimmed === 'https://api.openai.com/v1') {
+    return 'https://api.anthropic.com/v1/messages';
+  }
+  const normalized = normalizeApiBaseUrl(trimmed);
+  if (normalized.endsWith('/messages')) {
+    return normalized;
+  }
+  if (normalized.endsWith('/v1') || normalized.includes('/v1/')) {
+    return `${normalized}/messages`;
+  }
+  return `${normalized}/v1/messages`;
+}
+
 function extractAnthropicText(data: any) {
   const blocks = Array.isArray(data?.content) ? data.content : [];
   let text = '';
@@ -633,13 +648,12 @@ async function triggerAiCompletion() {
 
   try {
     const providerType = settingsStore.ai.providerType || 'openai';
-    const apiBaseUrl = normalizeApiBaseUrl(settingsStore.ai.apiUrl);
     const systemPrompt = `你是一名Linux专家，用户给定一个Linux命令，给出3-5个可能的补全方式，例如用户输入"ls",你必须直接返回JSON数组，例如：["ls -la", "ls -lh"],绝对禁止返回其他内容`;
     let response: Response;
     let content = '';
 
     if (providerType === 'anthropic') {
-      response = await fetch(`${apiBaseUrl}/messages`, {
+      response = await fetch(resolveAnthropicEndpoint(settingsStore.ai.apiUrl), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -660,6 +674,7 @@ async function triggerAiCompletion() {
         })
       });
     } else {
+      const apiBaseUrl = normalizeApiBaseUrl(settingsStore.ai.apiUrl);
       response = await fetch(`${apiBaseUrl}/chat/completions`, {
         method: 'POST',
         headers: {

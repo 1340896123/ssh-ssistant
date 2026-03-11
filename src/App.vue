@@ -422,7 +422,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
     <!-- Sidebar Resizer -->
     <div v-show="!isSidebarCollapsed"
-      class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal"
+      class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
       @mousedown.prevent="startResize('sidebar')">
     </div>
 
@@ -457,7 +457,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
               <!-- Resizer (Horizontal) -->
               <div
-                class="h-1 bg-bg-tertiary hover:bg-primary cursor-row-resize flex-shrink-0 z-10 transition-all duration-normal"
+                class="h-1 bg-bg-tertiary hover:bg-primary cursor-row-resize flex-shrink-0 transition-all duration-normal"
                 @mousedown.prevent="startResize('file')">
               </div>
 
@@ -481,7 +481,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
               </div>
 
               <!-- Resizer (Vertical) -->
-              <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal"
+              <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
                 @mousedown.prevent="startResize('file')">
               </div>
 
@@ -494,7 +494,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
             </template>
 
             <!-- Resizer (Vertical separator) -->
-            <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 z-10 transition-all duration-normal"
+            <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
               @mousedown.prevent="startResize('ai')">
             </div>
 

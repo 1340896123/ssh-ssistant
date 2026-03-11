@@ -237,9 +237,25 @@ const tools = [
 
 const ANTHROPIC_VERSION = '2023-06-01';
 const ANTHROPIC_MAX_TOKENS = 1024;
+const ANTHROPIC_TOOLS_BETA = 'tools-2024-04-04';
 
 function normalizeApiBaseUrl(url: string) {
   return url.replace(/\/+$/, '');
+}
+
+function resolveAnthropicEndpoint(apiUrl: string) {
+  const trimmed = apiUrl.trim();
+  if (!trimmed || trimmed === 'https://api.openai.com/v1') {
+    return 'https://api.anthropic.com/v1/messages';
+  }
+  const normalized = normalizeApiBaseUrl(trimmed);
+  if (normalized.endsWith('/messages')) {
+    return normalized;
+  }
+  if (normalized.endsWith('/v1') || normalized.includes('/v1/')) {
+    return `${normalized}/messages`;
+  }
+  return `${normalized}/v1/messages`;
 }
 
 function safeJsonParse(input: string) {
@@ -496,20 +512,23 @@ ${activeWorkspace.value.context}
 
     if (providerType === 'anthropic') {
       const anthropicMessages = buildAnthropicMessages(apiMessages);
-      response = await fetch(`${apiBaseUrl}/messages`, {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-api-key': settingsStore.ai.apiKey,
+        'anthropic-version': ANTHROPIC_VERSION
+      };
+      if (tools.length > 0) {
+        headers['anthropic-beta'] = ANTHROPIC_TOOLS_BETA;
+      }
+      response = await fetch(resolveAnthropicEndpoint(settingsStore.ai.apiUrl), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': settingsStore.ai.apiKey,
-          'anthropic-version': ANTHROPIC_VERSION
-        },
+        headers,
         body: JSON.stringify({
           model: settingsStore.ai.modelName,
           max_tokens: ANTHROPIC_MAX_TOKENS,
           system: systemContent,
           messages: anthropicMessages,
-          tools: buildAnthropicTools(),
-          tool_choice: { type: 'auto' }
+          tools: buildAnthropicTools()
         }),
         signal: abortController.value?.signal
       });
