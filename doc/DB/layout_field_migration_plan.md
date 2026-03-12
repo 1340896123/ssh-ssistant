@@ -387,7 +387,7 @@ params![
 
 ### Phase 3: 编译验证
 ```bash
-cd d:\source\ssh-ssistant
+cd d:\source\ssh-ssistant-tauri
 npm run build  # 触发 TypeScript 类型检查
 cd src-tauri
 cargo check    # 验证 Rust 代码编译

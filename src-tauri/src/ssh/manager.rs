@@ -444,8 +444,11 @@ impl SshManager {
                 cancel_flag,
                 is_ai,
             } => {
-                let res = Self::bg_exec(pool.clone(), &command, cancel_flag.as_ref(), is_ai);
-                let _ = listener.send(res);
+                let pool = pool.clone();
+                thread::spawn(move || {
+                    let res = Self::bg_exec(pool, &command, cancel_flag.as_ref(), is_ai);
+                    let _ = listener.send(res);
+                });
             }
             SshCommand::SftpLs { path, listener } => {
                 let res = Self::bg_sftp_ls(pool.clone(), &path);
