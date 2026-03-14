@@ -75,6 +75,7 @@ pub mod network_monitor;
 pub mod reconnect;
 pub mod system;
 pub mod terminal;
+pub mod tunnel;
 pub mod utils;
 pub mod wsl;
 pub mod transfer;

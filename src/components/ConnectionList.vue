@@ -5,7 +5,7 @@ import { useI18n } from '../composables/useI18n';
 import { onMounted, computed, ref, onUnmounted } from 'vue';
 import {
   FolderPlus, ChevronRight, ChevronDown, FolderOpen, Folder,
-  Monitor, Pencil, Trash2, Copy
+  Monitor, Pencil, Trash2, Copy, Cable
 } from 'lucide-vue-next';
 import ConnectionTreeItem from './ConnectionTreeItem.vue';
 import type { Connection, ConnectionGroup } from '../types';
@@ -19,7 +19,7 @@ const connectionStore = useConnectionStore();
 const sessionStore = useSessionStore();
 const notificationStore = useNotificationStore();
 const { t } = useI18n();
-const emit = defineEmits(['edit']);
+const emit = defineEmits(['edit', 'tunnels']);
 
 // Context Menu State
 const menuVisible = ref(false);
@@ -62,6 +62,9 @@ async function handleMenuAction(action: string) {
       break;
     case 'delete':
       if (item && !('children' in item)) handleDelete(item as Connection);
+      break;
+    case 'tunnels':
+      if (item && !('children' in item)) emit('tunnels', item as Connection);
       break;
     case 'newSubGroup':
       if (item && 'children' in item) handleCreateGroup(item.id);
@@ -126,6 +129,7 @@ function handleItemContextMenu(event: MouseEvent, item: Connection | ConnectionG
     menuItems.value = [
       { label: t('connections.contextMenu.connect'), action: 'connect', icon: Monitor },
       { label: t('connections.contextMenu.edit'), action: 'edit', icon: Pencil },
+      { label: t('connections.contextMenu.tunnels'), action: 'tunnels', icon: Cable },
       { label: t('connections.contextMenu.copy'), action: 'copy', icon: Copy },
       { label: t('connections.contextMenu.delete'), action: 'delete', icon: Trash2, danger: true }
     ];

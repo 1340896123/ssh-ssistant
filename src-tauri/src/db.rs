@@ -1,8 +1,9 @@
 use crate::models::{
     AIConfig, AppSettings, Connection as SshConnection, ConnectionGroup, ConnectionTimeoutSettings,
-    FileManagerSettings, HeartbeatSettings, NetworkAdaptiveSettings, PoolHealthSettings, ReconnectSettings, SshKey, SshPoolSettings, TerminalAppearanceSettings,
+    FileManagerSettings, HeartbeatSettings, NetworkAdaptiveSettings, PoolHealthSettings,
+    ReconnectSettings, SshKey, SshPoolSettings, TerminalAppearanceSettings, Tunnel,
 };
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, Result, Row};
 use tauri::{AppHandle, Manager};
 
 pub fn get_db_path(app_handle: &AppHandle) -> std::path::PathBuf {
@@ -31,6 +32,31 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
         )",
         [],
     )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tunnels (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            connection_id INTEGER NOT NULL,
+            tunnel_type TEXT NOT NULL,
+            local_host TEXT,
+            local_port INTEGER,
+            remote_host TEXT,
+            remote_port INTEGER,
+            remote_bind_host TEXT,
+            proxy_jump TEXT,
+            proxy_command TEXT,
+            agent_forwarding INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(connection_id) REFERENCES connections(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tunnels_connection_id ON tunnels(connection_id)",
+        [],
+    );
 
     conn.execute(
         r#"CREATE TABLE IF NOT EXISTS settings (
@@ -330,6 +356,47 @@ pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, Stri
     Ok(connections)
 }
 
+pub fn get_connection_by_id(
+    app_handle: &AppHandle,
+    id: i64,
+) -> Result<Option<SshConnection>, String> {
+    let db_path = get_db_path(app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type, auth_type, ssh_key_id FROM connections WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+
+    let mut rows = stmt
+        .query_map(params![id], |row| {
+            Ok(SshConnection {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                host: row.get(2)?,
+                port: row.get(3)?,
+                username: row.get(4)?,
+                password: row.get(5)?,
+                jump_host: row.get(6)?,
+                jump_port: row.get(7)?,
+                jump_username: row.get(8)?,
+                jump_password: row.get(9)?,
+                group_id: row.get(10)?,
+                os_type: row.get(11)?,
+                auth_type: row.get(12)?,
+                ssh_key_id: row.get(13)?,
+                key_content: None,
+                key_passphrase: None,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    if let Some(row) = rows.next() {
+        Ok(Some(row.map_err(|e| e.to_string())?))
+    } else {
+        Ok(None)
+    }
+}
+
 #[tauri::command]
 pub fn get_groups(app_handle: AppHandle) -> Result<Vec<ConnectionGroup>, String> {
     let db_path = get_db_path(&app_handle);
@@ -394,6 +461,170 @@ pub fn delete_connection(app_handle: AppHandle, id: i64) -> Result<(), String> {
         .execute("DELETE FROM connections WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn map_tunnel_row(row: &Row<'_>) -> Result<Tunnel> {
+    Ok(Tunnel {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        connection_id: row.get(2)?,
+        tunnel_type: row.get(3)?,
+        local_host: row.get(4)?,
+        local_port: row.get(5)?,
+        remote_host: row.get(6)?,
+        remote_port: row.get(7)?,
+        remote_bind_host: row.get(8)?,
+        proxy_jump: row.get(9)?,
+        proxy_command: row.get(10)?,
+        agent_forwarding: row.get(11)?,
+        created_at: row.get(12)?,
+    })
+}
+
+#[tauri::command]
+pub fn get_tunnels(
+    app_handle: AppHandle,
+    connection_id: Option<i64>,
+) -> Result<Vec<Tunnel>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let query = if connection_id.is_some() {
+        "SELECT id, name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at FROM tunnels WHERE connection_id = ?1 ORDER BY created_at DESC"
+    } else {
+        "SELECT id, name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at FROM tunnels ORDER BY created_at DESC"
+    };
+
+    let mut tunnels = Vec::new();
+    if let Some(conn_id) = connection_id {
+        let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![conn_id], map_tunnel_row)
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            tunnels.push(row.map_err(|e| e.to_string())?);
+        }
+    } else {
+        let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], map_tunnel_row)
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            tunnels.push(row.map_err(|e| e.to_string())?);
+        }
+    }
+    Ok(tunnels)
+}
+
+#[tauri::command]
+pub fn create_tunnel(app_handle: AppHandle, tunnel: Tunnel) -> Result<i64, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let created_at = tunnel
+        .created_at
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+        });
+
+    conn.execute(
+        "INSERT INTO tunnels (name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            tunnel.name,
+            tunnel.connection_id,
+            tunnel.tunnel_type,
+            tunnel.local_host,
+            tunnel.local_port,
+            tunnel.remote_host,
+            tunnel.remote_port,
+            tunnel.remote_bind_host,
+            tunnel.proxy_jump,
+            tunnel.proxy_command,
+            tunnel.agent_forwarding.unwrap_or(false),
+            created_at
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+pub fn update_tunnel(app_handle: AppHandle, tunnel: Tunnel) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let id = tunnel
+        .id
+        .ok_or_else(|| "Tunnel ID is required for update".to_string())?;
+
+    conn.execute(
+        "UPDATE tunnels SET name=?1, connection_id=?2, tunnel_type=?3, local_host=?4, local_port=?5, remote_host=?6, remote_port=?7, remote_bind_host=?8, proxy_jump=?9, proxy_command=?10, agent_forwarding=?11 WHERE id=?12",
+        params![
+            tunnel.name,
+            tunnel.connection_id,
+            tunnel.tunnel_type,
+            tunnel.local_host,
+            tunnel.local_port,
+            tunnel.remote_host,
+            tunnel.remote_port,
+            tunnel.remote_bind_host,
+            tunnel.proxy_jump,
+            tunnel.proxy_command,
+            tunnel.agent_forwarding.unwrap_or(false),
+            id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_tunnel(app_handle: AppHandle, id: i64) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    conn.execute("DELETE FROM tunnels WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn get_tunnel_by_id(app_handle: &AppHandle, id: i64) -> Result<Option<Tunnel>, String> {
+    let db_path = get_db_path(app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at FROM tunnels WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+
+    let mut rows = stmt
+        .query_map(params![id], |row| {
+            Ok(Tunnel {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                connection_id: row.get(2)?,
+                tunnel_type: row.get(3)?,
+                local_host: row.get(4)?,
+                local_port: row.get(5)?,
+                remote_host: row.get(6)?,
+                remote_port: row.get(7)?,
+                remote_bind_host: row.get(8)?,
+                proxy_jump: row.get(9)?,
+                proxy_command: row.get(10)?,
+                agent_forwarding: row.get(11)?,
+                created_at: row.get(12)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    if let Some(row) = rows.next() {
+        Ok(Some(row.map_err(|e| e.to_string())?))
+    } else {
+        Ok(None)
+    }
 }
 
 #[tauri::command]

@@ -6,6 +6,8 @@ export interface I18nMessages {
     newConnection: string
     settings: string
     selectConnectionToStart: string
+    connections: string
+    tunnels: string
   }
   connections: {
     edit: string
@@ -24,6 +26,41 @@ export interface I18nMessages {
     jumpPassword: string
     cancel: string
     save: string
+    tunnels: string
+  }
+  tunnels: {
+    title: string
+    new: string
+    name: string
+    type: string
+    local: string
+    remote: string
+    dynamic: string
+    localHost: string
+    localPort: string
+    remoteHost: string
+    remotePort: string
+    remoteBindHost: string
+    proxyJump: string
+    proxyCommand: string
+    agentForwarding: string
+    start: string
+    stop: string
+    save: string
+    cancel: string
+    refresh: string
+    connection: string
+    allConnections: string
+    manage: string
+    none: string
+    selectConnection: string
+    deleteConfirm: string
+    connectionMissing: string
+    delete: string
+    inactive: string
+    active: string
+    mapping: string
+    required: string
   }
   settings: {
     title: string

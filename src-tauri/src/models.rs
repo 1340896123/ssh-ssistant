@@ -44,6 +44,32 @@ pub struct ConnectionGroup {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct Tunnel {
+    pub id: Option<i64>,
+    pub name: String,
+    pub connection_id: i64,
+    pub tunnel_type: String, // "local" | "remote" | "dynamic"
+    pub local_host: Option<String>,
+    pub local_port: Option<u16>,
+    pub remote_host: Option<String>,
+    pub remote_port: Option<u16>,
+    pub remote_bind_host: Option<String>,
+    pub proxy_jump: Option<String>,
+    pub proxy_command: Option<String>,
+    pub agent_forwarding: Option<bool>,
+    pub created_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelStatus {
+    pub id: i64,
+    pub active: bool,
+    pub pid: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct FileEntry {
     pub name: String,
     pub is_dir: bool,

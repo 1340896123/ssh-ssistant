@@ -31,6 +31,30 @@ export interface ConnectionGroup {
   children?: (ConnectionGroup | Connection)[]; // For UI tree structure
 }
 
+export type TunnelType = "local" | "remote" | "dynamic";
+
+export interface Tunnel {
+  id?: number;
+  name: string;
+  connectionId: number;
+  tunnelType: TunnelType;
+  localHost?: string;
+  localPort?: number;
+  remoteHost?: string;
+  remotePort?: number;
+  remoteBindHost?: string;
+  proxyJump?: string;
+  proxyCommand?: string;
+  agentForwarding?: boolean;
+  createdAt?: number;
+}
+
+export interface TunnelStatus {
+  id: number;
+  active: boolean;
+  pid?: number;
+}
+
 export interface FileEntry {
   name: string;
   isDir: boolean;

@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted, onBeforeUpdate } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
+import TunnelModal from "./components/TunnelModal.vue";
+import TunnelPanel from "./components/TunnelPanel.vue";
 import SessionTabs from "./components/SessionTabs.vue";
 import TerminalTabArea from "./components/TerminalTabArea.vue";
 import FileManager from "./components/FileManager.vue";
@@ -25,6 +27,9 @@ const { t } = useI18n();
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
 const editingConnection = ref<Connection | null>(null);
+const showTunnelModal = ref(false);
+const tunnelConnection = ref<Connection | null>(null);
+const sidebarTab = ref<'connections' | 'tunnels'>('connections');
 const isSidebarCollapsed = ref(false);
 
 // AI Context Refs
@@ -56,6 +61,11 @@ function updateTerminalContext() {
   } else {
     terminalContext.value = "";
   }
+}
+
+function openTunnelModal(conn: Connection) {
+  tunnelConnection.value = conn;
+  showTunnelModal.value = true;
 }
 
 // Layout state
@@ -409,8 +419,25 @@ function switchTerminalToPath(sessionId: string, path: string) {
           </button>
         </div>
       </div>
+      <div class="px-2 pt-2">
+        <div class="flex items-center gap-2 bg-bg-tertiary/60 rounded-lg p-1">
+          <button
+            class="flex-1 text-xs font-semibold uppercase tracking-wide rounded-md py-1 transition-colors"
+            :class="sidebarTab === 'connections' ? 'bg-bg-elevated text-text-primary' : 'text-text-muted hover:text-text-primary'"
+            @click="sidebarTab = 'connections'">
+            {{ t('app.connections') || 'Connections' }}
+          </button>
+          <button
+            class="flex-1 text-xs font-semibold uppercase tracking-wide rounded-md py-1 transition-colors"
+            :class="sidebarTab === 'tunnels' ? 'bg-bg-elevated text-text-primary' : 'text-text-muted hover:text-text-primary'"
+            @click="sidebarTab = 'tunnels'">
+            {{ t('app.tunnels') || 'Tunnels' }}
+          </button>
+        </div>
+      </div>
       <div class="flex-1 overflow-y-auto p-2">
-        <ConnectionList @edit="openEditConnectionModal" />
+        <ConnectionList v-if="sidebarTab === 'connections'" @edit="openEditConnectionModal" @tunnels="openTunnelModal" />
+        <TunnelPanel v-else @manage="openTunnelModal" />
       </div>
       <div class="p-4 border-t border-subtle bg-bg-tertiary/80">
         <button @click="openNewConnectionModal"
@@ -722,6 +749,8 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
     <ConnectionModal :show="showConnectionModal" :connectionToEdit="editingConnection"
       @close="showConnectionModal = false" @save="handleSaveConnection" />
+    <TunnelModal :show="showTunnelModal" :connection="tunnelConnection"
+      @close="showTunnelModal = false" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
 
     <NotificationModal v-if="notificationStore.show" :show="notificationStore.show" :type="notificationStore.type"
