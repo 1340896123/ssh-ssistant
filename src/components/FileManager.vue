@@ -18,6 +18,7 @@ import { parseFileError, getErrorMessage } from '../composables/useFileError';
 // import draggable from 'vuedraggable'; // Removed
 
 type ColumnKey = 'name' | 'size' | 'date' | 'owner';
+type SortDirection = 'asc' | 'desc';
 
 interface TreeNode {
     entry: FileEntry;
@@ -125,6 +126,7 @@ const renameInput = ref('');
 const renamingType = ref<'rename' | 'create_file' | 'create_folder'>('rename');
 const isConfirmingRename = ref(false);
 const containerRef = ref<HTMLElement | null>(null);
+const fileListScrollRef = ref<HTMLElement | null>(null);
 const selectedFiles = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref<number>(-1);
 const transferStore = useTransferStore();
@@ -139,11 +141,16 @@ const columnWidths = ref<Record<ColumnKey, number>>({
     date: 200,
     owner: 120,
 });
+const sortState = ref<{ key: ColumnKey; direction: SortDirection }>({
+    key: 'name',
+    direction: 'asc'
+});
 const resizingColumn = ref<ColumnKey | null>(null);
 const resizeStartX = ref(0);
 const resizeStartWidth = ref(0);
 
 const isOpeningFile = ref(false);
+const virtualListRef = ref<InstanceType<typeof VirtualFileList> | null>(null);
 const unlistenDrop = ref<UnlistenFn | null>(null);
 
 // Path suggestions
@@ -156,6 +163,166 @@ let loadFilesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const isLoadingFiles = ref(false);
 const activeSuggestionIndex = ref(-1);
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const typeSearchBuffer = ref('');
+let typeSearchTimer: ReturnType<typeof setTimeout> | null = null;
+let lastTypeTimestamp = 0;
+
+function compareEntries(a: FileEntry, b: FileEntry, key: ColumnKey, direction: SortDirection) {
+    if (a.name === '..' && b.name !== '..') return -1;
+    if (b.name === '..' && a.name !== '..') return 1;
+
+    if (a.isDir !== b.isDir) {
+        return a.isDir ? -1 : 1;
+    }
+
+    let result = 0;
+    switch (key) {
+        case 'size':
+            result = (a.size ?? 0) - (b.size ?? 0);
+            break;
+        case 'date':
+            result = (a.mtime ?? 0) - (b.mtime ?? 0);
+            break;
+        case 'owner':
+            result = (a.owner || '').localeCompare(b.owner || '', undefined, { sensitivity: 'base' });
+            break;
+        case 'name':
+        default:
+            result = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+            break;
+    }
+
+    if (result === 0 && key !== 'name') {
+        result = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    }
+
+    return direction === 'asc' ? result : -result;
+}
+
+const sortedFiles = computed<FileEntry[]>(() => {
+    const list = [...files.value];
+    list.sort((a, b) => compareEntries(a, b, sortState.value.key, sortState.value.direction));
+    return list;
+});
+
+function toggleSort(key: ColumnKey) {
+    if (sortState.value.key === key) {
+        sortState.value.direction = sortState.value.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortState.value.key = key;
+        sortState.value.direction = 'asc';
+    }
+    lastSelectedIndex.value = -1;
+}
+
+function resetTypeSearchBuffer() {
+    typeSearchBuffer.value = '';
+    lastTypeTimestamp = 0;
+    if (typeSearchTimer) {
+        clearTimeout(typeSearchTimer);
+        typeSearchTimer = null;
+    }
+}
+
+function updateTypeSearchBuffer(char: string, replace = false) {
+    const normalized = char.toLowerCase();
+    if (replace) {
+        typeSearchBuffer.value = normalized;
+    } else {
+        typeSearchBuffer.value += normalized;
+    }
+    lastTypeTimestamp = Date.now();
+    if (typeSearchTimer) clearTimeout(typeSearchTimer);
+    typeSearchTimer = setTimeout(() => {
+        typeSearchBuffer.value = '';
+        typeSearchTimer = null;
+    }, 900);
+}
+
+function isFileManagerFocused() {
+    const active = document.activeElement as HTMLElement | null;
+    if (!containerRef.value) return false;
+    return active ? containerRef.value.contains(active) : false;
+}
+
+function handleTypeToSelect(char: string) {
+    if (!char.trim()) return;
+    const normalized = char.toLowerCase();
+    const now = Date.now();
+    const shouldCycleSingle = typeSearchBuffer.value.length === 1
+        && typeSearchBuffer.value === normalized
+        && (now - lastTypeTimestamp) < 900;
+    updateTypeSearchBuffer(normalized, shouldCycleSingle);
+    const query = typeSearchBuffer.value;
+    if (!query) return;
+
+    if (viewMode.value === 'tree') {
+        const list = visibleTreeNodes.value;
+        if (list.length === 0) return;
+        const startIndex = Math.max(0, list.findIndex((n) => selectedTreePaths.value.has(n.path)));
+        const findMatch = (from: number, to: number) => {
+            for (let i = from; i < to; i++) {
+                const name = list[i].entry.name;
+                if (name !== '..' && name.toLowerCase().startsWith(query)) {
+                    return i;
+                }
+            }
+            return -1;
+        };
+        let idx = findMatch(startIndex + 1, list.length);
+        if (idx === -1) idx = findMatch(0, startIndex + 1);
+        if (idx !== -1) {
+            selectedTreePaths.value = new Set([list[idx].path]);
+            selectedFiles.value.clear();
+            scrollToLocatedIndex(idx);
+        }
+    } else {
+        const list = sortedFiles.value;
+        if (list.length === 0) return;
+        const startIndex = Math.max(0, lastSelectedIndex.value);
+        const findMatch = (from: number, to: number) => {
+            for (let i = from; i < to; i++) {
+                const name = list[i].name;
+                if (name !== '..' && name.toLowerCase().startsWith(query)) {
+                    return i;
+                }
+            }
+            return -1;
+        };
+        let idx = findMatch(startIndex + 1, list.length);
+        if (idx === -1) idx = findMatch(0, startIndex + 1);
+        if (idx !== -1) {
+            selectedFiles.value.clear();
+            selectedFiles.value.add(list[idx].name);
+            lastSelectedIndex.value = idx;
+            scrollToLocatedIndex(idx);
+        }
+    }
+}
+
+function handleContainerClick(event: MouseEvent) {
+    closeContextMenu();
+    const target = event.target as HTMLElement | null;
+    if (target) {
+        const tagName = target.tagName;
+        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || target.isContentEditable) {
+            return;
+        }
+    }
+    containerRef.value?.focus({ preventScroll: true });
+}
+
+function scrollToLocatedIndex(index: number) {
+    nextTick(() => {
+        requestAnimationFrame(() => {
+            virtualListRef.value?.scrollToIndex(index);
+            requestAnimationFrame(() => {
+                const selected = fileListScrollRef.value?.querySelector<HTMLElement>('.file-item-selected');
+                selected?.scrollIntoView({ block: 'nearest' });
+            });
+        });
+    });
+}
 
 // 请求去重机制 - 避免对相同路径的重复请求
 const pendingRequests = new Map<string, Promise<FileEntry[]>>();
@@ -342,12 +509,7 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
             }
         }
 
-        childNodes.sort((a, b) => {
-            if (a.entry.isDir === b.entry.isDir) {
-                return a.entry.name.localeCompare(b.entry.name);
-            }
-            return a.entry.isDir ? -1 : 1;
-        });
+        childNodes.sort((a, b) => compareEntries(a.entry, b.entry, sortState.value.key, sortState.value.direction));
 
         for (const child of childNodes) {
             result.push(child);
@@ -425,6 +587,7 @@ async function loadFiles(path: string) {
             files.value = filesWithParent;
             triggerRef(files);
             currentPath.value = path;
+            resetTypeSearchBuffer();
             // Display actual path instead of "."
             pathInput.value = path === '.' ? '/' : path;
             console.log('Set currentPath to:', path, 'displayed as:', pathInput.value);
@@ -715,6 +878,7 @@ onUnmounted(() => {
     if (unlistenDrop.value) {
         unlistenDrop.value();
     }
+    resetTypeSearchBuffer();
     // 清理防抖定时器
     if (loadFilesDebounceTimer) {
         clearTimeout(loadFilesDebounceTimer);
@@ -787,6 +951,7 @@ function handlePathSubmit() {
 
 function handleSelection(event: MouseEvent, file: FileEntry, index: number) {
     closeContextMenu();
+    const displayList = sortedFiles.value;
     if (event.ctrlKey || event.metaKey) {
         // Toggle selection
         if (selectedFiles.value.has(file.name)) {
@@ -801,8 +966,8 @@ function handleSelection(event: MouseEvent, file: FileEntry, index: number) {
         const end = Math.max(lastSelectedIndex.value, index);
         selectedFiles.value.clear();
         for (let i = start; i <= end; i++) {
-            if (files.value[i]) {
-                selectedFiles.value.add(files.value[i].name);
+            if (displayList[i]) {
+                selectedFiles.value.add(displayList[i].name);
             }
         }
     } else {
@@ -819,7 +984,7 @@ function showContextMenu(e: MouseEvent, file: FileEntry) {
     if (!selectedFiles.value.has(file.name)) {
         selectedFiles.value.clear();
         selectedFiles.value.add(file.name);
-        const idx = files.value.findIndex(f => f.name === file.name);
+        const idx = sortedFiles.value.findIndex(f => f.name === file.name);
         if (idx !== -1) lastSelectedIndex.value = idx;
     }
 
@@ -835,11 +1000,14 @@ function closeContextMenu() {
 async function handleUpload() {
     try {
         const selected = await open({
-            multiple: false,
+            multiple: true,
             title: 'Select file to upload'
         });
-        if (selected && typeof selected === 'string') {
-            const name = selected.split(/[\\/]/).pop() || 'uploaded_file';
+        if (!selected) return;
+        const selectedFiles = Array.isArray(selected) ? selected : [selected];
+        for (const filePath of selectedFiles) {
+            if (!filePath) continue;
+            const name = filePath.split(/[\\/]/).pop() || 'uploaded_file';
             const remotePath = pathUtils.value.join(currentPath.value, name);
 
             const transferId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
@@ -848,7 +1016,7 @@ async function handleUpload() {
                 id: transferId,
                 type: 'upload',
                 name,
-                localPath: selected,
+                localPath: filePath,
                 remotePath,
                 size: 0,
                 transferred: 0,
@@ -856,9 +1024,9 @@ async function handleUpload() {
                 status: 'pending',
                 sessionId: props.sessionId
             });
-
-            // loadFiles(currentPath.value);
         }
+
+        // loadFiles(currentPath.value);
     } catch (e) {
         console.error(e);
         notificationStore.error("Upload failed: " + e);
@@ -1293,9 +1461,16 @@ async function handleDelete(file?: FileEntry) {
 function handleKeyDown(e: KeyboardEvent) {
     if (isEditingPath.value) return;
     if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+    if (!isFileManagerFocused()) return;
+    if (e.isComposing || e.key === 'Process') return;
 
     if (e.key === 'Delete') {
         performDelete(e.shiftKey);
+        return;
+    }
+
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
+        handleTypeToSelect(e.key);
     }
 }
 
@@ -1578,7 +1753,7 @@ function formatSize(size: number): string {
 </script>
 
 <template>
-    <div ref="containerRef" class="h-full bg-bg-primary text-text-primary p-2 flex flex-col" @click="closeContextMenu">
+    <div ref="containerRef" tabindex="0" class="h-full bg-bg-primary text-text-primary p-2 flex flex-col outline-none" @click="handleContainerClick">
         <!-- Toolbar -->
         <div class="flex flex-col space-y-2 mb-2 bg-bg-secondary p-2 rounded border border-subtle hover:border-primary/30 transition-all duration-fast">
             <!-- Path Bar -->
@@ -1641,35 +1816,40 @@ function formatSize(size: number): string {
         </div>
 
         <!-- File List -->
-        <div class="flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
+        <div ref="fileListScrollRef" class="flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
             @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu="handleContainerContextMenu">
             <!-- Header -->
             <div
                 class="flex items-center p-2 text-xs text-text-tertiary border-b border-subtle bg-bg-secondary/50 font-bold select-none">
-                <div class="flex items-center px-2" :style="{ width: columnWidths.name + 'px' }">
+                <div class="flex items-center px-2 cursor-pointer" :style="{ width: columnWidths.name + 'px' }"
+                    @click="toggleSort('name')">
                     <span>{{ t('fileManager.headers.name') }}</span>
                     <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast "
-                        @mousedown.stop="startResize('name', $event)"></span>
+                        @mousedown.stop="startResize('name', $event)" @click.stop></span>
                 </div>
-                <div class="flex items-center px-2" :style="{ width: columnWidths.size + 'px' }">
+                <div class="flex items-center px-2 cursor-pointer" :style="{ width: columnWidths.size + 'px' }"
+                    @click="toggleSort('size')">
                     <span>{{ t('fileManager.headers.size') }}</span>
                     <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast "
-                        @mousedown.stop="startResize('size', $event)"></span>
+                        @mousedown.stop="startResize('size', $event)" @click.stop></span>
                 </div>
-                <div class="flex items-center px-2" :style="{ width: columnWidths.date + 'px' }">
+                <div class="flex items-center px-2 cursor-pointer" :style="{ width: columnWidths.date + 'px' }"
+                    @click="toggleSort('date')">
                     <span>{{ t('fileManager.headers.dateModified') }}</span>
                     <span class="w-1 h-6 ml-auto cursor-col-resize bg-subtle hover:bg-primary transition-all duration-fast "
-                        @mousedown.stop="startResize('date', $event)"></span>
+                        @mousedown.stop="startResize('date', $event)" @click.stop></span>
                 </div>
-                <div class="flex items-center px-2" :style="{ width: columnWidths.owner + 'px' }">
+                <div class="flex items-center px-2 cursor-pointer" :style="{ width: columnWidths.owner + 'px' }"
+                    @click="toggleSort('owner')">
                     <span>{{ t('fileManager.headers.owner') }}</span>
                 </div>
             </div>
 
             <!-- Flat View -->
             <template v-if="viewMode === 'flat'">
-                <VirtualFileList :items="files" :view-mode="viewMode" :selected-files="selectedFiles"
+                <VirtualFileList ref="virtualListRef" :items="sortedFiles" :view-mode="viewMode" :selected-files="selectedFiles"
                     :selected-tree-paths="selectedTreePaths" :column-widths="columnWidths"
+                    :scroll-element="fileListScrollRef"
                     :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
                     :on-drag-start="onDragStart" :expanded-paths="expandedPaths" :format-size="formatSize"
                     :format-date="formatDate" :renaming-path="renamingPath" v-model:rename-input="renameInput"
@@ -1678,8 +1858,9 @@ function formatSize(size: number): string {
 
             <!-- Tree View -->
             <template v-else>
-                <VirtualFileList :items="visibleTreeNodes" :view-mode="viewMode" :selected-files="selectedFiles"
+                <VirtualFileList ref="virtualListRef" :items="visibleTreeNodes" :view-mode="viewMode" :selected-files="selectedFiles"
                     :selected-tree-paths="selectedTreePaths" :column-widths="columnWidths"
+                    :scroll-element="fileListScrollRef"
                     :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
                     :on-tree-selection="handleTreeSelection" :on-open-tree-file="openTreeFile"
                     :on-tree-context-menu="showTreeContextMenu" :on-toggle-directory="toggleDirectory"
@@ -1688,7 +1869,7 @@ function formatSize(size: number): string {
                     @confirm-rename="confirmRename" @cancel-rename="cancelRename" :current-path="currentPath" />
             </template>
 
-            <div v-if="files.length === 0" class="p-4 text-center text-text-tertiary text-sm">
+            <div v-if="sortedFiles.length === 0" class="p-4 text-center text-text-tertiary text-sm">
                 {{ t('fileManager.emptyDirectory') }}
             </div>
         </div>

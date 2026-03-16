@@ -649,6 +649,7 @@ async function triggerAiCompletion() {
   try {
     const providerType = settingsStore.ai.providerType || 'openai';
     const systemPrompt = `你是一名Linux专家，用户给定一个Linux命令，给出3-5个可能的补全方式，例如用户输入"ls",你必须直接返回JSON数组，例如：["ls -la", "ls -lh"],绝对禁止返回其他内容`;
+    const codingToolHeaderValue = providerType === 'anthropic' ? 'claude codel' : 'opencode';
     let response: Response;
     let content = '';
 
@@ -658,7 +659,8 @@ async function triggerAiCompletion() {
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': settingsStore.ai.apiKey,
-          'anthropic-version': ANTHROPIC_VERSION
+          'anthropic-version': ANTHROPIC_VERSION,
+          'x-coding-tool': codingToolHeaderValue
         },
         body: JSON.stringify({
           model: settingsStore.ai.modelName,
@@ -679,7 +681,8 @@ async function triggerAiCompletion() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settingsStore.ai.apiKey}`
+          'Authorization': `Bearer ${settingsStore.ai.apiKey}`,
+          'x-coding-tool': codingToolHeaderValue
         },
         body: JSON.stringify({
           model: settingsStore.ai.modelName,

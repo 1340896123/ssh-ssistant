@@ -20,6 +20,7 @@ interface Props {
     selectedFiles: Set<string>;
     selectedTreePaths: Set<string>;
     columnWidths: Record<ColumnKey, number>;
+    scrollElement?: HTMLElement | null;
     onSelection: (event: MouseEvent, file: FileEntry, index: number) => void;
     onNavigate: (entry: FileEntry) => void;
     onContextMenu: (event: MouseEvent, file: FileEntry) => void;
@@ -50,7 +51,7 @@ const virtualizerContainerRef = ref<HTMLElement>();
 
 const virtualizerOptions = {
     get count() { return props.items.length; },
-    getScrollElement: () => virtualizerContainerRef.value as Element | null,
+    getScrollElement: () => (props.scrollElement ?? virtualizerContainerRef.value) as Element | null,
     estimateSize: () => 32, // 每行高度
     overscan: 10, // 增加到10以提升滚动流畅度
 };
@@ -63,6 +64,12 @@ const totalSize = computed(() => virtualizer.value.getTotalSize());
 
 const { getFileIcon } = useFileIcon();
 const iconMap = reactive(new Map<string, string>());
+
+function scrollToIndex(index: number) {
+    virtualizer.value.scrollToIndex(index, { align: 'center' });
+}
+
+defineExpose({ scrollToIndex });
 
 async function loadIcon(item: FileEntry) {
     if (!item.isDir && item.name !== '..') {
@@ -106,7 +113,7 @@ function renderFileItem(item: FileEntry, index: number) {
         class: [
             'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {
-                'bg-accent/20': isSelected,
+                'file-item-selected': isSelected,
                 'hover:bg-bg-tertiary': !isSelected,
                 'text-text-muted': isParentDir // Special styling for parent directory
             }
@@ -200,7 +207,7 @@ function renderTreeNode(node: TreeNode) {
         class: [
             'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {
-                'bg-accent/20': isSelected,
+                'file-item-selected': isSelected,
                 'hover:bg-bg-tertiary': !isSelected,
                 'text-text-muted': isParentDir // Special styling for parent directory
             }
@@ -293,7 +300,7 @@ function renderTreeNode(node: TreeNode) {
 </script>
 
 <template>
-    <div ref="virtualizerContainerRef" class="overflow-auto">
+    <div ref="virtualizerContainerRef" :class="props.scrollElement ? 'overflow-hidden' : 'overflow-auto'">
         <div :style="{ height: totalSize + 'px', width: '100%', position: 'relative' }">
             <div v-for="virtualItem in virtualItems" :key="virtualItem.index" :style="{
                 position: 'absolute',

@@ -510,12 +510,15 @@ ${activeWorkspace.value.context}
     let response: Response;
     let message: any;
 
+    const codingToolHeaderValue = providerType === 'anthropic' ? 'claude codel' : 'opencode';
+
     if (providerType === 'anthropic') {
       const anthropicMessages = buildAnthropicMessages(apiMessages);
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'x-api-key': settingsStore.ai.apiKey,
-        'anthropic-version': ANTHROPIC_VERSION
+        'anthropic-version': ANTHROPIC_VERSION,
+        'x-coding-tool': codingToolHeaderValue
       };
       if (tools.length > 0) {
         headers['anthropic-beta'] = ANTHROPIC_TOOLS_BETA;
@@ -537,7 +540,8 @@ ${activeWorkspace.value.context}
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settingsStore.ai.apiKey}`
+          'Authorization': `Bearer ${settingsStore.ai.apiKey}`,
+          'x-coding-tool': codingToolHeaderValue
         },
         body: JSON.stringify({
           model: settingsStore.ai.modelName,

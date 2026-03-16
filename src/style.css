@@ -22,6 +22,7 @@
   --color-accent: #C75B5B;
   --color-accent-light: #D97878;
   --color-accent-dark: #A83E3E;
+  --color-accent-dim: rgba(199, 91, 91, 0.18);
 
   /* Status Colors */
   --color-success: #5B9C5B;
@@ -549,6 +550,15 @@ code, kbd, samp {
 .list-item-interactive:hover {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
   background-color: var(--bg-secondary);
+}
+
+.file-item-selected {
+  background-color: var(--color-accent-dim);
+  box-shadow: inset 0 0 0 1px var(--border-accent);
+}
+
+.list-item-interactive.file-item-selected:hover {
+  background-color: var(--color-accent-dim);
 }
 
 /* Modal */
