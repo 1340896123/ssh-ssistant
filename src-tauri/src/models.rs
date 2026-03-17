@@ -369,6 +369,8 @@ impl FileOperationError {
             (FileErrorType::NotFound, false)
         } else if msg_lower.contains("timeout")
             || msg_lower.contains("timed out")
+            || msg_lower.contains("time out")
+            || msg_lower.contains("wait socket")
         {
             (FileErrorType::Timeout, true)
         } else if msg_lower.contains("connection reset")

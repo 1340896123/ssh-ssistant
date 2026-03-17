@@ -506,8 +506,12 @@ impl<'a> AsyncSftp<'a> {
             match file.read(buffer) {
                 Ok(n) => return Ok(n),
                 Err(e) => {
-                    // WouldBlock is a temporary error that can be retried
-                    if e.kind() == std::io::ErrorKind::WouldBlock && attempt < max_attempts {
+                    // WouldBlock/TimedOut are temporary errors that can be retried
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) && attempt < max_attempts
+                    {
                         attempt += 1;
                         std::thread::sleep(retry_delay);
                         continue;
@@ -535,13 +539,18 @@ impl<'a> AsyncSftp<'a> {
                 Ok(n) => {
                     total_written += n;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
                     if attempt < max_attempts {
                         attempt += 1;
                         std::thread::sleep(retry_delay);
                         continue;
                     }
-                    return Err(TransferError::WouldBlock);
+                    return Err(TransferError::from(e));
                 }
                 Err(e) => return Err(TransferError::from(e)),
             }

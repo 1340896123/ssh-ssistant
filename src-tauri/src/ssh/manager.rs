@@ -14,6 +14,17 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+fn is_wait_socket_timeout(err: &std::io::Error) -> bool {
+    if err.kind() == ErrorKind::TimedOut {
+        return true;
+    }
+    let msg = err.to_string().to_lowercase();
+    msg.contains("timeout")
+        || msg.contains("timed out")
+        || msg.contains("time out")
+        || msg.contains("wait socket")
+}
+
 /// Commands sent to the SSH Manager Actor
 pub enum SshCommand {
     /// Open a shell channel
@@ -985,6 +996,9 @@ impl SshManager {
                     }
                     thread::sleep(Duration::from_millis(5));
                 }
+                Err(e) if is_wait_socket_timeout(&e) => {
+                    thread::sleep(Duration::from_millis(20));
+                }
                 Err(e) => return Err(e.to_string()),
             }
         }
@@ -1135,6 +1149,9 @@ impl SshManager {
                             ));
                         }
                         thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(e) if is_wait_socket_timeout(&e) => {
+                        thread::sleep(Duration::from_millis(20));
                     }
                     Err(e) => return Err(e.to_string()),
                 }

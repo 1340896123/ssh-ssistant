@@ -39,7 +39,9 @@ export function parseFileError(error: unknown): FileOperationError {
         retryable = false;
     } else if (
         msgLower.includes('timeout') ||
-        msgLower.includes('timed out')
+        msgLower.includes('timed out') ||
+        msgLower.includes('time out') ||
+        msgLower.includes('wait socket')
     ) {
         errorType = 'timeout';
         retryable = true;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -116,6 +116,22 @@ let fitAddon: FitAddon | null = null;
 let searchAddon: SearchAddon | null = null;
 let unlisten: (() => void) | null = null;
 let zmodemSentry: any = null;
+let resizeObserver: ResizeObserver | null = null;
+let resizeRaf = 0;
+
+function scheduleFit() {
+  if (!term || !fitAddon || !terminalContainer.value) return;
+  if (resizeRaf) {
+    cancelAnimationFrame(resizeRaf);
+  }
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0;
+    if (!term || !fitAddon || !terminalContainer.value) return;
+    const { clientWidth, clientHeight } = terminalContainer.value;
+    if (clientWidth === 0 || clientHeight === 0) return;
+    fitAddon.fit();
+  });
+}
 
 // Search State
 const showSearch = ref(false);
@@ -201,7 +217,22 @@ onMounted(async () => {
   });
 
   term.open(terminalContainer.value);
-  fitAddon.fit();
+  scheduleFit();
+
+  // ResizeObserver keeps terminal sizing accurate for split panes and tab switches.
+  if (window.ResizeObserver) {
+    resizeObserver = new ResizeObserver(() => {
+      scheduleFit();
+    });
+    resizeObserver.observe(terminalContainer.value);
+  }
+
+  // Fonts can load async; re-fit after they are ready.
+  if ('fonts' in document) {
+    (document as Document & { fonts: FontFaceSet }).fonts.ready.then(() => {
+      scheduleFit();
+    });
+  }
 
   // OSC 7 Handler for CWD tracking
   term.parser.registerOscHandler(7, (data) => {
@@ -247,7 +278,7 @@ onMounted(async () => {
     return true;
   });
 
-  // Initial resize
+  // Initial resize (after layout settles)
   setTimeout(() => {
     handleResize();
   }, 100);
@@ -290,6 +321,10 @@ onMounted(async () => {
     handleResize();
     term?.focus();
   }, 200);
+
+  // If we mount while hidden (v-show), wait a tick and refit.
+  await nextTick();
+  scheduleFit();
 
   const oldUnlisten = unlisten;
   unlisten = () => {
@@ -411,7 +446,7 @@ async function handleZmodemUpload(zsession: any) {
 }
 
 function handleResize() {
-  fitAddon?.fit();
+  scheduleFit();
 }
 
 function searchNext() {
@@ -441,12 +476,22 @@ watch(
     term.options.fontFamily = val.fontFamily;
     term.options.cursorStyle = val.cursorStyle;
     term.options.lineHeight = val.lineHeight;
+    scheduleFit();
   },
   { deep: true }
 );
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize);
+  if (resizeObserver && terminalContainer.value) {
+    resizeObserver.unobserve(terminalContainer.value);
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+  if (resizeRaf) {
+    cancelAnimationFrame(resizeRaf);
+    resizeRaf = 0;
+  }
   if (unlisten) unlisten();
   term?.dispose();
 });
@@ -968,7 +1013,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 
     <!-- Terminal Area -->
     <div class="flex-1 relative overflow-hidden p-1">
-      <div ref="terminalContainer" class="h-full w-full"></div>
+      <div ref="terminalContainer" class="h-full w-full terminal-host"></div>
 
       <!-- Search Bar -->
       <div v-if="showSearch"
@@ -1070,3 +1115,10 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
     </div>
   </div>
 </template>
+
+<style scoped>
+.terminal-host :deep(.xterm) {
+  height: 100%;
+  width: 100%;
+}
+</style>

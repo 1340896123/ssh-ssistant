@@ -331,15 +331,27 @@ impl TransferError {
     }
 }
 
+fn is_timeout_message_lower(msg_lower: &str) -> bool {
+    msg_lower.contains("timeout")
+        || msg_lower.contains("timed out")
+        || msg_lower.contains("time out")
+        || msg_lower.contains("wait socket")
+}
+
+fn is_timeout_message(msg: &str) -> bool {
+    is_timeout_message_lower(&msg.to_lowercase())
+}
+
 impl From<ssh2::Error> for TransferError {
     fn from(err: ssh2::Error) -> Self {
         // Try to map SSH2 errors to our transfer errors
         let err_msg = err.to_string();
-        if err_msg.contains("timeout") || err_msg.contains("timed out") {
+        let err_msg_lower = err_msg.to_lowercase();
+        if is_timeout_message_lower(&err_msg_lower) {
             TransferError::Timeout(err_msg)
-        } else if err_msg.contains("permission") || err_msg.contains("denied") {
+        } else if err_msg_lower.contains("permission") || err_msg_lower.contains("denied") {
             TransferError::PermissionDenied(err_msg)
-        } else if err_msg.contains("auth") {
+        } else if err_msg_lower.contains("auth") {
             TransferError::AuthenticationFailed(err_msg)
         } else {
             TransferError::Unknown(err_msg)
@@ -366,7 +378,11 @@ impl From<std::io::Error> for TransferError {
 
 impl From<String> for TransferError {
     fn from(err: String) -> Self {
-        TransferError::Unknown(err)
+        if is_timeout_message(&err) {
+            TransferError::Timeout(err)
+        } else {
+            TransferError::Unknown(err)
+        }
     }
 }
 
