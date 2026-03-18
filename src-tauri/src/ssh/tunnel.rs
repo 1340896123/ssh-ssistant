@@ -73,6 +73,16 @@ fn escape_sh_single_quotes(value: &str) -> String {
     value.replace('\'', "'\"'\"'")
 }
 
+struct AskpassSpec<'a> {
+    main_password: Option<&'a str>,
+    jump_password: Option<&'a str>,
+    key_passphrase: Option<&'a str>,
+    main_host: Option<&'a str>,
+    main_user: Option<&'a str>,
+    jump_host: Option<&'a str>,
+    jump_user: Option<&'a str>,
+}
+
 fn create_key_file(content: &str) -> Result<TempPath, String> {
     let mut file = TempBuilder::new()
         .prefix("ssh_key_")
@@ -84,7 +94,12 @@ fn create_key_file(content: &str) -> Result<TempPath, String> {
     Ok(file.into_temp_path())
 }
 
-fn create_askpass_script(value: &str) -> Result<TempPath, String> {
+fn create_askpass_script(spec: &AskpassSpec<'_>) -> Result<TempPath, String> {
+    if spec.main_password.is_none() && spec.jump_password.is_none() && spec.key_passphrase.is_none()
+    {
+        return Err("Askpass requires at least one secret".to_string());
+    }
+
     #[cfg(unix)]
     let mut file = TempBuilder::new()
         .prefix("ssh_askpass_")
@@ -100,10 +115,108 @@ fn create_askpass_script(value: &str) -> Result<TempPath, String> {
         .map_err(|e| e.to_string())?;
 
     #[cfg(unix)]
-    let script = format!("#!/bin/sh\necho '{}'\n", escape_sh_single_quotes(value));
+    let script = {
+        let main_password = escape_sh_single_quotes(spec.main_password.unwrap_or(""));
+        let jump_password = escape_sh_single_quotes(spec.jump_password.unwrap_or(""));
+        let key_passphrase = escape_sh_single_quotes(spec.key_passphrase.unwrap_or(""));
+        let main_host = escape_sh_single_quotes(spec.main_host.unwrap_or(""));
+        let main_user = escape_sh_single_quotes(spec.main_user.unwrap_or(""));
+        let jump_host = escape_sh_single_quotes(spec.jump_host.unwrap_or(""));
+        let jump_user = escape_sh_single_quotes(spec.jump_user.unwrap_or(""));
+
+        format!(
+            "#!/bin/sh\n\
+MAIN_PASSWORD='{main_password}'\n\
+JUMP_PASSWORD='{jump_password}'\n\
+KEY_PASSPHRASE='{key_passphrase}'\n\
+MAIN_HOST='{main_host}'\n\
+MAIN_USER='{main_user}'\n\
+JUMP_HOST='{jump_host}'\n\
+JUMP_USER='{jump_user}'\n\
+\n\
+prompt=\"$1\"\n\
+\n\
+if [ -n \"$KEY_PASSPHRASE\" ] && printf '%s' \"$prompt\" | grep -qi \"passphrase\"; then\n\
+  printf '%s' \"$KEY_PASSPHRASE\"\n\
+  exit 0\n\
+fi\n\
+\n\
+if [ -n \"$MAIN_PASSWORD\" ] && [ -n \"$MAIN_USER\" ] && [ -n \"$MAIN_HOST\" ] && printf '%s' \"$prompt\" | grep -Fqi \"$MAIN_USER@$MAIN_HOST\"; then\n\
+  printf '%s' \"$MAIN_PASSWORD\"\n\
+  exit 0\n\
+fi\n\
+if [ -n \"$JUMP_PASSWORD\" ] && [ -n \"$JUMP_USER\" ] && [ -n \"$JUMP_HOST\" ] && printf '%s' \"$prompt\" | grep -Fqi \"$JUMP_USER@$JUMP_HOST\"; then\n\
+  printf '%s' \"$JUMP_PASSWORD\"\n\
+  exit 0\n\
+fi\n\
+if [ -n \"$MAIN_PASSWORD\" ] && [ -n \"$MAIN_HOST\" ] && printf '%s' \"$prompt\" | grep -Fqi \"@$MAIN_HOST\"; then\n\
+  printf '%s' \"$MAIN_PASSWORD\"\n\
+  exit 0\n\
+fi\n\
+if [ -n \"$JUMP_PASSWORD\" ] && [ -n \"$JUMP_HOST\" ] && printf '%s' \"$prompt\" | grep -Fqi \"@$JUMP_HOST\"; then\n\
+  printf '%s' \"$JUMP_PASSWORD\"\n\
+  exit 0\n\
+fi\n\
+\n\
+if [ -n \"$MAIN_PASSWORD\" ]; then\n\
+  printf '%s' \"$MAIN_PASSWORD\"\n\
+  exit 0\n\
+fi\n\
+if [ -n \"$JUMP_PASSWORD\" ]; then\n\
+  printf '%s' \"$JUMP_PASSWORD\"\n\
+  exit 0\n\
+fi\n\
+if [ -n \"$KEY_PASSPHRASE\" ]; then\n\
+  printf '%s' \"$KEY_PASSPHRASE\"\n\
+  exit 0\n\
+fi\n\
+\n\
+exit 1\n"
+        )
+    };
 
     #[cfg(windows)]
-    let script = format!("@echo off\r\necho {}\r\n", value);
+    let script = {
+        let main_password = spec.main_password.unwrap_or("");
+        let jump_password = spec.jump_password.unwrap_or("");
+        let key_passphrase = spec.key_passphrase.unwrap_or("");
+        let main_host = spec.main_host.unwrap_or("");
+        let main_user = spec.main_user.unwrap_or("");
+        let jump_host = spec.jump_host.unwrap_or("");
+        let jump_user = spec.jump_user.unwrap_or("");
+
+        format!(
+            "@echo off\r\n\
+set \"PROMPT=%*\"\r\n\
+set \"MAIN_PASSWORD={main_password}\"\r\n\
+set \"JUMP_PASSWORD={jump_password}\"\r\n\
+set \"KEY_PASSPHRASE={key_passphrase}\"\r\n\
+set \"MAIN_HOST={main_host}\"\r\n\
+set \"MAIN_USER={main_user}\"\r\n\
+set \"JUMP_HOST={jump_host}\"\r\n\
+set \"JUMP_USER={jump_user}\"\r\n\
+\r\n\
+if defined KEY_PASSPHRASE (\r\n\
+  echo %PROMPT% | findstr /I /C:\"passphrase\" >nul && (echo %KEY_PASSPHRASE% & exit /b 0)\r\n\
+)\r\n\
+if defined MAIN_PASSWORD if defined MAIN_USER if defined MAIN_HOST (\r\n\
+  echo %PROMPT% | findstr /I /C:\"%MAIN_USER%@%MAIN_HOST%\" >nul && (echo %MAIN_PASSWORD% & exit /b 0)\r\n\
+)\r\n\
+if defined JUMP_PASSWORD if defined JUMP_USER if defined JUMP_HOST (\r\n\
+  echo %PROMPT% | findstr /I /C:\"%JUMP_USER%@%JUMP_HOST%\" >nul && (echo %JUMP_PASSWORD% & exit /b 0)\r\n\
+)\r\n\
+if defined MAIN_PASSWORD if defined MAIN_HOST (\r\n\
+  echo %PROMPT% | findstr /I /C:\"@%MAIN_HOST%\" >nul && (echo %MAIN_PASSWORD% & exit /b 0)\r\n\
+)\r\n\
+if defined JUMP_PASSWORD if defined JUMP_HOST (\r\n\
+  echo %PROMPT% | findstr /I /C:\"@%JUMP_HOST%\" >nul && (echo %JUMP_PASSWORD% & exit /b 0)\r\n\
+)\r\n\
+if defined MAIN_PASSWORD (echo %MAIN_PASSWORD% & exit /b 0)\r\n\
+if defined JUMP_PASSWORD (echo %JUMP_PASSWORD% & exit /b 0)\r\n\
+if defined KEY_PASSPHRASE (echo %KEY_PASSPHRASE% & exit /b 0)\r\n\
+exit /b 1\r\n"
+        )
+    };
 
     file.write_all(script.as_bytes())
         .map_err(|e| e.to_string())?;
@@ -171,6 +284,8 @@ fn prepare_ssh_command(
 
     let mut key_path = None;
     let mut askpass_path = None;
+    let mut main_password: Option<&str> = None;
+    let mut key_passphrase: Option<&str> = None;
 
     if auth_type == "key" {
         let key = key.ok_or_else(|| "SSH key not found for tunnel".to_string())?;
@@ -178,7 +293,7 @@ fn prepare_ssh_command(
         key_path = Some(file);
         if let Some(passphrase) = &key.passphrase {
             if !passphrase.trim().is_empty() {
-                askpass_path = Some(create_askpass_script(passphrase)?);
+                key_passphrase = Some(passphrase);
             }
         }
     } else if auth_type == "password" {
@@ -186,8 +301,13 @@ fn prepare_ssh_command(
             .password
             .as_ref()
             .ok_or_else(|| "Password is required for password authentication".to_string())?;
-        askpass_path = Some(create_askpass_script(password)?);
+        main_password = Some(password);
     }
+
+    let jump_password = connection
+        .jump_password
+        .as_deref()
+        .and_then(|s| if s.trim().is_empty() { None } else { Some(s) });
 
     let proxy_command = tunnel
         .proxy_command
@@ -236,6 +356,29 @@ fn prepare_ssh_command(
 
     if proxy_command.is_some() {
         proxy_jump = None;
+    }
+
+    if main_password.is_some() || key_passphrase.is_some() || jump_password.is_some() {
+        let main_host = connection.host.trim();
+        let main_user = connection.username.trim();
+        let jump_host = connection
+            .jump_host
+            .as_ref()
+            .and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) });
+        let jump_user = connection
+            .jump_username
+            .as_ref()
+            .and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) });
+
+        askpass_path = Some(create_askpass_script(&AskpassSpec {
+            main_password,
+            jump_password,
+            key_passphrase,
+            main_host: Some(main_host),
+            main_user: Some(main_user),
+            jump_host,
+            jump_user,
+        })?);
     }
 
     let mut cmd = Command::new("ssh");

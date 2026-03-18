@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSH Assistant | 官方网站</title>
+  <meta name="description" content="SSH Assistant 是一款跨平台桌面 SSH 客户端，集成终端、SFTP、AI 助手与三种隧道代理，专为高效远程运维打造。" />
+  <meta property="og:title" content="SSH Assistant | 官方网站" />
+  <meta property="og:description" content="跨平台桌面 SSH 客户端，集成终端、SFTP、AI 助手与隧道代理。" />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b1220;
+      --bg-elevated: #121a2b;
+      --bg-glass: rgba(18, 26, 43, 0.72);
+      --text: #e6edf7;
+      --muted: #a8b2c8;
+      --accent: #35d0ba;
+      --accent-strong: #18a6a0;
+      --warn: #f59e0b;
+      --border: rgba(255, 255, 255, 0.08);
+      --shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
+      --radius-xl: 28px;
+      --radius-lg: 18px;
+      --radius-md: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    .page {
+      position: relative;
+      min-height: 100vh;
+    }
+
+    .glow {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .glow.one {
+      width: 420px;
+      height: 420px;
+      background: #2dd4bf;
+      top: -120px;
+      left: -120px;
+    }
+
+    .glow.two {
+      width: 520px;
+      height: 520px;
+      background: #3b82f6;
+      top: 10%;
+      right: -180px;
+    }
+
+    .grid-overlay {
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at top, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0));
+      pointer-events: none;
+    }
+
+    .container {
+      width: min(1200px, 92vw);
+      margin: 0 auto;
+      position: relative;
+      z-index: 2;
+    }
+
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 0;
+    }
+
+    .logo {
+      font-family: "Space Grotesk", sans-serif;
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: 1px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 20px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .nav-links a {
+      color: inherit;
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
+
+    .cta-btn {
+      background: var(--accent);
+      color: #07141b;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 12px 30px rgba(53, 208, 186, 0.25);
+    }
+
+    .cta-btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .hero {
+      padding: 80px 0 100px;
+      display: grid;
+      gap: 60px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      align-items: center;
+    }
+
+    .hero-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(53, 208, 186, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(53, 208, 186, 0.2);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: clamp(36px, 4vw, 56px);
+      line-height: 1.1;
+      margin: 18px 0 20px;
+      letter-spacing: -0.5px;
+    }
+
+    .hero p {
+      color: var(--muted);
+      font-size: 16px;
+      max-width: 520px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      margin-top: 30px;
+      flex-wrap: wrap;
+    }
+
+    .ghost-btn {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 10px 18px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .hero-card {
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .hero-window {
+      border-radius: var(--radius-lg);
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+
+    .hero-window header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .hero-window pre {
+      font-family: "Space Grotesk", monospace;
+      font-size: 12px;
+      color: #9ae6b4;
+      padding: 18px;
+      min-height: 220px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 18px;
+      margin-top: 24px;
+    }
+
+    .stat {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
+
+    .stat h3 {
+      font-size: 20px;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    section {
+      padding: 90px 0;
+    }
+
+    .section-title {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+
+    .section-sub {
+      color: var(--muted);
+      max-width: 600px;
+    }
+
+    .feature-grid {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+
+    .feature-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+      transition: transform 0.2s ease, border 0.2s ease;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-6px);
+      border-color: rgba(53, 208, 186, 0.4);
+    }
+
+    .feature-card h4 {
+      font-family: "Space Grotesk", sans-serif;
+      margin-bottom: 8px;
+      font-size: 18px;
+    }
+
+    .feature-card p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .tunnel-panel {
+      margin-top: 50px;
+      background: linear-gradient(140deg, rgba(53, 208, 186, 0.18), rgba(59, 130, 246, 0.12));
+      border: 1px solid rgba(53, 208, 186, 0.3);
+      border-radius: var(--radius-xl);
+      padding: 28px;
+      display: grid;
+      gap: 20px;
+    }
+
+    .tunnel-panel ul {
+      list-style: none;
+      display: grid;
+      gap: 14px;
+    }
+
+    .tunnel-panel li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .tunnel-chip {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .download {
+      background: rgba(255, 255, 255, 0.02);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+      margin-top: 36px;
+    }
+
+    .download-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      text-align: left;
+    }
+
+    .download-card h4 {
+      margin-bottom: 10px;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .download-card p {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    footer {
+      padding: 40px 0 60px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.8s ease, transform 0.8s ease;
+    }
+
+    .reveal.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 768px) {
+      nav {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+      }
+
+      .nav-links {
+        flex-wrap: wrap;
+      }
+
+      .hero {
+        padding-top: 40px;
+      }
+
+      .hero-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .cta-btn,
+      .ghost-btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="glow one"></div>
+    <div class="glow two"></div>
+    <div class="grid-overlay"></div>
+
+    <div class="container">
+      <nav>
+        <div class="logo">SSH Assistant</div>
+        <div class="nav-links">
+          <a href="#features">能力</a>
+          <a href="#tunnels">隧道</a>
+          <a href="#security">安全</a>
+          <a href="#download">下载</a>
+        </div>
+        <button class="cta-btn">立即开始</button>
+      </nav>
+
+      <section class="hero">
+        <div class="reveal">
+          <span class="hero-tag">官方桌面 SSH 客户端</span>
+          <h1>专为高效远程运维打造的 <br /> 一体化 SSH 工作台</h1>
+          <p>终端、SFTP、AI 助手与三种隧道代理整合在一个桌面应用里，配合跳板机链路与代理转发，让复杂网络场景也能快速连接、稳定运行。</p>
+          <div class="hero-actions">
+            <button class="cta-btn">下载最新版</button>
+            <button class="ghost-btn">查看功能清单</button>
+          </div>
+          <div class="stats">
+            <div class="stat">
+              <h3>3 模式</h3>
+              <span>Local / Remote / Dynamic</span>
+            </div>
+            <div class="stat">
+              <h3>Jump 链路</h3>
+              <span>ProxyJump / ProxyCommand</span>
+            </div>
+            <div class="stat">
+              <h3>本地存储</h3>
+              <span>SQLite 配置安全保存</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-card reveal">
+          <div class="hero-window">
+            <header>
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+              连接会话 · 智能隧道
+            </header>
+            <pre>
+$ ssh root@jump.company
+$ ssh -J jump@bastion root@prod
+$ tunnel create --type dynamic --local 1080
+$ tunnel status
+✓ SOCKS5 ready at 127.0.0.1:1080
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <div class="reveal">
+          <h2 class="section-title">核心能力</h2>
+          <p class="section-sub">把远程运维的高频操作浓缩在同一个界面里，既快又稳，细节可控。</p>
+        </div>
+        <div class="feature-grid">
+          <div class="feature-card reveal">
+            <h4>多会话终端</h4>
+            <p>独立会话与连接池隔离，兼顾稳定性与高并发操作。</p>
+          </div>
+          <div class="feature-card reveal">
+            <h4>可视化 SFTP</h4>
+            <p>拖拽上传、批量下载、权限管理，文件操作零负担。</p>
+          </div>
+          <div class="feature-card reveal">
+            <h4>AI 运维协作</h4>
+            <p>内置 AI 助手，提供命令建议、上下文分析与脚本生成。</p>
+          </div>
+          <div class="feature-card reveal">
+            <h4>本地缓存与优化</h4>
+            <p>配置、密钥与历史连接本地保存，保障隐私与性能。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tunnels">
+        <div class="reveal">
+          <h2 class="section-title">隧道代理，一站式管理</h2>
+          <p class="section-sub">支持 Local / Remote / Dynamic 三种模式，并可通过跳板机链路（ProxyJump / ProxyCommand / Agent Forwarding）建立隧道。</p>
+        </div>
+        <div class="tunnel-panel reveal">
+          <div class="tunnel-chip">Tunnel Panel</div>
+          <ul>
+            <li>集中面板管理所有隧道：启动、停止、筛选与状态监控。</li>
+            <li>针对复杂网络场景，支持多级跳板机与代理链路组合。</li>
+            <li>错误提示与自动重试策略，减少人工排查时间。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="security">
+        <div class="reveal">
+          <h2 class="section-title">安全与合规</h2>
+          <p class="section-sub">关键数据本地存储，密钥管理与连接策略可控，适配企业与个人环境。</p>
+        </div>
+        <div class="feature-grid">
+          <div class="feature-card reveal">
+            <h4>本地存储</h4>
+            <p>连接配置与密钥均保留在本地数据库，降低外泄风险。</p>
+          </div>
+          <div class="feature-card reveal">
+            <h4>策略可控</h4>
+            <p>认证方式、跳板机参数、隧道策略随场景灵活切换。</p>
+          </div>
+          <div class="feature-card reveal">
+            <h4>可观测性</h4>
+            <p>连接健康与隧道状态可视化，问题定位更直观。</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section id="download" class="download">
+      <div class="container">
+        <div class="reveal">
+          <h2 class="section-title">下载与部署</h2>
+          <p class="section-sub">覆盖 Windows / macOS / Linux，支持离线部署与内部发行。</p>
+        </div>
+        <div class="download-grid">
+          <div class="download-card reveal">
+            <h4>Windows</h4>
+            <p>适用于企业内网与跨区访问场景。</p>
+            <button class="cta-btn">下载 Windows 版</button>
+          </div>
+          <div class="download-card reveal">
+            <h4>macOS</h4>
+            <p>为开发与运维一体化环境打造。</p>
+            <button class="cta-btn">下载 macOS 版</button>
+          </div>
+          <div class="download-card reveal">
+            <h4>Linux</h4>
+            <p>兼容主流发行版，适配多种桌面环境。</p>
+            <button class="cta-btn">下载 Linux 版</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      © 2026 SSH Assistant. All rights reserved.
+    </footer>
+  </div>
+
+  <script>
+    const revealItems = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('show');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.2 });
+
+    revealItems.forEach((item, index) => {
+      item.style.transitionDelay = `${index * 60}ms`;
+      observer.observe(item);
+    });
+  </script>
+</body>
+</html>
