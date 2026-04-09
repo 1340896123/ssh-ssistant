@@ -5,7 +5,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy, Terminal as TerminalIcon } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
-import type { FileEntry, FileManagerViewMode } from '../types';
+import type { FileEntry, FileManagerViewMode, FilePageResponse } from '../types';
 import { useSessionStore } from '../stores/sessions'; // Import session store
 import { useNotificationStore } from '../stores/notifications';
 import { useTransferStore } from '../stores/transfers';
@@ -27,10 +27,23 @@ interface TreeNode {
     parentPath: string | null;
     childrenLoaded: boolean;
     loading: boolean;
+    kind?: 'entry' | 'load_more';
+    nextCursor?: number | null;
+}
+
+interface TreePageState {
+    nextCursor: number | null;
+    hasMore: boolean;
+    loading: boolean;
 }
 
 function showTreeContextMenu(e: MouseEvent, node: TreeNode) {
     e.preventDefault();
+
+    if (isLoadMoreNode(node)) {
+        void loadNextTreePage(node.parentPath);
+        return;
+    }
 
     const next = new Set(selectedTreePaths.value);
     if (!next.has(node.path)) {
@@ -101,7 +114,9 @@ function showBackgroundContextMenu(e: MouseEvent) {
     updateContextMenuPosition();
 }
 
-const props = defineProps<{ sessionId: string }>();
+const props = withDefaults(defineProps<{ sessionId: string; active?: boolean }>(), {
+    active: true
+});
 const emit = defineEmits<{
     (e: 'openFileEditor', filePath: string, fileName: string): void;
     (e: 'switchToTerminalPath', sessionId: string, path: string): void;
@@ -133,6 +148,7 @@ const transferStore = useTransferStore();
 const treeRootPath = ref<string>('.');
 const treeNodes = shallowRef<Map<string, TreeNode>>(new Map());
 const childrenMap = shallowRef<Map<string | null, string[]>>(new Map());
+const treePageState = shallowRef<Map<string, TreePageState>>(new Map());
 const expandedPaths = ref<Set<string>>(new Set());
 const selectedTreePaths = ref<Set<string>>(new Set());
 const columnWidths = ref<Record<ColumnKey, number>>({
@@ -145,6 +161,7 @@ const sortState = ref<{ key: ColumnKey; direction: SortDirection }>({
     key: 'name',
     direction: 'asc'
 });
+const isDefaultSort = computed(() => sortState.value.key === 'name' && sortState.value.direction === 'asc');
 const resizingColumn = ref<ColumnKey | null>(null);
 const resizeStartX = ref(0);
 const resizeStartWidth = ref(0);
@@ -152,6 +169,15 @@ const resizeStartWidth = ref(0);
 const isOpeningFile = ref(false);
 const virtualListRef = ref<InstanceType<typeof VirtualFileList> | null>(null);
 const unlistenDrop = ref<UnlistenFn | null>(null);
+const hasLoadedInitialPath = ref(false);
+const isManagerActive = ref(false);
+const isPagedDirectoryLoad = ref(false);
+const hasMoreFiles = ref(false);
+const nextPageCursor = ref<number | null>(null);
+const isLoadingNextPage = ref(false);
+let globalListenersAttached = false;
+let currentDirectoryLoadToken = 0;
+const TREE_LOAD_MORE_PREFIX = '__codex_tree_load_more__';
 
 // Path suggestions
 const suggestions = ref<string[]>([]);
@@ -199,7 +225,134 @@ function compareEntries(a: FileEntry, b: FileEntry, key: ColumnKey, direction: S
     return direction === 'asc' ? result : -result;
 }
 
+function getTreePageStateKey(path: string | null) {
+    return path ?? '.';
+}
+
+function isTreeLoadMorePath(path: string) {
+    return path.startsWith(TREE_LOAD_MORE_PREFIX);
+}
+
+function isLoadMoreNode(node: TreeNode) {
+    return node.kind === 'load_more' || isTreeLoadMorePath(node.path);
+}
+
+function createTreeEntryNode(entry: FileEntry, path: string, parentPath: string | null): TreeNode {
+    return {
+        entry,
+        path,
+        depth: 0,
+        parentPath,
+        childrenLoaded: false,
+        loading: false,
+        kind: 'entry'
+    };
+}
+
+function createTreeLoadMoreNode(parentPath: string | null, cursor: number): TreeNode {
+    return {
+        entry: {
+            name: 'Load more...',
+            size: 0,
+            mtime: 0,
+            isDir: false,
+            permissions: 0,
+            uid: 0,
+            owner: ''
+        },
+        path: `${TREE_LOAD_MORE_PREFIX}:${parentPath ?? '.'}:${cursor}`,
+        depth: 0,
+        parentPath,
+        childrenLoaded: true,
+        loading: false,
+        kind: 'load_more',
+        nextCursor: cursor
+    };
+}
+
+function appendTreePage(
+    parentPath: string | null,
+    basePath: string,
+    entries: FileEntry[],
+    hasMore: boolean,
+    nextCursor: number | null,
+    options?: {
+        replace?: boolean;
+        includeParentDir?: boolean;
+    }
+) {
+    const replace = options?.replace ?? false;
+    const includeParentDir = options?.includeParentDir ?? false;
+    const nextNodes = replace ? new Map(treeNodes.value) : new Map(treeNodes.value);
+    const nextChildrenMap = new Map(childrenMap.value);
+    const existingChildPaths = replace
+        ? []
+        : (nextChildrenMap.get(parentPath) || []).filter((childPath) => !isTreeLoadMorePath(childPath));
+    const childPaths = [...existingChildPaths];
+
+    if (replace && includeParentDir && basePath !== '/' && basePath !== '.') {
+        const parentDirPath = pathUtils.value.dirname(basePath);
+        nextNodes.set(parentDirPath, {
+            entry: {
+                name: '..',
+                size: 0,
+                mtime: 0,
+                isDir: true,
+                permissions: 755,
+                uid: 0,
+                owner: '-'
+            },
+            path: parentDirPath,
+            depth: 0,
+            parentPath,
+            childrenLoaded: false,
+            loading: false,
+            kind: 'entry'
+        });
+        childPaths.push(parentDirPath);
+    }
+
+    for (const entry of entries) {
+        if (entry.name === '..') continue;
+        const fullPath = pathUtils.value.join(basePath, entry.name);
+        if (!nextNodes.has(fullPath)) {
+            nextNodes.set(fullPath, createTreeEntryNode(entry, fullPath, parentPath));
+        } else {
+            const existingNode = nextNodes.get(fullPath)!;
+            existingNode.entry = entry;
+            existingNode.parentPath = parentPath;
+            nextNodes.set(fullPath, existingNode);
+        }
+        childPaths.push(fullPath);
+    }
+
+    if (hasMore && nextCursor !== null) {
+        const loadMoreNode = createTreeLoadMoreNode(parentPath, nextCursor);
+        nextNodes.set(loadMoreNode.path, loadMoreNode);
+        childPaths.push(loadMoreNode.path);
+    }
+
+    nextChildrenMap.set(parentPath, childPaths);
+    const nextPageState = new Map(treePageState.value);
+    nextPageState.set(getTreePageStateKey(parentPath), {
+        nextCursor,
+        hasMore,
+        loading: false
+    });
+
+    treeNodes.value = nextNodes;
+    childrenMap.value = nextChildrenMap;
+    treePageState.value = nextPageState;
+    triggerRef(treeNodes);
+    triggerRef(childrenMap);
+    triggerRef(treePageState);
+}
+
 const sortedFiles = computed<FileEntry[]>(() => {
+    if (files.value.length <= 1 || (isDefaultSort.value && !isPagedDirectoryLoad.value)) {
+        return files.value;
+    }
+
     const list = [...files.value];
     list.sort((a, b) => compareEntries(a, b, sortState.value.key, sortState.value.direction));
     return list;
@@ -262,6 +415,7 @@ function handleTypeToSelect(char: string) {
         const startIndex = Math.max(0, list.findIndex((n) => selectedTreePaths.value.has(n.path)));
         const findMatch = (from: number, to: number) => {
             for (let i = from; i < to; i++) {
+                if (isLoadMoreNode(list[i])) continue;
                 const name = list[i].entry.name;
                 if (name !== '..' && name.toLowerCase().startsWith(query)) {
                     return i;
@@ -326,6 +480,8 @@ function scrollToLocatedIndex(index: number) {
 
 // 请求去重机制 - 避免对相同路径的重复请求
 const pendingRequests = new Map<string, Promise<FileEntry[]>>();
+const pendingPageRequests = new Map<string, Promise<FilePageResponse>>();
+const FILE_PAGE_SIZE = 200;
 
 async function listFilesWithDedup(sessionId: string, path: string): Promise<FileEntry[]> {
     const cacheKey = `${sessionId}:${path}`;
@@ -498,28 +654,47 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
     const nodes = treeNodes.value;
     const children = childrenMap.value;
 
-    const collectChildren = (parentPath: string | null, depth: number) => {
+    const collectChildren = (parentPath: string | null) => {
         const childPaths = children.get(parentPath) || [];
-        const childNodes: TreeNode[] = [];
+        if (childPaths.length === 0) return;
 
+        if (isDefaultSort.value) {
+            for (const childPath of childPaths) {
+                const child = nodes.get(childPath);
+                if (!child) continue;
+
+                result.push(child);
+                if (!isLoadMoreNode(child) && child.entry.isDir && expandedPaths.value.has(child.path)) {
+                    collectChildren(child.path);
+                }
+            }
+            return;
+        }
+
+        const childNodes: TreeNode[] = [];
+        const loadMoreNodes: TreeNode[] = [];
         for (const childPath of childPaths) {
             const node = nodes.get(childPath);
             if (node) {
-                childNodes.push({ ...node, depth });
+                if (isLoadMoreNode(node)) {
+                    loadMoreNodes.push(node);
+                } else {
+                    childNodes.push(node);
+                }
             }
         }
 
         childNodes.sort((a, b) => compareEntries(a.entry, b.entry, sortState.value.key, sortState.value.direction));
 
-        for (const child of childNodes) {
+        for (const child of [...childNodes, ...loadMoreNodes]) {
             result.push(child);
-            if (child.entry.isDir && expandedPaths.value.has(child.path)) {
-                collectChildren(child.path, depth + 1);
+            if (!isLoadMoreNode(child) && child.entry.isDir && expandedPaths.value.has(child.path)) {
+                collectChildren(child.path);
             }
         }
     };
 
-    collectChildren(treeRootPath.value === '.' ? null : treeRootPath.value, 0);
+    collectChildren(treeRootPath.value === '.' ? null : treeRootPath.value);
     return result;
 });
 
@@ -528,6 +703,10 @@ function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
     let path: string;
 
     if ('entry' in element) { // TreeNode
+        if (isLoadMoreNode(element as TreeNode)) {
+            event.preventDefault();
+            return;
+        }
         entry = (element as TreeNode).entry;
         path = (element as TreeNode).path;
     } else { // FileEntry
@@ -546,7 +725,124 @@ function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
     }
 }
 
+function setTreeLoadMoreLoadingState(parentPath: string | null, loading: boolean) {
+    const childPaths = childrenMap.value.get(parentPath) || [];
+    const nextNodes = new Map(treeNodes.value);
+
+    for (const childPath of childPaths) {
+        if (!isTreeLoadMorePath(childPath)) continue;
+        const node = nextNodes.get(childPath);
+        if (node) {
+            node.loading = loading;
+            nextNodes.set(childPath, node);
+        }
+    }
+
+    const nextState = new Map(treePageState.value);
+    const stateKey = getTreePageStateKey(parentPath);
+    const existing = nextState.get(stateKey);
+    if (existing) {
+        nextState.set(stateKey, { ...existing, loading });
+    }
+
+    treeNodes.value = nextNodes;
+    treePageState.value = nextState;
+    triggerRef(treeNodes);
+    triggerRef(treePageState);
+}
+
+async function loadNextTreePage(parentPath: string | null, loadToken = currentDirectoryLoadToken) {
+    if (!isManagerActive.value || viewMode.value !== 'tree') return;
+
+    const stateKey = getTreePageStateKey(parentPath);
+    const pageState = treePageState.value.get(stateKey);
+    if (!pageState || !pageState.hasMore || pageState.nextCursor === null || pageState.loading) {
+        return;
+    }
+
+    const basePath = parentPath ?? treeRootPath.value;
+    setTreeLoadMoreLoadingState(parentPath, true);
+
+    try {
+        const page = await listFilesPageWithDedup(props.sessionId, basePath, pageState.nextCursor);
+        if (!isManagerActive.value || loadToken !== currentDirectoryLoadToken) {
+            return;
+        }
+
+        appendTreePage(parentPath, basePath, page.entries, page.hasMore, page.nextCursor ?? null);
+    } catch (e) {
+        console.error(e);
+        notificationStore.error(`${t('fileManager.treeLoadError') || 'Failed to load tree directory'}: ${getErrorMessage(parseFileError(e), t)}`);
+    } finally {
+        if (loadToken === currentDirectoryLoadToken) {
+            setTreeLoadMoreLoadingState(parentPath, false);
+        }
+    }
+}
+
+async function loadNextFilePage(loadToken = currentDirectoryLoadToken) {
+    if (!isManagerActive.value || viewMode.value !== 'flat') return;
+    if (!hasMoreFiles.value || nextPageCursor.value === null || isLoadingNextPage.value) return;
+
+    const path = currentPath.value;
+    const cursor = nextPageCursor.value;
+    isLoadingNextPage.value = true;
+
+    try {
+        const page = await listFilesPageWithDedup(props.sessionId, path, cursor);
+        if (!isManagerActive.value || loadToken !== currentDirectoryLoadToken || path !== currentPath.value) {
+            return;
+        }
+
+        const hasParent = path !== '.' && path !== '/';
+        const existingEntries = hasParent ? files.value.slice(1) : files.value.slice();
+        files.value = buildFilesWithParent(path, [...existingEntries, ...page.entries]);
+        triggerRef(files);
+        hasMoreFiles.value = page.hasMore;
+        nextPageCursor.value = page.nextCursor ?? null;
+    } catch (e) {
+        console.error(e);
+        notificationStore.error(`${t('fileManager.loadError') || 'Failed to load directory'}: ${getErrorMessage(parseFileError(e), t)}`);
+    } finally {
+        if (loadToken === currentDirectoryLoadToken) {
+            isLoadingNextPage.value = false;
+        }
+    }
+}
+
+async function ensureViewportFilled(loadToken = currentDirectoryLoadToken) {
+    if (!isManagerActive.value || viewMode.value !== 'flat') return;
+
+    for (let i = 0; i < 3; i++) {
+        await nextTick();
+        const scrollElement = fileListScrollRef.value;
+        if (!scrollElement || !hasMoreFiles.value || isLoadingNextPage.value) {
+            return;
+        }
+        if (scrollElement.scrollHeight > scrollElement.clientHeight + 48) {
+            return;
+        }
+        await loadNextFilePage(loadToken);
+    }
+}
+
+function handleFileListScroll() {
+    if (!isManagerActive.value || viewMode.value !== 'flat') return;
+    const scrollElement = fileListScrollRef.value;
+    if (!scrollElement || !hasMoreFiles.value || isLoadingNextPage.value) return;
+
+    const distanceToBottom =
+        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight;
+    if (distanceToBottom < 240) {
+        void loadNextFilePage();
+    }
+}
+
 async function loadFiles(path: string) {
+    if (!isManagerActive.value) {
+        return;
+    }
+
     // 取消之前的防抖定时器
     if (loadFilesDebounceTimer) {
         clearTimeout(loadFilesDebounceTimer);
@@ -555,6 +851,8 @@ async function loadFiles(path: string) {
 
     // 防抖处理：100ms 内的重复调用将被合并
     loadFilesDebounceTimer = setTimeout(async () => {
+        const loadToken = ++currentDirectoryLoadToken;
+
         // 取消之前进行中的请求
         if (loadFilesAbortController) {
             loadFilesAbortController.abort();
@@ -565,88 +863,45 @@ async function loadFiles(path: string) {
         isLoadingFiles.value = true;
 
         try {
-            console.log('Loading files for path:', path);
-            const loadedFiles = await listFilesWithDedup(props.sessionId, path);
-
-            // 检查请求是否已被取消
-            if (currentController.signal.aborted) {
-                return;
-            }
-
-            // Add parent directory entry ".." when not in root
-            const filesWithParent = path !== '.' ? [{
-                name: '..',
-                size: 0,
-                mtime: 0,
-                isDir: true,
-                permissions: 755,
-                uid: 0,
-                owner: '-'
-            }, ...loadedFiles] : loadedFiles;
-
-            files.value = filesWithParent;
-            triggerRef(files);
+            resetFlatPaginationState();
             currentPath.value = path;
             resetTypeSearchBuffer();
             // Display actual path instead of "."
             pathInput.value = path === '.' ? '/' : path;
-            console.log('Set currentPath to:', path, 'displayed as:', pathInput.value);
             selectedFiles.value.clear();
             lastSelectedIndex.value = -1;
 
-            if (viewMode.value === 'tree') {
+            if (viewMode.value === 'flat') {
+                const firstPage = await listFilesPageWithDedup(props.sessionId, path, 0, FILE_PAGE_SIZE);
+                if (currentController.signal.aborted || loadToken !== currentDirectoryLoadToken) {
+                    return;
+                }
+
+                isPagedDirectoryLoad.value = true;
+                hasMoreFiles.value = firstPage.hasMore;
+                nextPageCursor.value = firstPage.nextCursor ?? null;
+                files.value = buildFilesWithParent(path, firstPage.entries);
+                triggerRef(files);
+                await ensureViewportFilled(loadToken);
+            } else {
+                const firstPage = await listFilesPageWithDedup(props.sessionId, path, 0, FILE_PAGE_SIZE);
+                if (currentController.signal.aborted || loadToken !== currentDirectoryLoadToken) {
+                    return;
+                }
+
+                files.value = buildFilesWithParent(path, firstPage.entries);
+                triggerRef(files);
                 treeRootPath.value = path;
                 treeNodes.value = new Map();
                 childrenMap.value = new Map();
+                treePageState.value = new Map();
                 expandedPaths.value = new Set();
                 selectedTreePaths.value = new Set();
                 const parentPath = path === '.' ? null : path;
-                const newChildrenMap = new Map<string | null, string[]>();
-                const childPaths: string[] = [];
-
-                // Add parent directory entry ".." when not in root
-                if (path !== '/' && path !== '.') {
-                    const parentEntry: FileEntry = {
-                        name: '..',
-                        size: 0,
-                        mtime: 0,
-                        isDir: true,
-                        permissions: 755,
-                        uid: 0,
-                        owner: '-'
-                    };
-                    const parentDirPath = pathUtils.value.dirname(path);
-                    treeNodes.value.set(parentDirPath, {
-                        entry: parentEntry,
-                        path: parentDirPath,
-                        depth: 0,
-                        parentPath,
-                        childrenLoaded: false,
-                        loading: false,
-                    });
-                    childPaths.push(parentDirPath);
-                }
-
-                for (const entry of files.value) {
-                    // Skip the ".." entry as it's already added above
-                    if (entry.name === '..') continue;
-
-                    const fullPath = pathUtils.value.join(path, entry.name);
-                    treeNodes.value.set(fullPath, {
-                        entry,
-                        path: fullPath,
-                        depth: 0,
-                        parentPath,
-                        childrenLoaded: false,
-                        loading: false,
-                    });
-                    childPaths.push(fullPath);
-                }
-
-                newChildrenMap.set(parentPath, childPaths);
-                childrenMap.value = newChildrenMap;
-                triggerRef(treeNodes);
-                triggerRef(childrenMap);
+                appendTreePage(parentPath, path, firstPage.entries, firstPage.hasMore, firstPage.nextCursor ?? null, {
+                    replace: true,
+                    includeParentDir: true
+                });
             }
         } catch (e) {
             // 忽略取消错误
@@ -669,6 +924,11 @@ async function loadFiles(path: string) {
 
 
 async function toggleDirectory(node: TreeNode) {
+    if (isLoadMoreNode(node)) {
+        await loadNextTreePage(node.parentPath);
+        return;
+    }
+
     if (!node.entry.isDir) {
         await openTreeFile(node);
         return;
@@ -699,31 +959,13 @@ async function toggleDirectory(node: TreeNode) {
     triggerRef(treeNodes);
 
     try {
-        const children = await listFilesWithDedup(props.sessionId, node.path);
-        const currentChildrenMap = new Map(childrenMap.value);
-        const childPaths: string[] = [];
-
-        for (const child of children) {
-            const childPath = pathUtils.value.join(node.path, child.name);
-            if (!treeNodes.value.has(childPath)) {
-                treeNodes.value.set(childPath, {
-                    entry: child,
-                    path: childPath,
-                    depth: node.depth + 1,
-                    parentPath: node.path,
-                    childrenLoaded: false,
-                    loading: false,
-                });
-            }
-            childPaths.push(childPath);
-        }
-
-        currentChildrenMap.set(node.path, childPaths);
-        childrenMap.value = currentChildrenMap;
+        const firstPage = await listFilesPageWithDedup(props.sessionId, node.path, 0, FILE_PAGE_SIZE);
+        appendTreePage(node.path, node.path, firstPage.entries, firstPage.hasMore, firstPage.nextCursor ?? null, {
+            replace: true
+        });
         existing.childrenLoaded = true;
         treeNodes.value.set(node.path, existing);
         triggerRef(treeNodes);
-        triggerRef(childrenMap);
     } catch (e) {
         console.error(e);
         notificationStore.error(`${t('fileManager.treeLoadError') || 'Failed to load tree directory'}: ${getErrorMessage(parseFileError(e), t)}`);
@@ -738,6 +980,11 @@ async function toggleDirectory(node: TreeNode) {
 }
 
 async function openTreeFile(node: TreeNode) {
+    if (isLoadMoreNode(node)) {
+        await loadNextTreePage(node.parentPath);
+        return;
+    }
+
     if (node.entry.isDir) {
         await toggleDirectory(node);
         return;
@@ -748,6 +995,10 @@ async function openTreeFile(node: TreeNode) {
 }
 
 function handleTreeSelection(node: TreeNode) {
+    if (isLoadMoreNode(node)) {
+        void loadNextTreePage(node.parentPath);
+        return;
+    }
     closeContextMenu();
     const next = new Set(selectedTreePaths.value);
     if (next.has(node.path)) {
@@ -842,8 +1093,59 @@ async function handleTauriFileDrop(paths: string[]) {
     // loadFiles(currentPath.value); // Removed to prevent lock contention
 }
 
-onMounted(async () => {
-    // Get the actual working directory for the user
+async function listFilesPageWithDedup(
+    sessionId: string,
+    path: string,
+    cursor: number,
+    limit = FILE_PAGE_SIZE
+): Promise<FilePageResponse> {
+    const cacheKey = `${sessionId}:${path}:page:${cursor}:${limit}`;
+    const existing = pendingPageRequests.get(cacheKey);
+    if (existing) {
+        return existing;
+    }
+
+    const promise = (async () => {
+        try {
+            return await invoke<FilePageResponse>('list_files_page', {
+                id: sessionId,
+                path,
+                cursor,
+                limit
+            });
+        } finally {
+            pendingPageRequests.delete(cacheKey);
+        }
+    })();
+
+    pendingPageRequests.set(cacheKey, promise);
+    return promise;
+}
+
+function buildFilesWithParent(path: string, entries: FileEntry[]) {
+    return path !== '.' && path !== '/'
+        ? [{
+            name: '..',
+            size: 0,
+            mtime: 0,
+            isDir: true,
+            permissions: 755,
+            uid: 0,
+            owner: '-'
+        }, ...entries]
+        : entries;
+}
+
+function resetFlatPaginationState() {
+    isPagedDirectoryLoad.value = false;
+    hasMoreFiles.value = false;
+    nextPageCursor.value = null;
+    isLoadingNextPage.value = false;
+}
+
+async function loadInitialWorkingDirectory() {
+    if (hasLoadedInitialPath.value) return;
+
     try {
         const workingDir = await invoke<string>('get_working_directory', { id: props.sessionId });
         loadFiles(workingDir || '/'); // Fallback to '/' if working directory is not available
@@ -851,10 +1153,27 @@ onMounted(async () => {
         console.error('Failed to get working directory, using root:', e);
         loadFiles('/'); // Fallback to root if there's an error
     }
-    transferStore.initListeners();
+    hasLoadedInitialPath.value = true;
+}
+
+function attachGlobalListeners() {
+    if (globalListenersAttached) return;
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', stopResize);
     window.addEventListener('keydown', handleKeyDown);
+    globalListenersAttached = true;
+}
+
+function detachGlobalListeners() {
+    if (!globalListenersAttached) return;
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', stopResize);
+    window.removeEventListener('keydown', handleKeyDown);
+    globalListenersAttached = false;
+}
+
+async function attachDropListener() {
+    if (unlistenDrop.value) return;
 
     unlistenDrop.value = await listen('tauri://drag-drop', (event) => {
         const payload = event.payload as { paths: string[], position: { x: number, y: number } };
@@ -869,30 +1188,69 @@ onMounted(async () => {
             }
         }
     });
-});
+}
 
-onUnmounted(() => {
-    window.removeEventListener('mousemove', handleMouseMove);
-    window.removeEventListener('mouseup', stopResize);
-    window.removeEventListener('keydown', handleKeyDown);
+function detachDropListener() {
     if (unlistenDrop.value) {
         unlistenDrop.value();
+        unlistenDrop.value = null;
     }
-    resetTypeSearchBuffer();
-    // 清理防抖定时器
+}
+
+function cancelPendingLoads() {
+    currentDirectoryLoadToken++;
     if (loadFilesDebounceTimer) {
         clearTimeout(loadFilesDebounceTimer);
         loadFilesDebounceTimer = null;
     }
-    // 取消进行中的请求
     if (loadFilesAbortController) {
         loadFilesAbortController.abort();
         loadFilesAbortController = null;
     }
+}
+
+async function activateFileManager() {
+    if (isManagerActive.value) return;
+
+    isManagerActive.value = true;
+    await transferStore.initListeners();
+    attachGlobalListeners();
+    await attachDropListener();
+    await loadInitialWorkingDirectory();
+}
+
+function deactivateFileManager() {
+    if (!isManagerActive.value) return;
+
+    isManagerActive.value = false;
+    detachGlobalListeners();
+    detachDropListener();
+    cancelPendingLoads();
+    closeContextMenu();
+}
+
+onMounted(() => {
+    if (props.active) {
+        void activateFileManager();
+    }
+});
+
+onUnmounted(() => {
+    deactivateFileManager();
+    resetTypeSearchBuffer();
+});
+
+watch(() => props.active, (active) => {
+    if (active) {
+        void activateFileManager();
+        return;
+    }
+    deactivateFileManager();
 });
 
 watch(viewMode, (mode) => {
-    if (mode === 'tree') {
+    if (!isManagerActive.value) return;
+    if (mode === 'tree' || mode === 'flat') {
         loadFiles(currentPath.value);
     }
 });
@@ -920,7 +1278,6 @@ function goUp() {
     }
 
     const parentPath = pathUtils.value.dirname(currentPath.value);
-    console.log('Going up from', currentPath.value, 'to', parentPath);
     loadFiles(parentPath);
 }
 
@@ -1817,6 +2174,7 @@ function formatSize(size: number): string {
 
         <!-- File List -->
         <div ref="fileListScrollRef" class="flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
+            @scroll="handleFileListScroll"
             @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu="handleContainerContextMenu">
             <!-- Header -->
             <div
@@ -1871,6 +2229,9 @@ function formatSize(size: number): string {
 
             <div v-if="sortedFiles.length === 0" class="p-4 text-center text-text-tertiary text-sm">
                 {{ t('fileManager.emptyDirectory') }}
+            </div>
+            <div v-else-if="viewMode === 'flat' && isLoadingNextPage" class="p-3 text-center text-text-tertiary text-xs">
+                Loading more...
             </div>
         </div>
 

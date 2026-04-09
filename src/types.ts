@@ -65,6 +65,12 @@ export interface FileEntry {
   owner: string;
 }
 
+export interface FilePageResponse {
+  entries: FileEntry[];
+  nextCursor: number | null;
+  hasMore: boolean;
+}
+
 export type ColumnKey = "name" | "size" | "date" | "owner";
 
 export type AIProviderType = "openai" | "anthropic";

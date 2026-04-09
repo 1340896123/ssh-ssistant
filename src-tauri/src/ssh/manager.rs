@@ -5,6 +5,7 @@ use super::ShellMsg;
 use crate::models::{
     DiskUsage, FileEntry, HeartbeatSettings, NetworkAdaptiveSettings, ServerStatus,
 };
+use crate::ssh::file_ops::FilePageResponse;
 
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
@@ -23,6 +24,13 @@ fn is_wait_socket_timeout(err: &std::io::Error) -> bool {
         || msg.contains("timed out")
         || msg.contains("time out")
         || msg.contains("wait socket")
+}
+
+#[derive(Clone, Copy)]
+pub enum ExecTarget {
+    Ai,
+    FileBrowser,
+    Status,
 }
 
 /// Commands sent to the SSH Manager Actor
@@ -44,12 +52,19 @@ pub enum SshCommand {
         command: String,
         listener: Sender<Result<String, String>>,
         cancel_flag: Option<Arc<AtomicBool>>,
-        is_ai: bool,
+        target: ExecTarget,
     },
     /// List directory (SFTP)
     SftpLs {
         path: String,
         listener: Sender<Result<Vec<FileEntry>, String>>,
+    },
+    /// List directory page (SFTP)
+    SftpLsPage {
+        path: String,
+        cursor: u64,
+        limit: usize,
+        listener: Sender<Result<FilePageResponse, String>>,
     },
     /// Read file (SFTP)
     SftpRead {
@@ -141,6 +156,322 @@ pub struct SshManager {
     network_monitor: Arc<Mutex<NetworkMonitor>>,
 }
 
+type OperationTask = Box<dyn FnOnce(SessionSshPool) + Send + 'static>;
+
+#[derive(Clone)]
+struct WorkerPool {
+    sender: Sender<OperationTask>,
+}
+
+impl WorkerPool {
+    fn new(
+        name: &str,
+        size: usize,
+        pool: SessionSshPool,
+        shutdown_signal: Arc<AtomicBool>,
+    ) -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel::<OperationTask>();
+        let shared_receiver = Arc::new(Mutex::new(receiver));
+
+        for idx in 0..size.max(1) {
+            let pool = pool.clone();
+            let shutdown_signal = shutdown_signal.clone();
+            let receiver = shared_receiver.clone();
+            let worker_name = format!("ssh-{}-worker-{}", name, idx);
+
+            let _ = thread::Builder::new().name(worker_name).spawn(move || {
+                loop {
+                    if shutdown_signal.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let task = {
+                        let receiver = match receiver.lock() {
+                            Ok(receiver) => receiver,
+                            Err(_) => break,
+                        };
+                        receiver.recv_timeout(Duration::from_millis(100))
+                    };
+
+                    match task {
+                        Ok(task) => task(pool.clone()),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            });
+        }
+
+        Self { sender }
+    }
+
+    fn submit<F>(&self, task: F) -> Result<(), String>
+    where
+        F: FnOnce(SessionSshPool) + Send + 'static,
+    {
+        self.sender
+            .send(Box::new(task))
+            .map_err(|_| "Operation worker pool is unavailable".to_string())
+    }
+}
+
+#[derive(Clone)]
+struct OpsScheduler {
+    ai: WorkerPool,
+    metadata: WorkerPool,
+    mutate: WorkerPool,
+    transfer: WorkerPool,
+    status: WorkerPool,
+}
+
+impl OpsScheduler {
+    fn new(pool: SessionSshPool, shutdown_signal: Arc<AtomicBool>) -> Self {
+        let metadata_capacity = pool.file_browser_capacity();
+        let transfer_capacity = pool.transfer_capacity();
+        let mutate_capacity = metadata_capacity.min(2).max(1);
+
+        Self {
+            ai: WorkerPool::new("ai", pool.ai_capacity(), pool.clone(), shutdown_signal.clone()),
+            metadata: WorkerPool::new(
+                "metadata",
+                metadata_capacity,
+                pool.clone(),
+                shutdown_signal.clone(),
+            ),
+            mutate: WorkerPool::new(
+                "mutate",
+                mutate_capacity,
+                pool.clone(),
+                shutdown_signal.clone(),
+            ),
+            transfer: WorkerPool::new(
+                "transfer",
+                transfer_capacity,
+                pool.clone(),
+                shutdown_signal.clone(),
+            ),
+            status: WorkerPool::new("status", pool.status_capacity(), pool, shutdown_signal),
+        }
+    }
+
+    fn dispatch(&self, cmd: SshCommand) {
+        match cmd {
+            SshCommand::Exec {
+                command,
+                listener,
+                cancel_flag,
+                target,
+            } => {
+                let worker = match target {
+                    ExecTarget::Ai => &self.ai,
+                    ExecTarget::FileBrowser => &self.metadata,
+                    ExecTarget::Status => &self.status,
+                };
+                let reply = listener.clone();
+                if let Err(error) = worker.submit(move |pool| {
+                    let res = SshManager::bg_exec(pool, &command, cancel_flag.as_ref(), target);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpLs { path, listener } => {
+                let reply = listener.clone();
+                if let Err(error) = self.metadata.submit(move |pool| {
+                    let res = SshManager::bg_sftp_ls(pool, &path);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpLsPage {
+                path,
+                cursor,
+                limit,
+                listener,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.metadata.submit(move |pool| {
+                    let res = SshManager::bg_sftp_ls_page(pool, &path, cursor, limit);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpRead {
+                path,
+                max_len,
+                listener,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.metadata.submit(move |pool| {
+                    let res = SshManager::bg_sftp_read(pool, &path, max_len);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpWrite {
+                path,
+                content,
+                mode,
+                listener,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.mutate.submit(move |pool| {
+                    let res = SshManager::bg_sftp_write(pool, &path, &content, mode.as_deref());
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpMkdir { path, listener } => {
+                let reply = listener.clone();
+                if let Err(error) = self.mutate.submit(move |pool| {
+                    let res = SshManager::bg_sftp_simple(pool, &path, |sftp, p| {
+                        sftp.mkdir(p, 0o755).map_err(|e| e.to_string())
+                    });
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpCreate { path, listener } => {
+                let reply = listener.clone();
+                if let Err(error) = self.mutate.submit(move |pool| {
+                    let res = SshManager::bg_sftp_simple(pool, &path, |sftp, p| {
+                        sftp.create(p).map_err(|e| e.to_string()).map(|_| ())
+                    });
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpChmod {
+                path,
+                mode,
+                listener,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.mutate.submit(move |pool| {
+                    let res = SshManager::bg_sftp_simple(pool, &path, move |sftp, p| {
+                        sftp.setstat(
+                            p,
+                            ssh2::FileStat {
+                                perm: Some(mode),
+                                size: None,
+                                uid: None,
+                                gid: None,
+                                atime: None,
+                                mtime: None,
+                            },
+                        )
+                        .map_err(|e| e.to_string())
+                    });
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpDelete {
+                path,
+                is_dir,
+                listener,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.mutate.submit(move |pool| {
+                    let res = SshManager::bg_sftp_delete(pool, &path, is_dir);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpRename {
+                old_path,
+                new_path,
+                listener,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.mutate.submit(move |pool| {
+                    let res = SshManager::bg_sftp_rename(pool, &old_path, &new_path);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpDownload {
+                remote_path,
+                local_path,
+                transfer_id,
+                app_handle,
+                listener,
+                cancel_flag,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.transfer.submit(move |pool| {
+                    let res = SshManager::bg_sftp_download_with_pool(
+                        pool,
+                        &remote_path,
+                        &local_path,
+                        &transfer_id,
+                        &app_handle,
+                        &cancel_flag,
+                    );
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::SftpUpload {
+                local_path,
+                remote_path,
+                transfer_id,
+                app_handle,
+                listener,
+                cancel_flag,
+            } => {
+                let reply = listener.clone();
+                if let Err(error) = self.transfer.submit(move |pool| {
+                    let res = SshManager::bg_sftp_upload_with_pool(
+                        pool,
+                        &local_path,
+                        &remote_path,
+                        &transfer_id,
+                        &app_handle,
+                        &cancel_flag,
+                    );
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::GetServerStatus { listener } => {
+                let reply = listener.clone();
+                if let Err(error) = self.status.submit(move |pool| {
+                    let res = SshManager::bg_get_server_status(pool);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::GetDiskUsage { path, listener } => {
+                let reply = listener.clone();
+                if let Err(error) = self.status.submit(move |pool| {
+                    let res = SshManager::bg_get_disk_usage(pool, &path);
+                    let _ = reply.send(res);
+                }) {
+                    let _ = listener.send(Err(error));
+                }
+            }
+            SshCommand::Shutdown
+            | SshCommand::ShellOpen { .. }
+            | SshCommand::ShellWrite(_)
+            | SshCommand::ShellResize { .. }
+            | SshCommand::ShellClose => {}
+        }
+    }
+}
+
 impl SshManager {
     pub fn new(
         session: ManagedSession,
@@ -213,6 +544,8 @@ impl SshManager {
         receiver: Receiver<SshCommand>,
         shutdown_signal: Arc<AtomicBool>,
     ) {
+        let scheduler = OpsScheduler::new(pool, shutdown_signal.clone());
+
         loop {
             if shutdown_signal.load(Ordering::Relaxed) {
                 break;
@@ -229,7 +562,7 @@ impl SshManager {
                     shutdown_signal.store(true, Ordering::Relaxed);
                     break;
                 }
-                other => Self::handle_ops_command(pool.clone(), other),
+                other => scheduler.dispatch(other),
             }
         }
     }
@@ -453,16 +786,25 @@ impl SshManager {
                 command,
                 listener,
                 cancel_flag,
-                is_ai,
+                target,
             } => {
                 let pool = pool.clone();
                 thread::spawn(move || {
-                    let res = Self::bg_exec(pool, &command, cancel_flag.as_ref(), is_ai);
+                    let res = Self::bg_exec(pool, &command, cancel_flag.as_ref(), target);
                     let _ = listener.send(res);
                 });
             }
             SshCommand::SftpLs { path, listener } => {
                 let res = Self::bg_sftp_ls(pool.clone(), &path);
+                let _ = listener.send(res);
+            }
+            SshCommand::SftpLsPage {
+                path,
+                cursor,
+                limit,
+                listener,
+            } => {
+                let res = Self::bg_sftp_ls_page(pool.clone(), &path, cursor, limit);
                 let _ = listener.send(res);
             }
             SshCommand::SftpRead {
@@ -631,12 +973,12 @@ impl SshManager {
         pool: SessionSshPool,
         command: &str,
         cancel_flag: Option<&Arc<AtomicBool>>,
-        is_ai: bool,
+        target: ExecTarget,
     ) -> Result<String, String> {
-        let session_mutex = if is_ai {
-            pool.get_ai_session()?
-        } else {
-            pool.get_file_browser_session()?
+        let session_mutex = match target {
+            ExecTarget::Ai => pool.get_ai_session()?,
+            ExecTarget::FileBrowser => pool.get_file_browser_session()?,
+            ExecTarget::Status => pool.get_status_session()?,
         };
         let session = session_mutex.lock().map_err(|e| e.to_string())?;
 
@@ -724,6 +1066,90 @@ impl SshManager {
         });
 
         Ok(entries)
+    }
+
+    fn bg_sftp_ls_page(
+        pool: SessionSshPool,
+        path: &str,
+        cursor: u64,
+        limit: usize,
+    ) -> Result<FilePageResponse, String> {
+        let session_mutex = pool.get_file_browser_session()?;
+        let session = session_mutex.lock().map_err(|e| e.to_string())?;
+        let sftp = Self::bg_get_sftp(&session)?;
+        let mut dir = crate::ssh::utils::ssh2_retry(|| sftp.opendir(Path::new(path)))
+            .map_err(|e| e.to_string())?;
+
+        let mut skipped = 0u64;
+        let mut entries = Vec::new();
+        let mut has_more = false;
+
+        loop {
+            match dir.readdir() {
+                Ok((path_buf, stat)) => {
+                    let Some(name) = path_buf.file_name().and_then(|name| name.to_str()) else {
+                        continue;
+                    };
+                    if name == "." || name == ".." {
+                        continue;
+                    }
+
+                    if skipped < cursor {
+                        skipped += 1;
+                        continue;
+                    }
+
+                    if entries.len() >= limit {
+                        has_more = true;
+                        break;
+                    }
+
+                    let owner = if stat.uid.unwrap_or(0) == 0 {
+                        "root"
+                    } else {
+                        "-"
+                    }
+                    .to_string();
+
+                    entries.push(FileEntry {
+                        name: name.to_string(),
+                        is_dir: stat.is_dir(),
+                        size: stat.size.unwrap_or(0),
+                        mtime: stat.mtime.unwrap_or(0) as i64,
+                        permissions: stat.perm.unwrap_or(0),
+                        uid: stat.uid.unwrap_or(0),
+                        owner,
+                    });
+                }
+                Err(ref e) if e.code() == ssh2::ErrorCode::Session(-16) => {
+                    break;
+                }
+                Err(ref e) if e.code() == ssh2::ErrorCode::Session(-37) => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+
+        entries.sort_by(|a, b| {
+            if a.is_dir == b.is_dir {
+                a.name.cmp(&b.name)
+            } else {
+                b.is_dir.cmp(&a.is_dir)
+            }
+        });
+
+        let next_cursor = if has_more {
+            Some(cursor + entries.len() as u64)
+        } else {
+            None
+        };
+
+        Ok(FilePageResponse {
+            entries,
+            next_cursor,
+            has_more,
+        })
     }
 
     fn bg_sftp_read(

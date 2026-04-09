@@ -1,6 +1,6 @@
 use super::client::{AppState, ClientType};
 use crate::models::{DiskUsage, ServerStatus};
-use crate::ssh::{execute_ssh_operation, SshCommand};
+use crate::ssh::{execute_ssh_operation, ExecTarget, SshCommand};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -71,7 +71,7 @@ fn run_ssh_command(sender: &Sender<SshCommand>, cmd: &str) -> Result<String, Str
             command: cmd.to_string(),
             listener: tx,
             cancel_flag: None,
-            is_ai: false,
+            target: ExecTarget::Status,
         })
         .map_err(|e| format!("Failed to send command: {}", e))?;
 

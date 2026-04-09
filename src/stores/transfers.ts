@@ -33,6 +33,7 @@ export const useTransferStore = defineStore('transfers', () => {
 
     // Listen for progress events
     let unlisten: (() => void) | null = null;
+    let initPromise: Promise<void> | null = null;
 
     // Batch progress update configuration
     const PROGRESS_THROTTLE_MS = 500;
@@ -81,45 +82,54 @@ export const useTransferStore = defineStore('transfers', () => {
     }>();
 
     async function initListeners() {
-        // First sync with backend to restore state
-        await syncWithBackend();
-
         if (unlisten) return;
+        if (!initPromise) {
+            initPromise = (async () => {
+                // First sync with backend to restore state
+                await syncWithBackend();
 
-        const unlistenProgress = await listen('transfer-progress', (event: any) => {
-            const payload = event.payload as ProgressPayload;
+                if (unlisten) return;
 
-            // Queue the update instead of applying immediately
-            progressUpdateQueue.set(payload.id, payload);
+                const unlistenProgress = await listen('transfer-progress', (event: any) => {
+                    const payload = event.payload as ProgressPayload;
 
-            // Schedule batch update
-            if (!progressUpdateTimer) {
-                progressUpdateTimer = window.setTimeout(() => {
-                    applyBatchedProgress();
-                    progressUpdateTimer = null;
-                }, PROGRESS_THROTTLE_MS);
-            }
-        });
+                    // Queue the update instead of applying immediately
+                    progressUpdateQueue.set(payload.id, payload);
 
-        const unlistenError = await listen('transfer-error', (event: any) => {
-            const payload = event.payload as { id: string, error: string };
-            const item = items.value.find(i => i.id === payload.id);
-            if (item) {
-                item.status = 'error';
-                item.error = payload.error;
-            }
-        });
+                    // Schedule batch update
+                    if (!progressUpdateTimer) {
+                        progressUpdateTimer = window.setTimeout(() => {
+                            applyBatchedProgress();
+                            progressUpdateTimer = null;
+                        }, PROGRESS_THROTTLE_MS);
+                    }
+                });
 
-        unlisten = () => {
-            unlistenProgress();
-            unlistenError();
-            // Clean up progress update timer
-            if (progressUpdateTimer !== null) {
-                clearTimeout(progressUpdateTimer);
-                progressUpdateTimer = null;
-            }
-            progressUpdateQueue.clear();
-        };
+                const unlistenError = await listen('transfer-error', (event: any) => {
+                    const payload = event.payload as { id: string, error: string };
+                    const item = items.value.find(i => i.id === payload.id);
+                    if (item) {
+                        item.status = 'error';
+                        item.error = payload.error;
+                    }
+                });
+
+                unlisten = () => {
+                    unlistenProgress();
+                    unlistenError();
+                    // Clean up progress update timer
+                    if (progressUpdateTimer !== null) {
+                        clearTimeout(progressUpdateTimer);
+                        progressUpdateTimer = null;
+                    }
+                    progressUpdateQueue.clear();
+                };
+            })().finally(() => {
+                initPromise = null;
+            });
+        }
+
+        await initPromise;
     }
 
     async function syncWithBackend() {

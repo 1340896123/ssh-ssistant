@@ -138,6 +138,7 @@ interface SessionStats {
 const sessionStatus = ref<Record<string, SessionStats>>({});
 let statusTimer: number | null = null;
 let clockTimer: number | null = null;
+const isRefreshingSessionStatus = ref(false);
 
 function formatDuration(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
@@ -161,8 +162,10 @@ const activeSessionDuration = computed(() => {
 async function refreshActiveSessionStatus() {
   if (!activeSession.value || activeSession.value.status !== "connected")
     return;
+  if (isRefreshingSessionStatus.value) return;
 
   const id = activeSession.value.id;
+  isRefreshingSessionStatus.value = true;
 
   try {
     const stats = await invoke<SessionStats>("get_remote_system_status", { id });
@@ -186,6 +189,8 @@ async function refreshActiveSessionStatus() {
         memory: current?.memory || null,
       },
     };
+  } finally {
+    isRefreshingSessionStatus.value = false;
   }
 }
 
@@ -219,10 +224,10 @@ onMounted(async () => {
     now.value = Date.now();
   }, 1000);
 
-  // Fixed refresh interval - update every second
+  // Use a gentler interval to keep status polling from competing with interactive work.
   statusTimer = window.setInterval(() => {
     refreshActiveSessionStatus();
-  }, 1000); // 1 second refresh interval
+  }, 3000);
 });
 
 onUnmounted(() => {
@@ -490,7 +495,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
               <!-- Files -->
               <div class="overflow-hidden flex flex-col border-r border-subtle bg-bg-secondary/30" :style="{ height: fileHeight + '%' }">
-                <FileManager :sessionId="session.id" @openFileEditor="
+                <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
                 " @switchToTerminalPath="switchTerminalToPath" />
@@ -501,7 +506,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
             <template v-else>
               <!-- Files (Left) -->
               <div class="overflow-hidden flex flex-col bg-bg-secondary/30" :style="{ width: fileWidth + '%' }">
-                <FileManager :sessionId="session.id" @openFileEditor="
+                <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
                 " @switchToTerminalPath="switchTerminalToPath" />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, h, reactive } from 'vue';
+import { computed, ref, h, shallowRef, watch } from 'vue';
 import { useVirtualizer } from '@tanstack/vue-virtual';
 import { useDebounceFn } from '@vueuse/core';
 import type { FileEntry, FileManagerViewMode, ColumnKey } from '../types';
@@ -12,6 +12,8 @@ interface TreeNode {
     parentPath: string | null;
     childrenLoaded: boolean;
     loading: boolean;
+    kind?: 'entry' | 'load_more';
+    nextCursor?: number | null;
 }
 
 interface Props {
@@ -63,7 +65,7 @@ const virtualItems = computed(() => virtualizer.value.getVirtualItems());
 const totalSize = computed(() => virtualizer.value.getTotalSize());
 
 const { getFileIcon } = useFileIcon();
-const iconMap = reactive(new Map<string, string>());
+const iconMap = shallowRef(new Map<string, string>());
 
 function scrollToIndex(index: number) {
     virtualizer.value.scrollToIndex(index, { align: 'center' });
@@ -71,34 +73,79 @@ function scrollToIndex(index: number) {
 
 defineExpose({ scrollToIndex });
 
-async function loadIcon(item: FileEntry) {
-    if (!item.isDir && item.name !== '..') {
-        const ext = item.name.split('.').pop()?.toLowerCase();
-        if (ext && !iconMap.has(ext)) {
-             const icon = await getFileIcon(item.name, item.isDir);
-             if (icon) {
-                 iconMap.set(ext, icon);
-             }
+function getExtension(name: string) {
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (!ext || ext === name.toLowerCase()) {
+        return undefined;
+    }
+    return ext;
+}
+
+function getEntry(item: FileEntry | TreeNode): FileEntry {
+    return 'entry' in item ? item.entry : item;
+}
+
+async function preloadVisibleIcons() {
+    const missingExtensions = new Set<string>();
+
+    for (const virtualItem of virtualItems.value) {
+        const rawItem = props.items[virtualItem.index];
+        if (!rawItem) continue;
+
+        const entry = getEntry(rawItem);
+        if (entry.isDir || entry.name === '..') continue;
+
+        const ext = getExtension(entry.name);
+        if (!ext || iconMap.value.has(ext)) continue;
+
+        missingExtensions.add(ext);
+    }
+
+    if (missingExtensions.size === 0) return;
+
+    const loadedIcons = await Promise.all(
+        Array.from(missingExtensions).map(async (ext) => ({
+            ext,
+            icon: await getFileIcon(`file.${ext}`, false)
+        }))
+    );
+
+    let nextIconMap = iconMap.value;
+    let hasChanges = false;
+
+    for (const { ext, icon } of loadedIcons) {
+        if (!icon || nextIconMap.has(ext)) continue;
+
+        if (!hasChanges) {
+            nextIconMap = new Map(nextIconMap);
+            hasChanges = true;
         }
+        nextIconMap.set(ext, icon);
+    }
+
+    if (hasChanges) {
+        iconMap.value = nextIconMap;
     }
 }
 
-// 防抖版本的图标加载函数，提升滚动性能
-const loadIconDebounced = useDebounceFn(loadIcon, 100);
+const preloadVisibleIconsDebounced = useDebounceFn(() => {
+    void preloadVisibleIcons();
+}, 80);
+
+watch([virtualItems, () => props.items], () => {
+    preloadVisibleIconsDebounced();
+}, { immediate: true });
 
 function getIconForFile(name: string) {
-    const ext = name.split('.').pop()?.toLowerCase();
-    if (ext && iconMap.has(ext)) {
-        return iconMap.get(ext);
+    const ext = getExtension(name);
+    if (ext && iconMap.value.has(ext)) {
+        return iconMap.value.get(ext);
     }
     return undefined;
 }
 
 
 function renderFileItem(item: FileEntry, index: number) {
-    // 使用防抖版本加载图标，提升滚动性能
-    loadIconDebounced(item);
-
     const isSelected = props.selectedFiles.has(item.name);
     const isParentDir = item.name === '..';
     
@@ -192,8 +239,38 @@ function renderFileItem(item: FileEntry, index: number) {
 }
 
 function renderTreeNode(node: TreeNode) {
-    // 使用防抖版本加载图标，提升滚动性能
-    loadIconDebounced(node.entry);
+    if (node.kind === 'load_more') {
+        return h('div', {
+            key: node.path,
+            'data-file-item': 'true',
+            class: 'flex items-center p-2 cursor-pointer border-b border-border-secondary text-text-secondary hover:bg-bg-tertiary transition-colors select-none h-full',
+            onClick: () => props.onOpenTreeFile?.(node),
+            onDblclick: () => props.onOpenTreeFile?.(node)
+        }, [
+            h('div', {
+                class: 'flex items-center min-w-0',
+                style: {
+                    width: props.columnWidths.name + 'px',
+                    paddingLeft: (node.depth * 16) + 'px'
+                }
+            }, [
+                h('span', { class: 'mr-2 text-primary text-xs' }, node.loading ? '...' : '+'),
+                h('span', { class: 'text-xs font-medium truncate', title: node.loading ? 'Loading more...' : 'Load more...' }, node.loading ? 'Loading more...' : 'Load more...')
+            ]),
+            h('span', {
+                class: 'text-xs text-text-muted font-mono',
+                style: { width: props.columnWidths.size + 'px', paddingLeft: '8px' }
+            }, ''),
+            h('span', {
+                class: 'text-xs text-text-muted font-mono',
+                style: { width: props.columnWidths.date + 'px', paddingLeft: '8px' }
+            }, ''),
+            h('span', {
+                class: 'text-xs text-text-muted font-mono',
+                style: { width: props.columnWidths.owner + 'px', paddingLeft: '8px' }
+            }, '')
+        ]);
+    }
 
     const isSelected = props.selectedTreePaths.has(node.path);
     const isExpanded = props.expandedPaths?.has(node.path);

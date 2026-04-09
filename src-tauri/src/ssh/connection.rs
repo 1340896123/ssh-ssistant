@@ -114,7 +114,7 @@ impl std::ops::Deref for ManagedSession {
 ///
 /// 五个场景严格隔离：
 /// 1. 终端主会话 (main_session)
-/// 2. AI助手会话 (ai_session)
+/// 2. AI助手会话池 (ai_pool)
 /// 3. 文件浏览器会话池 (file_browser_pool)
 /// 4. 文件传输会话池 (transfer_pool)
 /// 5. 状态栏会话 (status_pool, 懒加载单例)
@@ -122,10 +122,11 @@ impl std::ops::Deref for ManagedSession {
 pub struct SessionSshPool {
     config: SshConnConfig,
     main_session: Arc<Mutex<ManagedSession>>, // 主会话，专用于终端
-    ai_session: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // AI助手专用会话
+    ai_pool: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // AI助手会话池
     file_browser_pool: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 文件浏览器会话池（用于快速SFTP操作）
     transfer_pool: Arc<Mutex<Vec<Arc<Mutex<ManagedSession>>>>>, // 文件传输会话池（用于大文件上传/下载）
     status_pool: Arc<Mutex<Option<Arc<Mutex<ManagedSession>>>>>, // 状态栏专用会话（懒加载单例）
+    max_ai_sessions: usize,                                     // 最大AI会话数量
     max_file_browser_sessions: usize,                           // 最大文件浏览器会话数量
     max_transfer_sessions: usize,                               // 最大传输会话数量
     next_bg_index: Arc<Mutex<usize>>,                           // 轮询索引
@@ -161,16 +162,19 @@ impl SessionSshPool {
         // Don't create background session immediately to save resources and avoid rate limits
         // It will be created on demand when get_file_browser_session is called
 
+        let max_ai_sessions = (max_file_browser_sessions / 3).max(2).min(4);
+
         // 计算传输会话池大小：至少2个，最多与文件浏览器会话相同，默认4个
         let max_transfer_sessions = (max_file_browser_sessions / 2).max(2).min(6);
 
         Ok(Self {
             config,
             main_session: Arc::new(Mutex::new(main_session)),
-            ai_session: Arc::new(Mutex::new(None)),
+            ai_pool: Arc::new(Mutex::new(Vec::new())),
             file_browser_pool: Arc::new(Mutex::new(Vec::new())),
             transfer_pool: Arc::new(Mutex::new(Vec::new())),
             status_pool: Arc::new(Mutex::new(None)),
+            max_ai_sessions,
             max_file_browser_sessions,
             max_transfer_sessions,
             next_bg_index: Arc::new(Mutex::new(0)),
@@ -180,6 +184,26 @@ impl SessionSshPool {
             timeout_settings,
             reconnect_settings,
         })
+    }
+
+    /// Capacity hint for metadata-style background operations.
+    pub fn file_browser_capacity(&self) -> usize {
+        self.max_file_browser_sessions.max(1)
+    }
+
+    /// Capacity hint for transfer-style background operations.
+    pub fn transfer_capacity(&self) -> usize {
+        self.max_transfer_sessions.max(1)
+    }
+
+    /// Capacity hint for AI command execution.
+    pub fn ai_capacity(&self) -> usize {
+        self.max_ai_sessions.max(1)
+    }
+
+    /// Capacity hint for status polling and monitoring commands.
+    pub fn status_capacity(&self) -> usize {
+        1
     }
 
     /// 获取传输专用会话（用于大文件上传/下载，避免阻塞普通操作）
@@ -278,24 +302,70 @@ impl SessionSshPool {
         }
     }
 
-    /// 获取AI助手专用会话（懒加载）
+    /// 获取AI助手专用会话（池化）
     pub fn get_ai_session(&self) -> Result<Arc<Mutex<ManagedSession>>, String> {
-        let mut session_opt = self.ai_session.lock().map_err(|e| e.to_string())?;
+        self.get_ai_session_with_timeout(Duration::from_secs(10))
+    }
 
-        if let Some(session) = session_opt.as_ref() {
-            return Ok(session.clone());
+    pub fn get_ai_session_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<Arc<Mutex<ManagedSession>>, String> {
+        let start = Instant::now();
+        let check_interval = Duration::from_millis(50);
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err("Timeout waiting for available AI session. Please try again later.".to_string());
+            }
+
+            let sessions = self.ai_pool.lock().map_err(|e| e.to_string())?;
+
+            for session in sessions.iter() {
+                if let Ok(_guard) = session.try_lock() {
+                    return Ok(session.clone());
+                }
+            }
+
+            if sessions.len() < self.max_ai_sessions {
+                let delay_ms = if !sessions.is_empty() {
+                    let mut count = self
+                        .connection_stagger_count
+                        .lock()
+                        .map_err(|e| e.to_string())?;
+                    let delay_ms = 10_u64.saturating_pow((*count).min(5));
+                    *count = count.saturating_add(1);
+                    Some(delay_ms)
+                } else {
+                    None
+                };
+
+                drop(sessions);
+
+                if let Some(ms) = delay_ms {
+                    thread::sleep(Duration::from_millis(ms));
+                }
+
+                let new_session = establish_connection_with_retry(
+                    &self.config,
+                    self.timeout_settings.as_ref(),
+                    self.reconnect_settings.as_ref(),
+                )?;
+                let session_arc = Arc::new(Mutex::new(new_session));
+
+                let mut sessions = self.ai_pool.lock().map_err(|e| e.to_string())?;
+                sessions.push(session_arc.clone());
+
+                if let Ok(mut count) = self.connection_stagger_count.lock() {
+                    *count = 0;
+                }
+
+                return Ok(session_arc);
+            }
+
+            drop(sessions);
+            thread::sleep(check_interval);
         }
-
-        // Establish new
-        let new_session = establish_connection_with_retry(
-            &self.config,
-            self.timeout_settings.as_ref(),
-            self.reconnect_settings.as_ref(),
-        )?;
-        let shared_session = Arc::new(Mutex::new(new_session));
-        *session_opt = Some(shared_session.clone());
-
-        Ok(shared_session)
     }
 
     /// 获取文件浏览器会话（智能分配：优先空闲，繁忙则动态补齐）
@@ -453,22 +523,15 @@ impl SessionSshPool {
             }
         }
 
-        // Check AI session
-        if let Ok(mut ai_opt) = self.ai_session.lock() {
-            let mut remove = false;
-            if let Some(session_arc) = ai_opt.as_ref() {
-                if let Ok(sess) = session_arc.lock() {
-                    match ssh2_retry(|| sess.session.keepalive_send()) {
-                        Ok(_) => {}
-                        Err(_) => remove = true,
-                    }
+        // Check AI sessions
+        if let Ok(mut sessions) = self.ai_pool.lock() {
+            sessions.retain(|session| {
+                if let Ok(sess) = session.lock() {
+                    ssh2_retry(|| sess.session.keepalive_send()).is_ok()
                 } else {
-                    remove = true;
+                    false
                 }
-            }
-            if remove {
-                *ai_opt = None;
-            }
+            });
         }
 
         // Check status session (懒加载会话)
@@ -511,22 +574,15 @@ impl SessionSshPool {
             self.rebuild_main()?;
         }
 
-        // Check AI session (lazy check, just invalidate if dead)
-        // We handled it in cleanup_disconnected basically, but `is_session_alive` is stronger check.
-        let mut reset_ai = false;
-        if let Ok(ai_opt) = self.ai_session.lock() {
-            if let Some(session_arc) = ai_opt.as_ref() {
+        // Check AI sessions
+        if let Ok(mut sessions) = self.ai_pool.lock() {
+            sessions.retain(|session_arc| {
                 if let Ok(sess) = session_arc.lock() {
-                    if !self.is_session_alive(&sess).unwrap_or(false) {
-                        reset_ai = true;
-                    }
+                    self.is_session_alive(&sess).unwrap_or(false)
+                } else {
+                    false
                 }
-            }
-        }
-        if reset_ai {
-            if let Ok(mut ai_opt) = self.ai_session.lock() {
-                *ai_opt = None;
-            }
+            });
         }
 
         // 检查后台会话
@@ -601,9 +657,9 @@ impl SessionSshPool {
             }
         }
 
-        // Close AI session
-        if let Ok(mut ai_opt) = self.ai_session.lock() {
-            if let Some(session_arc) = ai_opt.take() {
+        // Close AI sessions
+        if let Ok(mut sessions) = self.ai_pool.lock() {
+            for session_arc in sessions.drain(..) {
                 if let Ok(mut sess) = session_arc.lock() {
                     // Close forwarding thread first
                     if let Some(mut handle) = sess.forwarding_handle.take() {
@@ -720,10 +776,10 @@ impl SessionSshPool {
             }
         }
 
-        // Reset AI session 并清理资源
+        // Reset AI sessions 并清理资源
         {
-            let mut ai_opt = self.ai_session.lock().map_err(|e| e.to_string())?;
-            if let Some(session_arc) = ai_opt.take() {
+            let mut sessions = self.ai_pool.lock().map_err(|e| e.to_string())?;
+            for session_arc in sessions.drain(..) {
                 if let Ok(mut sess) = session_arc.lock() {
                     Self::cleanup_managed_session(&mut sess);
                 }
@@ -758,10 +814,10 @@ impl SessionSshPool {
                 Vec::new()
             };
 
-        // Collect AI session metadata
-        let ai_metadata = if let Ok(ai_opt) = self.ai_session.lock() {
-            ai_opt
-                .as_ref()
+        // Collect AI session metadata from the first pooled session
+        let ai_metadata = if let Ok(sessions) = self.ai_pool.lock() {
+            sessions
+                .first()
                 .and_then(|s| s.lock().ok().map(|sess| sess.health_metadata.clone()))
         } else {
             None
@@ -887,10 +943,13 @@ impl SessionSshPool {
 
     /// 重建AI会话
     fn rebuild_ai_session(&self) -> Result<(), String> {
-        let mut ai_opt = self.ai_session.lock().map_err(|e| e.to_string())?;
+        let mut sessions = self.ai_pool.lock().map_err(|e| e.to_string())?;
 
-        // Clear the existing session
-        *ai_opt = None;
+        for session in sessions.drain(..) {
+            if let Ok(mut sess) = session.lock() {
+                Self::cleanup_managed_session(&mut sess);
+            }
+        }
 
         // The session will be recreated on next get_ai_session() call
 

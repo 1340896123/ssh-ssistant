@@ -33,6 +33,7 @@ pub fn run() {
             ssh::client::cancel_command_execution,
             ssh::client::get_os_info,
             ssh::file_ops::list_files,
+            ssh::file_ops::list_files_page,
             ssh::file_ops::read_remote_file,
             ssh::file_ops::write_remote_file,
             ssh::file_ops::search_remote_files,

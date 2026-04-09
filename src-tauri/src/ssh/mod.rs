@@ -87,7 +87,7 @@ pub use health_check::{
     HealthAction, PoolHealthChecker, PoolHealthReport, SessionHealth, SessionHealthMetadata,
 };
 pub use heartbeat::{HeartbeatAction, HeartbeatManager, HeartbeatResult, HeartbeatStatus};
-pub use manager::SshCommand;
+pub use manager::{ExecTarget, SshCommand};
 pub use network_monitor::NetworkMonitor;
 pub use reconnect::ReconnectManager;
 pub use utils::{execute_ssh_operation, ssh2_retry};

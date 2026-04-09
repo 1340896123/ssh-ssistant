@@ -3,6 +3,7 @@ use super::manager::SshCommand;
 use crate::models::FileEntry;
 use crate::models::Transfer;
 use crate::ssh::client::TransferState;
+use crate::ssh::ExecTarget;
 use crate::ssh::execute_ssh_operation;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -23,6 +24,14 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 struct ErrorPayload {
     id: String,
     error: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePageResponse {
+    pub entries: Vec<FileEntry>,
+    pub next_cursor: Option<u64>,
+    pub has_more: bool,
 }
 
 fn to_wsl_path(distro: &str, path: &str) -> PathBuf {
@@ -205,6 +214,98 @@ pub async fn list_files(
                     }
                 });
                 Ok(file_entries)
+            })
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn list_files_page(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+    cursor: Option<u64>,
+    limit: Option<u32>,
+) -> Result<FilePageResponse, String> {
+    let client = {
+        let clients = state.clients.lock().map_err(|e| e.to_string())?;
+        clients.get(&id).ok_or("Session not found")?.clone()
+    };
+
+    let cursor = cursor.unwrap_or(0);
+    let limit = limit.unwrap_or(200).clamp(1, 1000) as usize;
+
+    match &client.client_type {
+        ClientType::Ssh(senders) => {
+            let sender = senders.ops.clone();
+            execute_ssh_operation(move || {
+                let (tx, rx) = std::sync::mpsc::channel();
+                sender
+                    .send(SshCommand::SftpLsPage {
+                        path,
+                        cursor,
+                        limit,
+                        listener: tx,
+                    })
+                    .map_err(|e| format!("Failed to send command: {}", e))?;
+
+                rx.recv()
+                    .map_err(|_| "Failed to receive response from SSH Manager".to_string())?
+            })
+            .await
+        }
+        ClientType::Wsl(distro) => {
+            let distro = distro.clone();
+            tokio::task::spawn_blocking(move || {
+                let wsl_path = to_wsl_path(&distro, &path);
+                let entries = std::fs::read_dir(wsl_path).map_err(|e| e.to_string())?;
+                let mut file_entries = Vec::new();
+                for entry in entries {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    let meta = entry.metadata().map_err(|e| e.to_string())?;
+                    let name = entry.file_name().to_string_lossy().to_string();
+
+                    file_entries.push(FileEntry {
+                        name,
+                        is_dir: meta.is_dir(),
+                        size: meta.len(),
+                        mtime: meta
+                            .modified()
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64,
+                        permissions: 0o755,
+                        uid: 0,
+                        owner: "root".to_string(),
+                    });
+                }
+
+                file_entries.sort_by(|a, b| {
+                    if a.is_dir == b.is_dir {
+                        a.name.cmp(&b.name)
+                    } else {
+                        b.is_dir.cmp(&a.is_dir)
+                    }
+                });
+
+                let start = cursor as usize;
+                let end = start.saturating_add(limit).min(file_entries.len());
+                let entries = if start < file_entries.len() {
+                    file_entries[start..end].to_vec()
+                } else {
+                    Vec::new()
+                };
+                let has_more = end < file_entries.len();
+                let next_cursor = if has_more { Some(end as u64) } else { None };
+
+                Ok(FilePageResponse {
+                    entries,
+                    next_cursor,
+                    has_more,
+                })
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -969,7 +1070,7 @@ pub async fn search_remote_files(
                         command: cmd,
                         listener: tx,
                         cancel_flag: None,
-                        is_ai: false,
+                        target: ExecTarget::FileBrowser,
                     })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
 

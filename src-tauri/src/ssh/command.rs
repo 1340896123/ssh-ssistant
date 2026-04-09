@@ -1,5 +1,5 @@
 use super::client::{AppState, ClientType};
-use crate::ssh::{execute_ssh_operation, SshCommand};
+use crate::ssh::{execute_ssh_operation, ExecTarget, SshCommand};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -37,7 +37,11 @@ pub async fn exec_command(
     };
 
     let tool_call_id_clone = tool_call_id.clone();
-    let is_ai = tool_call_id_clone.is_some();
+    let target = if tool_call_id_clone.is_some() {
+        ExecTarget::Ai
+    } else {
+        ExecTarget::FileBrowser
+    };
 
     let result = match &client.client_type {
         ClientType::Ssh(senders) => {
@@ -52,7 +56,7 @@ pub async fn exec_command(
                         command,
                         listener: tx,
                         cancel_flag,
-                        is_ai,
+                        target,
                     })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
 
@@ -142,7 +146,7 @@ pub async fn get_working_directory(
                         command: "pwd".to_string(),
                         listener: tx,
                         cancel_flag: None,
-                        is_ai: false,
+                        target: ExecTarget::FileBrowser,
                     })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
 
