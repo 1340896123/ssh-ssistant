@@ -1,6 +1,6 @@
 use crate::models::{Connection as SshConnConfig, ConnectionTimeoutSettings, ReconnectSettings};
 use crate::ssh::{
-    get_connection_timeout, get_jump_host_timeout, get_local_forward_timeout, ssh2_retry,
+    get_connection_timeout, get_jump_host_timeout, get_local_forward_timeout, get_sftp_operation_timeout, ssh2_retry,
     HealthAction, PoolHealthChecker, PoolHealthReport, ReconnectManager, SessionHealth,
     SessionHealthMetadata, SshErrorClassifier, SshErrorType,
 };
@@ -487,6 +487,10 @@ impl SessionSshPool {
         Ok(pool.as_ref().unwrap().clone())
     }
 
+    pub fn sftp_operation_timeout(&self) -> Duration {
+        get_sftp_operation_timeout(self.timeout_settings.as_ref())
+    }
+
     /// 检查并清理断开的连接
     pub fn cleanup_disconnected(&self) {
         // 检查文件浏览器会话
@@ -936,6 +940,37 @@ impl SessionSshPool {
                     }
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    pub fn recycle_file_browser_session(&self, target: &Arc<Mutex<ManagedSession>>) -> Result<(), String> {
+        let removed_session = {
+            let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
+            sessions
+                .iter()
+                .position(|session| Arc::ptr_eq(session, target))
+                .map(|idx| sessions.remove(idx))
+        };
+
+        if let Some(session_arc) = removed_session {
+            if let Ok(mut sess) = session_arc.lock() {
+                Self::cleanup_managed_session(&mut sess);
+            }
+        } else {
+            return Ok(());
+        }
+
+        let replacement = establish_connection_with_retry(
+            &self.config,
+            self.timeout_settings.as_ref(),
+            self.reconnect_settings.as_ref(),
+        )?;
+
+        let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
+        if sessions.len() < self.max_file_browser_sessions {
+            sessions.push(Arc::new(Mutex::new(replacement)));
         }
 
         Ok(())
@@ -1488,7 +1523,11 @@ fn connect_with_timeout(addr_str: &str, timeout: Duration) -> Result<TcpStream, 
 // Helper to install public key
 pub fn install_public_key(session: &ssh2::Session, public_key: &str) -> Result<(), String> {
     // 1. Init SFTP
-    let sftp = ssh2_retry(|| session.sftp()).map_err(|e| format!("SFTP init failed: {}", e))?;
+    let sftp = crate::ssh::utils::open_sftp_with_timeout(
+        session,
+        get_sftp_operation_timeout(None),
+    )
+    .map_err(|e| format!("SFTP init failed: {}", e))?;
 
     // 2. Ensure .ssh directory exists
     // We ignore error because it might simply exist

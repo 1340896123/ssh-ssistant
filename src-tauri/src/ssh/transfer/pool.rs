@@ -33,14 +33,15 @@ pub struct TransferConnection {
     metrics: Arc<TransferMetrics>,
     /// Health status
     is_healthy: AtomicBool,
+    /// Timeout used when creating or recreating the SFTP subsystem
+    sftp_init_timeout: Duration,
 }
 
 impl TransferConnection {
     /// Create a new transfer connection from a managed session
     fn new(managed_session: ManagedSession, id: usize, settings: &TransferSettings) -> Result<Self, String> {
-        let sftp = managed_session
-            .session
-            .sftp()
+        let sftp_init_timeout = settings.operation_timeout();
+        let sftp = crate::ssh::utils::open_sftp_with_timeout(&managed_session.session, sftp_init_timeout)
             .map_err(|e| format!("Failed to create SFTP channel: {}", e))?;
 
         // Create circuit breaker with adaptive thresholds
@@ -60,6 +61,7 @@ impl TransferConnection {
             circuit_breaker,
             metrics,
             is_healthy: AtomicBool::new(true),
+            sftp_init_timeout,
         })
     }
 
@@ -115,9 +117,7 @@ impl TransferConnection {
     pub fn sftp(&mut self) -> Result<&mut ssh2::Sftp, String> {
         if self.sftp.is_none() {
             self.sftp = Some(
-                self.managed_session
-                    .session
-                    .sftp()
+                crate::ssh::utils::open_sftp_with_timeout(&self.managed_session.session, self.sftp_init_timeout)
                     .map_err(|e| format!("Failed to create SFTP channel: {}", e))?,
             );
         }
@@ -280,7 +280,7 @@ impl TransferPool {
     pub fn release(&mut self, client_id: &str, conn: Arc<Mutex<TransferConnection>>) {
         // Only release if the pool entry exists
         if self.pools.contains_key(client_id) {
-            let mut guard = conn.blocking_lock();
+            let guard = conn.blocking_lock();
             guard.release();
         }
     }

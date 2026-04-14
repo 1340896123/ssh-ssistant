@@ -26,6 +26,11 @@ fn is_wait_socket_timeout(err: &std::io::Error) -> bool {
         || msg.contains("wait socket")
 }
 
+struct SftpInitFailure {
+    message: String,
+    should_recycle_session: bool,
+}
+
 #[derive(Clone, Copy)]
 pub enum ExecTarget {
     Ai,
@@ -1016,56 +1021,122 @@ impl SshManager {
         Ok(s)
     }
 
-    fn bg_get_sftp(session: &ssh2::Session) -> Result<ssh2::Sftp, String> {
-        crate::ssh::utils::ssh2_retry(|| session.sftp()).map_err(|e| e.to_string())
+    fn classify_sftp_init_error(err: &ssh2::Error, timeout: Duration) -> SftpInitFailure {
+        let raw = err.to_string();
+        let lower = raw.to_lowercase();
+        let retryable = crate::ssh::utils::is_retryable_ssh2_error(err);
+        let waiting_for_version = lower.contains("ssh_fxp_version");
+
+        if retryable || waiting_for_version {
+            return SftpInitFailure {
+                message: format!(
+                    "SFTP subsystem did not become ready within {}s. Original error: {}",
+                    timeout.as_secs(),
+                    raw
+                ),
+                should_recycle_session: true,
+            };
+        }
+
+        SftpInitFailure {
+            message: raw,
+            should_recycle_session: false,
+        }
     }
 
-    fn bg_sftp_ls(pool: SessionSshPool, path: &str) -> Result<Vec<FileEntry>, String> {
-        let session_mutex = pool.get_file_browser_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
+    fn bg_get_sftp(
+        session: &ManagedSession,
+        timeout: Duration,
+    ) -> Result<ssh2::Sftp, SftpInitFailure> {
+        crate::ssh::utils::open_sftp_with_timeout(&session.session, timeout)
+            .map_err(|e| Self::classify_sftp_init_error(&e, timeout))
+    }
 
-        let path_path = Path::new(path);
-        let files =
-            crate::ssh::utils::ssh2_retry(|| sftp.readdir(path_path)).map_err(|e| e.to_string())?;
+    fn with_file_browser_sftp<R, F>(pool: SessionSshPool, mut op: F) -> Result<R, String>
+    where
+        F: FnMut(&ssh2::Sftp) -> Result<R, String>,
+    {
+        let timeout = pool.sftp_operation_timeout();
+        let mut last_error = None;
 
-        let mut entries = Vec::new();
-        for (path_buf, stat) in files {
-            if let Some(name) = path_buf.file_name() {
-                if let Some(name_str) = name.to_str() {
-                    if name_str == "." || name_str == ".." {
-                        continue;
+        for attempt in 0..2 {
+            let session_mutex = pool.get_file_browser_session_with_timeout(timeout)?;
+            let mut should_recycle = false;
+
+            let result = {
+                let session = session_mutex.lock().map_err(|e| e.to_string())?;
+                match Self::bg_get_sftp(&session, timeout) {
+                    Ok(sftp) => op(&sftp),
+                    Err(err) => {
+                        should_recycle = err.should_recycle_session;
+                        Err(err.message)
                     }
-                    // Simplified owner resolution (no cache/exec for now to avoid complexity)
-                    let owner = if stat.uid.unwrap_or(0) == 0 {
-                        "root"
-                    } else {
-                        "-"
-                    }
-                    .to_string();
+                }
+            };
 
-                    entries.push(FileEntry {
-                        name: name_str.to_string(),
-                        is_dir: stat.is_dir(),
-                        size: stat.size.unwrap_or(0),
-                        mtime: stat.mtime.unwrap_or(0) as i64,
-                        permissions: stat.perm.unwrap_or(0),
-                        uid: stat.uid.unwrap_or(0),
-                        owner,
-                    });
+            if should_recycle {
+                let _ = pool.recycle_file_browser_session(&session_mutex);
+            }
+
+            match result {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    last_error = Some(err);
+                    if !should_recycle || attempt == 1 {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(50));
                 }
             }
         }
 
-        entries.sort_by(|a, b| {
-            if a.is_dir == b.is_dir {
-                a.name.cmp(&b.name)
-            } else {
-                b.is_dir.cmp(&a.is_dir)
-            }
-        });
+        Err(last_error.unwrap_or_else(|| "SFTP operation failed".to_string()))
+    }
 
-        Ok(entries)
+    fn bg_sftp_ls(pool: SessionSshPool, path: &str) -> Result<Vec<FileEntry>, String> {
+        Self::with_file_browser_sftp(pool, |sftp| {
+            let path_path = Path::new(path);
+            let files = crate::ssh::utils::ssh2_retry(|| sftp.readdir(path_path))
+                .map_err(|e| e.to_string())?;
+
+            let mut entries = Vec::new();
+            for (path_buf, stat) in files {
+                if let Some(name) = path_buf.file_name() {
+                    if let Some(name_str) = name.to_str() {
+                        if name_str == "." || name_str == ".." {
+                            continue;
+                        }
+                        // Simplified owner resolution (no cache/exec for now to avoid complexity)
+                        let owner = if stat.uid.unwrap_or(0) == 0 {
+                            "root"
+                        } else {
+                            "-"
+                        }
+                        .to_string();
+
+                        entries.push(FileEntry {
+                            name: name_str.to_string(),
+                            is_dir: stat.is_dir(),
+                            size: stat.size.unwrap_or(0),
+                            mtime: stat.mtime.unwrap_or(0) as i64,
+                            permissions: stat.perm.unwrap_or(0),
+                            uid: stat.uid.unwrap_or(0),
+                            owner,
+                        });
+                    }
+                }
+            }
+
+            entries.sort_by(|a, b| {
+                if a.is_dir == b.is_dir {
+                    a.name.cmp(&b.name)
+                } else {
+                    b.is_dir.cmp(&a.is_dir)
+                }
+            });
+
+            Ok(entries)
+        })
     }
 
     fn bg_sftp_ls_page(
@@ -1074,81 +1145,80 @@ impl SshManager {
         cursor: u64,
         limit: usize,
     ) -> Result<FilePageResponse, String> {
-        let session_mutex = pool.get_file_browser_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
-        let mut dir = crate::ssh::utils::ssh2_retry(|| sftp.opendir(Path::new(path)))
-            .map_err(|e| e.to_string())?;
+        Self::with_file_browser_sftp(pool, |sftp| {
+            let mut dir = crate::ssh::utils::ssh2_retry(|| sftp.opendir(Path::new(path)))
+                .map_err(|e| e.to_string())?;
 
-        let mut skipped = 0u64;
-        let mut entries = Vec::new();
-        let mut has_more = false;
+            let mut skipped = 0u64;
+            let mut entries = Vec::new();
+            let mut has_more = false;
 
-        loop {
-            match dir.readdir() {
-                Ok((path_buf, stat)) => {
-                    let Some(name) = path_buf.file_name().and_then(|name| name.to_str()) else {
-                        continue;
-                    };
-                    if name == "." || name == ".." {
-                        continue;
+            loop {
+                match dir.readdir() {
+                    Ok((path_buf, stat)) => {
+                        let Some(name) = path_buf.file_name().and_then(|name| name.to_str()) else {
+                            continue;
+                        };
+                        if name == "." || name == ".." {
+                            continue;
+                        }
+
+                        if skipped < cursor {
+                            skipped += 1;
+                            continue;
+                        }
+
+                        if entries.len() >= limit {
+                            has_more = true;
+                            break;
+                        }
+
+                        let owner = if stat.uid.unwrap_or(0) == 0 {
+                            "root"
+                        } else {
+                            "-"
+                        }
+                        .to_string();
+
+                        entries.push(FileEntry {
+                            name: name.to_string(),
+                            is_dir: stat.is_dir(),
+                            size: stat.size.unwrap_or(0),
+                            mtime: stat.mtime.unwrap_or(0) as i64,
+                            permissions: stat.perm.unwrap_or(0),
+                            uid: stat.uid.unwrap_or(0),
+                            owner,
+                        });
                     }
-
-                    if skipped < cursor {
-                        skipped += 1;
-                        continue;
-                    }
-
-                    if entries.len() >= limit {
-                        has_more = true;
+                    Err(ref e) if e.code() == ssh2::ErrorCode::Session(-16) => {
                         break;
                     }
-
-                    let owner = if stat.uid.unwrap_or(0) == 0 {
-                        "root"
-                    } else {
-                        "-"
+                    Err(ref e) if e.code() == ssh2::ErrorCode::Session(-37) => {
+                        thread::sleep(Duration::from_millis(5));
                     }
-                    .to_string();
-
-                    entries.push(FileEntry {
-                        name: name.to_string(),
-                        is_dir: stat.is_dir(),
-                        size: stat.size.unwrap_or(0),
-                        mtime: stat.mtime.unwrap_or(0) as i64,
-                        permissions: stat.perm.unwrap_or(0),
-                        uid: stat.uid.unwrap_or(0),
-                        owner,
-                    });
+                    Err(e) => return Err(e.to_string()),
                 }
-                Err(ref e) if e.code() == ssh2::ErrorCode::Session(-16) => {
-                    break;
-                }
-                Err(ref e) if e.code() == ssh2::ErrorCode::Session(-37) => {
-                    thread::sleep(Duration::from_millis(5));
-                }
-                Err(e) => return Err(e.to_string()),
             }
-        }
 
-        entries.sort_by(|a, b| {
-            if a.is_dir == b.is_dir {
-                a.name.cmp(&b.name)
+            entries.sort_by(|a, b| {
+                if a.is_dir == b.is_dir {
+                    a.name.cmp(&b.name)
+                } else {
+                    b.is_dir.cmp(&a.is_dir)
+                }
+            });
+
+            let next_cursor = if has_more {
+                Some(cursor + entries.len() as u64)
             } else {
-                b.is_dir.cmp(&a.is_dir)
-            }
-        });
+                None
+            };
 
-        let next_cursor = if has_more {
-            Some(cursor + entries.len() as u64)
-        } else {
-            None
-        };
-
-        Ok(FilePageResponse {
-            entries,
-            next_cursor,
-            has_more,
+            Ok(FilePageResponse {
+                entries,
+                next_cursor,
+                has_more,
+            })
         })
     }
 
@@ -1157,40 +1227,38 @@ impl SshManager {
         path: &str,
         max_len: Option<usize>,
     ) -> Result<Vec<u8>, String> {
-        let session_mutex = pool.get_file_browser_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
+        Self::with_file_browser_sftp(pool, |sftp| {
+            let mut file = crate::ssh::utils::ssh2_retry(|| sftp.open(Path::new(path)))
+                .map_err(|e| e.to_string())?;
 
-        let mut file = crate::ssh::utils::ssh2_retry(|| sftp.open(Path::new(path)))
-            .map_err(|e| e.to_string())?;
-
-        let mut buf = Vec::new();
-        let mut temp_buf = [0u8; 8192];
-        loop {
-            if let Some(max) = max_len {
-                if buf.len() >= max {
-                    break;
-                }
-            }
-
-            match file.read(&mut temp_buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    buf.extend_from_slice(&temp_buf[..n]);
-                    if let Some(max) = max_len {
-                        if buf.len() > max {
-                            buf.truncate(max);
-                            break;
-                        }
+            let mut buf = Vec::new();
+            let mut temp_buf = [0u8; 8192];
+            loop {
+                if let Some(max) = max_len {
+                    if buf.len() >= max {
+                        break;
                     }
                 }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(5));
+
+                match file.read(&mut temp_buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&temp_buf[..n]);
+                        if let Some(max) = max_len {
+                            if buf.len() > max {
+                                buf.truncate(max);
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(e) => return Err(e.to_string()),
                 }
-                Err(e) => return Err(e.to_string()),
             }
-        }
-        Ok(buf)
+            Ok(buf)
+        })
     }
 
     fn bg_sftp_write(
@@ -1199,66 +1267,62 @@ impl SshManager {
         content: &[u8],
         mode: Option<&str>,
     ) -> Result<(), String> {
-        let session_mutex = pool.get_file_browser_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
-
-        use ssh2::OpenFlags;
-        let mut file = if mode == Some("append") {
-            crate::ssh::utils::ssh2_retry(|| {
-                sftp.open_mode(
-                    Path::new(path),
-                    OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::APPEND,
-                    0o644,
-                    ssh2::OpenType::File,
-                )
-            })
-        } else {
-            crate::ssh::utils::ssh2_retry(|| {
-                sftp.open_mode(
-                    Path::new(path),
-                    OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
-                    0o644,
-                    ssh2::OpenType::File,
-                )
-            })
-        }
-        .map_err(|e| e.to_string())?;
-
-        let mut pos = 0;
-        while pos < content.len() {
-            match file.write(&content[pos..]) {
-                Ok(n) => pos += n,
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(5));
-                }
-                Err(e) => return Err(e.to_string()),
+        Self::with_file_browser_sftp(pool, |sftp| {
+            use ssh2::OpenFlags;
+            let mut file = if mode == Some("append") {
+                crate::ssh::utils::ssh2_retry(|| {
+                    sftp.open_mode(
+                        Path::new(path),
+                        OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::APPEND,
+                        0o644,
+                        ssh2::OpenType::File,
+                    )
+                })
+            } else {
+                crate::ssh::utils::ssh2_retry(|| {
+                    sftp.open_mode(
+                        Path::new(path),
+                        OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+                        0o644,
+                        ssh2::OpenType::File,
+                    )
+                })
             }
-        }
-        Ok(())
+            .map_err(|e| e.to_string())?;
+
+            let mut pos = 0;
+            while pos < content.len() {
+                match file.write(&content[pos..]) {
+                    Ok(n) => pos += n,
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
+            Ok(())
+        })
     }
 
     fn bg_sftp_simple<F>(pool: SessionSshPool, path: &str, op: F) -> Result<(), String>
     where
         F: FnOnce(&ssh2::Sftp, &Path) -> Result<(), String>,
     {
-        let session_mutex = pool.get_file_browser_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
-        op(&sftp, Path::new(path))
+        let mut op = Some(op);
+        Self::with_file_browser_sftp(pool, |sftp| {
+            op.take().expect("file browser SFTP op should run once")(sftp, Path::new(path))
+        })
     }
 
     fn bg_sftp_delete(pool: SessionSshPool, path: &str, is_dir: bool) -> Result<(), String> {
-        let session_mutex = pool.get_file_browser_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
-
-        if is_dir {
-            Self::rm_recursive_internal(&sftp, Path::new(path))
-        } else {
-            crate::ssh::utils::ssh2_retry(|| sftp.unlink(Path::new(path)))
-                .map_err(|e| e.to_string())
-        }
+        Self::with_file_browser_sftp(pool, |sftp| {
+            if is_dir {
+                Self::rm_recursive_internal(sftp, Path::new(path))
+            } else {
+                crate::ssh::utils::ssh2_retry(|| sftp.unlink(Path::new(path)))
+                    .map_err(|e| e.to_string())
+            }
+        })
     }
 
     fn rm_recursive_internal(sftp: &ssh2::Sftp, path: &Path) -> Result<(), String> {
@@ -1284,12 +1348,10 @@ impl SshManager {
     }
 
     fn bg_sftp_rename(pool: SessionSshPool, old: &str, new: &str) -> Result<(), String> {
-        let session_mutex = pool.get_file_browser_session()?;
-        let session = session_mutex.lock().map_err(|e| e.to_string())?;
-        let sftp = Self::bg_get_sftp(&session)?;
-
-        crate::ssh::utils::ssh2_retry(|| sftp.rename(Path::new(old), Path::new(new), None))
-            .map_err(|e| e.to_string())
+        Self::with_file_browser_sftp(pool, |sftp| {
+            crate::ssh::utils::ssh2_retry(|| sftp.rename(Path::new(old), Path::new(new), None))
+                .map_err(|e| e.to_string())
+        })
     }
 
     // --- Transfer Functions using dedicated Transfer Pool ---
@@ -1347,7 +1409,8 @@ impl SshManager {
             sess: &session_guard.session,
             was_blocking,
         };
-        let sftp = Self::bg_get_sftp(&session_guard)?;
+        let sftp = Self::bg_get_sftp(&session_guard, pool.sftp_operation_timeout())
+            .map_err(|e| e.message)?;
 
         let mut remote = crate::ssh::utils::ssh2_retry(|| sftp.open(Path::new(remote_path)))
             .map_err(|e| e.to_string())?;
@@ -1492,7 +1555,8 @@ impl SshManager {
             sess: &session_guard.session,
             was_blocking,
         };
-        let sftp = Self::bg_get_sftp(&session_guard)?;
+        let sftp = Self::bg_get_sftp(&session_guard, pool.sftp_operation_timeout())
+            .map_err(|e| e.message)?;
 
         let mut local = std::fs::File::open(local_path).map_err(|e| e.to_string())?;
         let metadata = local.metadata().map_err(|e| e.to_string())?;

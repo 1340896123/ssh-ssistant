@@ -4,7 +4,7 @@ use ssh2::Session;
 use std::io::{ErrorKind, Read};
 
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 // Helper to retry ssh2 operations that might return EAGAIN/WouldBlock
@@ -32,6 +32,58 @@ where
         }
     }
     unreachable!("Loop always returns")
+}
+
+pub fn is_retryable_ssh2_error(err: &ssh2::Error) -> bool {
+    if err.code() == ssh2::ErrorCode::Session(-37) {
+        return true;
+    }
+
+    let msg = err.to_string().to_lowercase();
+    msg.contains("wouldblock")
+        || msg.contains("would block")
+        || msg.contains("wait socket")
+        || msg.contains("timed out")
+        || msg.contains("timeout")
+}
+
+pub fn ssh2_retry_with_timeout<F, T>(mut f: F, timeout: Duration) -> Result<T, ssh2::Error>
+where
+    F: FnMut() -> Result<T, ssh2::Error>,
+{
+    const BASE_DELAY_MS: u64 = 20;
+    const MAX_DELAY_MS: u64 = 250;
+
+    let start = Instant::now();
+    let mut attempt = 0u32;
+
+    loop {
+        match f() {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                if !is_retryable_ssh2_error(&e) {
+                    return Err(e);
+                }
+
+                let elapsed = start.elapsed();
+                if elapsed >= timeout {
+                    return Err(e);
+                }
+
+                let delay_ms = (BASE_DELAY_MS * (1 << attempt.min(4))).min(MAX_DELAY_MS);
+                let remaining = timeout.saturating_sub(elapsed);
+                thread::sleep(Duration::from_millis(delay_ms).min(remaining));
+                attempt = attempt.saturating_add(1);
+            }
+        }
+    }
+}
+
+pub fn open_sftp_with_timeout(
+    session: &Session,
+    timeout: Duration,
+) -> Result<ssh2::Sftp, ssh2::Error> {
+    ssh2_retry_with_timeout(|| session.sftp(), timeout)
 }
 
 // 异步执行SSH操作，避免阻塞主线程
