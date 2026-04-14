@@ -863,13 +863,7 @@ async function loadFiles(path: string) {
         isLoadingFiles.value = true;
 
         try {
-            resetFlatPaginationState();
-            currentPath.value = path;
             resetTypeSearchBuffer();
-            // Display actual path instead of "."
-            pathInput.value = path === '.' ? '/' : path;
-            selectedFiles.value.clear();
-            lastSelectedIndex.value = -1;
 
             if (viewMode.value === 'flat') {
                 const firstPage = await listFilesPageWithDedup(props.sessionId, path, 0, FILE_PAGE_SIZE);
@@ -877,6 +871,11 @@ async function loadFiles(path: string) {
                     return;
                 }
 
+                resetFlatPaginationState();
+                currentPath.value = path;
+                pathInput.value = path === '.' ? '/' : path;
+                selectedFiles.value.clear();
+                lastSelectedIndex.value = -1;
                 isPagedDirectoryLoad.value = true;
                 hasMoreFiles.value = firstPage.hasMore;
                 nextPageCursor.value = firstPage.nextCursor ?? null;
@@ -889,6 +888,11 @@ async function loadFiles(path: string) {
                     return;
                 }
 
+                resetFlatPaginationState();
+                currentPath.value = path;
+                pathInput.value = path === '.' ? '/' : path;
+                selectedFiles.value.clear();
+                lastSelectedIndex.value = -1;
                 files.value = buildFilesWithParent(path, firstPage.entries);
                 triggerRef(files);
                 treeRootPath.value = path;
@@ -911,9 +915,8 @@ async function loadFiles(path: string) {
             console.error(e);
             const fileError = parseFileError(e);
             const errorMsg = getErrorMessage(fileError, t);
+            pathInput.value = currentPath.value === '.' ? '/' : currentPath.value;
             notificationStore.error(`${t('fileManager.loadError') || 'Failed to load directory'}: ${errorMsg}`);
-            files.value = [];
-            triggerRef(files);
         } finally {
             if (!currentController.signal.aborted) {
                 isLoadingFiles.value = false;
