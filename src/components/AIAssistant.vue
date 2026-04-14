@@ -17,6 +17,9 @@ import {
   Trash2,
   Square,
   Briefcase,
+  Pencil,
+  Check,
+  X,
 } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 
@@ -83,6 +86,8 @@ const toolStates = ref<Record<string, boolean>>({}); // Keep toolStates as an em
 const toolRunStates = ref<Record<string, ToolRunState>>({});
 const shouldAutoScroll = ref(true);
 const toolOutputListeners = new Map<string, () => void>();
+const editingMessageIndex = ref<number | null>(null);
+const editingMessageDraft = ref("");
 let abortController = ref<AbortController | null>(null);
 
 const initialMessage: Message = {
@@ -98,6 +103,8 @@ function clearSession() {
     unlisten();
   }
   toolOutputListeners.clear();
+  editingMessageIndex.value = null;
+  editingMessageDraft.value = "";
   messages.value = [{ ...initialMessage }];
   contextPaths.value = [];
   toolStates.value = {};
@@ -159,6 +166,47 @@ function hasToolOutputMessage(toolCallId: string) {
   );
 }
 
+function resetTransientToolState() {
+  for (const unlisten of toolOutputListeners.values()) {
+    unlisten();
+  }
+  toolOutputListeners.clear();
+  toolStates.value = {};
+  toolRunStates.value = {};
+}
+
+function startEditingMessage(index: number, content: string) {
+  if (isLoading.value) return;
+  editingMessageIndex.value = index;
+  editingMessageDraft.value = content;
+}
+
+function cancelEditingMessage() {
+  editingMessageIndex.value = null;
+  editingMessageDraft.value = "";
+}
+
+async function resendEditedMessage() {
+  const index = editingMessageIndex.value;
+  const nextContent = editingMessageDraft.value.trim();
+
+  if (index === null || !nextContent || isLoading.value) return;
+
+  const targetMessage = messages.value[index];
+  if (!targetMessage || targetMessage.role !== "user") return;
+
+  resetTransientToolState();
+  messages.value = messages.value.slice(0, index + 1);
+  messages.value[index] = {
+    ...messages.value[index],
+    content: nextContent,
+  };
+
+  cancelEditingMessage();
+  await scrollToBottom();
+  await processChat();
+}
+
 const displayMessages = computed(() => {
   const result: any[] = [];
   const toolOutputMap = new Map<string, string>();
@@ -186,6 +234,7 @@ const displayMessages = computed(() => {
           name: tc.function.name,
           args: tc.function.arguments,
           command,
+          sourceIndex: messages.value.indexOf(msg),
           finalOutput: toolOutputMap.get(tc.id),
           streamedOutput: toolRunStates.value[tc.id]?.output || "",
           status:
@@ -203,10 +252,14 @@ const displayMessages = computed(() => {
 
       result.push({
         ...msg,
+        sourceIndex: messages.value.indexOf(msg),
         toolExecutions,
       });
     } else {
-      result.push(msg);
+      result.push({
+        ...msg,
+        sourceIndex: messages.value.indexOf(msg),
+      });
     }
   }
   return result;
@@ -1125,6 +1178,38 @@ onUnmounted(() => {
                 : 'border border-accent/30'
             "
           >
+            <div
+              v-if="msg.role === 'user'"
+              class="mb-2 flex items-center justify-end gap-1"
+            >
+              <template v-if="editingMessageIndex === msg.sourceIndex">
+                <button
+                  @click="cancelEditingMessage()"
+                  class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors"
+                  title="Cancel edit"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  @click="resendEditedMessage()"
+                  :disabled="!editingMessageDraft.trim() || isLoading"
+                  class="p-1 text-text-muted hover:text-success hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Save and resend"
+                >
+                  <Check class="w-3.5 h-3.5" />
+                </button>
+              </template>
+              <button
+                v-else
+                @click="startEditingMessage(msg.sourceIndex, msg.content)"
+                :disabled="isLoading"
+                class="p-1 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Edit and resend"
+              >
+                <Pencil class="w-3.5 h-3.5" />
+              </button>
+            </div>
+
             <!-- Tool Call Display (Collapsible) -->
             <div v-if="msg.toolExecutions" class="mb-2 space-y-2">
               <div
@@ -1225,7 +1310,21 @@ onUnmounted(() => {
               </div>
             </div>
 
+            <template
+              v-if="
+                msg.role === 'user' && editingMessageIndex === msg.sourceIndex
+              "
+            >
+              <textarea
+                v-model="editingMessageDraft"
+                @keydown.enter.exact.prevent="resendEditedMessage()"
+                class="input-retro w-full rounded-lg px-3 py-3 resize-y min-h-[96px]"
+                rows="4"
+                :disabled="isLoading"
+              ></textarea>
+            </template>
             <div
+              v-else
               class="markdown-content font-sans"
               v-html="renderMarkdown(msg.content)"
             ></div>
