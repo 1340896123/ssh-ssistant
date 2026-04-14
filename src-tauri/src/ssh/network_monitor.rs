@@ -55,7 +55,8 @@ impl NetworkMonitor {
         if !self.settings.enable_adaptive {
             return false;
         }
-        self.last_check.elapsed() >= Duration::from_secs(self.settings.latency_check_interval_secs as u64)
+        self.last_check.elapsed()
+            >= Duration::from_secs(self.settings.latency_check_interval_secs as u64)
     }
 
     pub fn measure_latency(&mut self, session: &Session) -> Result<u32, String> {
@@ -107,7 +108,8 @@ impl NetworkMonitor {
         if duration.as_millis() > 0 {
             let _duration_secs = duration.as_secs_f64();
 
-            self.bandwidth_samples.push_back((bytes_transferred, Instant::now()));
+            self.bandwidth_samples
+                .push_back((bytes_transferred, Instant::now()));
 
             if self.bandwidth_samples.len() > 10 {
                 self.bandwidth_samples.pop_front();

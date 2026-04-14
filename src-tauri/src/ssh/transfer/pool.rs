@@ -39,14 +39,19 @@ pub struct TransferConnection {
 
 impl TransferConnection {
     /// Create a new transfer connection from a managed session
-    fn new(managed_session: ManagedSession, id: usize, settings: &TransferSettings) -> Result<Self, String> {
+    fn new(
+        managed_session: ManagedSession,
+        id: usize,
+        settings: &TransferSettings,
+    ) -> Result<Self, String> {
         let sftp_init_timeout = settings.operation_timeout();
-        let sftp = crate::ssh::utils::open_sftp_with_timeout(&managed_session.session, sftp_init_timeout)
-            .map_err(|e| format!("Failed to create SFTP channel: {}", e))?;
+        let sftp =
+            crate::ssh::utils::open_sftp_with_timeout(&managed_session.session, sftp_init_timeout)
+                .map_err(|e| format!("Failed to create SFTP channel: {}", e))?;
 
         // Create circuit breaker with adaptive thresholds
         let circuit_breaker = Arc::new(CircuitBreaker::new(
-            5, // failure_threshold
+            5,                                  // failure_threshold
             std::time::Duration::from_secs(30), // recovery_timeout
         ));
 
@@ -117,8 +122,11 @@ impl TransferConnection {
     pub fn sftp(&mut self) -> Result<&mut ssh2::Sftp, String> {
         if self.sftp.is_none() {
             self.sftp = Some(
-                crate::ssh::utils::open_sftp_with_timeout(&self.managed_session.session, self.sftp_init_timeout)
-                    .map_err(|e| format!("Failed to create SFTP channel: {}", e))?,
+                crate::ssh::utils::open_sftp_with_timeout(
+                    &self.managed_session.session,
+                    self.sftp_init_timeout,
+                )
+                .map_err(|e| format!("Failed to create SFTP channel: {}", e))?,
             );
         }
         Ok(self.sftp.as_mut().expect("SFTP should be Some"))
@@ -149,21 +157,20 @@ impl TransferConnection {
         // Use tokio::timeout for async health check
         let is_healthy = self.is_healthy.load(Ordering::Relaxed);
         let circuit_open = !self.circuit_breaker.allow_operation();
-        
+
         if !is_healthy || circuit_open {
             return false;
         }
-        
+
         let session_result = tokio::time::timeout(
             Duration::from_secs(5),
             tokio::task::spawn_blocking({
                 let session = self.managed_session.session.clone();
-                move || {
-                    session.keepalive_send().is_ok()
-                }
-            })
-        ).await;
-        
+                move || session.keepalive_send().is_ok()
+            }),
+        )
+        .await;
+
         match session_result {
             Ok(Ok(is_alive)) => {
                 if is_alive {
@@ -217,16 +224,20 @@ impl TransferPool {
     }
 
     /// Acquire a connection for the given client ID
-    pub async fn acquire(&mut self, client_id: &str) -> Result<Arc<Mutex<TransferConnection>>, String> {
+    pub async fn acquire(
+        &mut self,
+        client_id: &str,
+    ) -> Result<Arc<Mutex<TransferConnection>>, String> {
         // Get or create pool entry
         let needs_new_connection = {
-            let entry = self.pools.entry(client_id.to_string()).or_insert_with(|| {
-                PoolEntry {
+            let entry = self
+                .pools
+                .entry(client_id.to_string())
+                .or_insert_with(|| PoolEntry {
                     connections: Vec::new(),
                     last_access: Instant::now(),
                     next_index: 0,
-                }
-            });
+                });
 
             entry.last_access = Instant::now();
 
@@ -363,11 +374,7 @@ impl TransferPool {
     pub fn total_idle_connections(&self) -> usize {
         self.pools
             .values()
-            .flat_map(|e| {
-                e.connections.iter().filter(|c| {
-                    c.blocking_lock().is_idle()
-                })
-            })
+            .flat_map(|e| e.connections.iter().filter(|c| c.blocking_lock().is_idle()))
             .count()
     }
 }

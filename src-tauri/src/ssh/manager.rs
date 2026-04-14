@@ -1,7 +1,7 @@
 use super::connection::{ManagedSession, SessionSshPool};
 use super::heartbeat::{HeartbeatAction, HeartbeatManager, HeartbeatResult};
 use super::network_monitor::NetworkMonitor;
-use super::ShellMsg;
+use super::{emit_command_output, ExecStreamContext, ShellMsg};
 use crate::models::{
     DiskUsage, FileEntry, HeartbeatSettings, NetworkAdaptiveSettings, ServerStatus,
 };
@@ -58,6 +58,7 @@ pub enum SshCommand {
         listener: Sender<Result<String, String>>,
         cancel_flag: Option<Arc<AtomicBool>>,
         target: ExecTarget,
+        stream: Option<ExecStreamContext>,
     },
     /// List directory (SFTP)
     SftpLs {
@@ -184,8 +185,9 @@ impl WorkerPool {
             let receiver = shared_receiver.clone();
             let worker_name = format!("ssh-{}-worker-{}", name, idx);
 
-            let _ = thread::Builder::new().name(worker_name).spawn(move || {
-                loop {
+            let _ = thread::Builder::new()
+                .name(worker_name)
+                .spawn(move || loop {
                     if shutdown_signal.load(Ordering::Relaxed) {
                         break;
                     }
@@ -203,8 +205,7 @@ impl WorkerPool {
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
-                }
-            });
+                });
         }
 
         Self { sender }
@@ -236,7 +237,12 @@ impl OpsScheduler {
         let mutate_capacity = metadata_capacity.min(2).max(1);
 
         Self {
-            ai: WorkerPool::new("ai", pool.ai_capacity(), pool.clone(), shutdown_signal.clone()),
+            ai: WorkerPool::new(
+                "ai",
+                pool.ai_capacity(),
+                pool.clone(),
+                shutdown_signal.clone(),
+            ),
             metadata: WorkerPool::new(
                 "metadata",
                 metadata_capacity,
@@ -266,6 +272,7 @@ impl OpsScheduler {
                 listener,
                 cancel_flag,
                 target,
+                stream,
             } => {
                 let worker = match target {
                     ExecTarget::Ai => &self.ai,
@@ -274,7 +281,13 @@ impl OpsScheduler {
                 };
                 let reply = listener.clone();
                 if let Err(error) = worker.submit(move |pool| {
-                    let res = SshManager::bg_exec(pool, &command, cancel_flag.as_ref(), target);
+                    let res = SshManager::bg_exec(
+                        pool,
+                        &command,
+                        cancel_flag.as_ref(),
+                        target,
+                        stream.as_ref(),
+                    );
                     let _ = reply.send(res);
                 }) {
                     let _ = listener.send(Err(error));
@@ -792,10 +805,17 @@ impl SshManager {
                 listener,
                 cancel_flag,
                 target,
+                stream,
             } => {
                 let pool = pool.clone();
                 thread::spawn(move || {
-                    let res = Self::bg_exec(pool, &command, cancel_flag.as_ref(), target);
+                    let res = Self::bg_exec(
+                        pool,
+                        &command,
+                        cancel_flag.as_ref(),
+                        target,
+                        stream.as_ref(),
+                    );
                     let _ = listener.send(res);
                 });
             }
@@ -979,6 +999,7 @@ impl SshManager {
         command: &str,
         cancel_flag: Option<&Arc<AtomicBool>>,
         target: ExecTarget,
+        stream: Option<&ExecStreamContext>,
     ) -> Result<String, String> {
         let session_mutex = match target {
             ExecTarget::Ai => pool.get_ai_session()?,
@@ -993,7 +1014,10 @@ impl SshManager {
         crate::ssh::utils::ssh2_retry(|| channel.exec(command)).map_err(|e| e.to_string())?;
 
         let mut s = String::new();
-        let mut buf = [0u8; 4096];
+        let mut stdout_buf = [0u8; 4096];
+        let mut stderr_buf = [0u8; 4096];
+        let mut stdout_closed = false;
+        let mut stderr_closed = false;
 
         loop {
             // Check cancellation
@@ -1004,20 +1028,52 @@ impl SshManager {
                 }
             }
 
-            match channel.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]);
-                    s.push_str(&chunk);
+            let mut had_activity = false;
+
+            if !stdout_closed {
+                match channel.read(&mut stdout_buf) {
+                    Ok(0) => stdout_closed = true,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&stdout_buf[..n]).into_owned();
+                        s.push_str(&chunk);
+                        emit_command_output(stream, chunk, "stdout", false);
+                        had_activity = true;
+                    }
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                    Err(e) => return Err(e.to_string()),
                 }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(5));
+            }
+
+            if !stderr_closed {
+                let stderr_result = {
+                    let mut stderr = channel.stderr();
+                    stderr.read(&mut stderr_buf)
+                };
+
+                match stderr_result {
+                    Ok(0) => stderr_closed = true,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&stderr_buf[..n]).into_owned();
+                        s.push_str(&chunk);
+                        emit_command_output(stream, chunk, "stderr", false);
+                        had_activity = true;
+                    }
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                    Err(e) => return Err(e.to_string()),
                 }
-                Err(e) => return Err(e.to_string()),
+            }
+
+            if stdout_closed && stderr_closed {
+                break;
+            }
+
+            if !had_activity {
+                thread::sleep(Duration::from_millis(5));
             }
         }
 
         crate::ssh::utils::ssh2_retry(|| channel.wait_close()).ok();
+        emit_command_output(stream, String::new(), "stdout", true);
         Ok(s)
     }
 

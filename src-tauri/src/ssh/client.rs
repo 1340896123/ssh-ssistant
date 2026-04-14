@@ -1,7 +1,7 @@
 // use super::connection::SessionSshPool; // Keep for now if referenced elsewhere, but we will remove usage
 use super::manager::{SshCommand, SshManager};
-use super::tunnel::TunnelRuntime;
 use super::terminal::start_shell_thread;
+use super::tunnel::TunnelRuntime;
 use crate::models::{Connection as SshConnConfig, ConnectionTimeoutSettings};
 use crate::ssh::{execute_ssh_operation, ShellMsg};
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ pub struct AppState {
     pub clients: Mutex<HashMap<String, SshClient>>,
     pub transfers: Mutex<HashMap<String, Arc<TransferState>>>, // ID -> TransferState
     pub command_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>, // Command ID -> CancelFlag
-    pub tunnels: Mutex<HashMap<i64, TunnelRuntime>>, // Tunnel ID -> runtime
+    pub tunnels: Mutex<HashMap<i64, TunnelRuntime>>,           // Tunnel ID -> runtime
                                                                // Note: TransferManager is integrated but not stored in AppState
                                                                // Each transfer operation can optionally use the new TransferManager
                                                                // For backward compatibility, we maintain the existing transfer structure

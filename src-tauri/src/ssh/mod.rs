@@ -6,12 +6,13 @@ pub const DEFAULT_COMMAND_TIMEOUT_SECS: u32 = 30;
 pub const DEFAULT_SFTP_OPERATION_TIMEOUT_SECS: u32 = 60;
 
 use crate::models::ConnectionTimeoutSettings;
+use tauri::{AppHandle, Emitter};
 
 pub fn get_connection_timeout(settings: Option<&ConnectionTimeoutSettings>) -> std::time::Duration {
     std::time::Duration::from_secs(
         settings
             .map(|s| s.connection_timeout_secs)
-            .unwrap_or(DEFAULT_CONNECTION_TIMEOUT_SECS) as u64
+            .unwrap_or(DEFAULT_CONNECTION_TIMEOUT_SECS) as u64,
     )
 }
 
@@ -19,15 +20,17 @@ pub fn get_jump_host_timeout(settings: Option<&ConnectionTimeoutSettings>) -> st
     std::time::Duration::from_secs(
         settings
             .map(|s| s.jump_host_timeout_secs)
-            .unwrap_or(DEFAULT_JUMP_HOST_TIMEOUT_SECS) as u64
+            .unwrap_or(DEFAULT_JUMP_HOST_TIMEOUT_SECS) as u64,
     )
 }
 
-pub fn get_local_forward_timeout(settings: Option<&ConnectionTimeoutSettings>) -> std::time::Duration {
+pub fn get_local_forward_timeout(
+    settings: Option<&ConnectionTimeoutSettings>,
+) -> std::time::Duration {
     std::time::Duration::from_secs(
         settings
             .map(|s| s.local_forward_timeout_secs)
-            .unwrap_or(DEFAULT_LOCAL_FORWARD_TIMEOUT_SECS) as u64
+            .unwrap_or(DEFAULT_LOCAL_FORWARD_TIMEOUT_SECS) as u64,
     )
 }
 
@@ -35,16 +38,49 @@ pub fn get_command_timeout(settings: Option<&ConnectionTimeoutSettings>) -> std:
     std::time::Duration::from_secs(
         settings
             .map(|s| s.command_timeout_secs)
-            .unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS) as u64
+            .unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS) as u64,
     )
 }
 
-pub fn get_sftp_operation_timeout(settings: Option<&ConnectionTimeoutSettings>) -> std::time::Duration {
+pub fn get_sftp_operation_timeout(
+    settings: Option<&ConnectionTimeoutSettings>,
+) -> std::time::Duration {
     std::time::Duration::from_secs(
         settings
             .map(|s| s.sftp_operation_timeout_secs)
-            .unwrap_or(DEFAULT_SFTP_OPERATION_TIMEOUT_SECS) as u64
+            .unwrap_or(DEFAULT_SFTP_OPERATION_TIMEOUT_SECS) as u64,
     )
+}
+
+#[derive(Clone)]
+pub struct ExecStreamContext {
+    pub event_name: String,
+    pub app_handle: AppHandle,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct CommandOutputPayload {
+    pub data: String,
+    pub stream: &'static str,
+    pub done: bool,
+}
+
+pub fn emit_command_output(
+    stream: Option<&ExecStreamContext>,
+    data: String,
+    stream_name: &'static str,
+    done: bool,
+) {
+    if let Some(stream) = stream {
+        let _ = stream.app_handle.emit(
+            &stream.event_name,
+            CommandOutputPayload {
+                data,
+                stream: stream_name,
+                done,
+            },
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -75,10 +111,10 @@ pub mod network_monitor;
 pub mod reconnect;
 pub mod system;
 pub mod terminal;
+pub mod transfer;
 pub mod tunnel;
 pub mod utils;
 pub mod wsl;
-pub mod transfer;
 
 // Re-export main types and functions for backward compatibility
 pub use client::AppState;
@@ -94,8 +130,7 @@ pub use utils::{execute_ssh_operation, ssh2_retry};
 
 // Re-export transfer module types
 pub use transfer::{
-    TransferManager, TransferOperation, TransferSettings, TransferError,
-    TransferEvent, TransferHealth, TransferStatus,
-    TransferState, TransferStateHandle, TransferCheckpoint, CheckpointManager,
-    PoolStats, TransferConnection, TransferPool, AsyncSftp,
+    AsyncSftp, CheckpointManager, PoolStats, TransferCheckpoint, TransferConnection, TransferError,
+    TransferEvent, TransferHealth, TransferManager, TransferOperation, TransferPool,
+    TransferSettings, TransferState, TransferStateHandle, TransferStatus,
 };

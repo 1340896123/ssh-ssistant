@@ -132,7 +132,11 @@ impl PromptManager {
 
     /// Generate next prompt ID
     fn next_id(&self) -> String {
-        format!("prompt_{}", self.next_prompt_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+        format!(
+            "prompt_{}",
+            self.next_prompt_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )
     }
 
     /// Send a prompt to the frontend
@@ -289,7 +293,10 @@ impl PromptManager {
                 let mut ctx = HashMap::new();
                 ctx.insert("error_type".to_string(), format!("{:?}", error));
                 ctx.insert("retryable".to_string(), error.is_retryable().to_string());
-                ctx.insert("transferred_bytes".to_string(), transferred_bytes.to_string());
+                ctx.insert(
+                    "transferred_bytes".to_string(),
+                    transferred_bytes.to_string(),
+                );
                 ctx
             },
             timestamp: std::time::SystemTime::now()
@@ -346,7 +353,11 @@ impl PromptManager {
     }
 
     /// Format error message with suggestions
-    fn format_error(&self, error: &TransferError, transferred_bytes: u64) -> (String, String, String) {
+    fn format_error(
+        &self,
+        error: &TransferError,
+        transferred_bytes: u64,
+    ) -> (String, String, String) {
         let (title, message, suggestion) = match error {
             TransferError::TemporaryNetwork(msg) => (
                 "Network Error".to_string(),
@@ -485,7 +496,8 @@ impl PromptManager {
             prompt_type: PromptType::Question,
             severity: PromptSeverity::Medium,
             title: "File Already Exists".to_string(),
-            message: format!("{} already exists. Do you want to overwrite it?", 
+            message: format!(
+                "{} already exists. Do you want to overwrite it?",
                 Path::new(file_path)
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -552,7 +564,10 @@ impl PromptManager {
             prompt_type: PromptType::Warning,
             severity: PromptSeverity::Medium,
             title: "Large File Transfer".to_string(),
-            message: format!("This is a large file transfer: {}", self.format_bytes(file_size)),
+            message: format!(
+                "This is a large file transfer: {}",
+                self.format_bytes(file_size)
+            ),
             description: Some(format!(
                 "File: {}\nSize: {}\nThis may take a long time to transfer.",
                 file_path,
@@ -595,7 +610,7 @@ mod tests {
     #[test]
     fn test_format_bytes() {
         let manager = PromptManager::new(tauri::generate_context!().handle());
-        
+
         assert_eq!(manager.format_bytes(512), "512 B");
         assert_eq!(manager.format_bytes(1024), "1.00 KB");
         assert_eq!(manager.format_bytes(1536), "1.50 KB");

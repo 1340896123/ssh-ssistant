@@ -130,9 +130,18 @@ impl HeartbeatManager {
         }
 
         let (last_check, interval) = match level {
-            HeartbeatLevel::Tcp => (&self.last_tcp_check, self.settings.tcp_keepalive_interval_secs),
-            HeartbeatLevel::Ssh => (&self.last_ssh_check, self.settings.ssh_keepalive_interval_secs),
-            HeartbeatLevel::App => (&self.last_app_check, self.settings.app_heartbeat_interval_secs),
+            HeartbeatLevel::Tcp => (
+                &self.last_tcp_check,
+                self.settings.tcp_keepalive_interval_secs,
+            ),
+            HeartbeatLevel::Ssh => (
+                &self.last_ssh_check,
+                self.settings.ssh_keepalive_interval_secs,
+            ),
+            HeartbeatLevel::App => (
+                &self.last_app_check,
+                self.settings.app_heartbeat_interval_secs,
+            ),
         };
 
         last_check.elapsed() >= Duration::from_secs(interval as u64)
@@ -396,7 +405,9 @@ impl HeartbeatManager {
 
     /// Get the minimum interval for the main loop sleep
     pub fn get_min_check_interval(&self) -> Duration {
-        let min_secs = self.settings.ssh_keepalive_interval_secs
+        let min_secs = self
+            .settings
+            .ssh_keepalive_interval_secs
             .min(self.settings.app_heartbeat_interval_secs)
             .min(self.settings.tcp_keepalive_interval_secs);
 
@@ -421,19 +432,31 @@ mod tests {
 
         // 1 failure
         manager.status.consecutive_failures = 1;
-        assert_eq!(manager.get_recommended_action(), HeartbeatAction::SendKeepalive);
+        assert_eq!(
+            manager.get_recommended_action(),
+            HeartbeatAction::SendKeepalive
+        );
 
         // 3 failures (threshold)
         manager.status.consecutive_failures = 3;
-        assert_eq!(manager.get_recommended_action(), HeartbeatAction::ReconnectBackground);
+        assert_eq!(
+            manager.get_recommended_action(),
+            HeartbeatAction::ReconnectBackground
+        );
 
         // 4 failures
         manager.status.consecutive_failures = 4;
-        assert_eq!(manager.get_recommended_action(), HeartbeatAction::NotifyUser);
+        assert_eq!(
+            manager.get_recommended_action(),
+            HeartbeatAction::NotifyUser
+        );
 
         // 5 failures
         manager.status.consecutive_failures = 5;
-        assert_eq!(manager.get_recommended_action(), HeartbeatAction::ForceReconnect);
+        assert_eq!(
+            manager.get_recommended_action(),
+            HeartbeatAction::ForceReconnect
+        );
     }
 
     #[test]

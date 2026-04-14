@@ -87,8 +87,8 @@ impl TransferCheckpoint {
         }
 
         // Check if local file size matches or is at least as large as transferred
-        let metadata =
-            fs::metadata(&self.local_path).map_err(|e| TransferError::InvalidPath(format!("Failed to stat local file: {}", e)))?;
+        let metadata = fs::metadata(&self.local_path)
+            .map_err(|e| TransferError::InvalidPath(format!("Failed to stat local file: {}", e)))?;
 
         match self.operation {
             TransferOperation::Upload => {
@@ -137,32 +137,40 @@ impl CheckpointManager {
 
     /// Save a checkpoint
     pub fn save_checkpoint(&self, checkpoint: &TransferCheckpoint) -> Result<(), TransferError> {
-        let path = TransferCheckpoint::checkpoint_path(&self.checkpoint_dir, &checkpoint.transfer_id);
+        let path =
+            TransferCheckpoint::checkpoint_path(&self.checkpoint_dir, &checkpoint.transfer_id);
 
-        let json =
-            serde_json::to_string_pretty(checkpoint).map_err(|e| TransferError::Unknown(format!("Failed to serialize checkpoint: {}", e)))?;
+        let json = serde_json::to_string_pretty(checkpoint).map_err(|e| {
+            TransferError::Unknown(format!("Failed to serialize checkpoint: {}", e))
+        })?;
 
         // Atomic write: write to temp file then rename
         let temp_path = path.with_extension("tmp");
-        fs::write(&temp_path, json)
-            .map_err(|e| TransferError::Unknown(format!("Failed to write checkpoint file: {}", e)))?;
+        fs::write(&temp_path, json).map_err(|e| {
+            TransferError::Unknown(format!("Failed to write checkpoint file: {}", e))
+        })?;
 
-        fs::rename(&temp_path, &path)
-            .map_err(|e| TransferError::Unknown(format!("Failed to rename checkpoint file: {}", e)))?;
+        fs::rename(&temp_path, &path).map_err(|e| {
+            TransferError::Unknown(format!("Failed to rename checkpoint file: {}", e))
+        })?;
 
         Ok(())
     }
 
     /// Load a checkpoint
-    pub fn load_checkpoint(&self, transfer_id: &str) -> Result<Option<TransferCheckpoint>, TransferError> {
+    pub fn load_checkpoint(
+        &self,
+        transfer_id: &str,
+    ) -> Result<Option<TransferCheckpoint>, TransferError> {
         let path = TransferCheckpoint::checkpoint_path(&self.checkpoint_dir, transfer_id);
 
         if !path.exists() {
             return Ok(None);
         }
 
-        let json = fs::read_to_string(&path)
-            .map_err(|e| TransferError::Unknown(format!("Failed to read checkpoint file: {}", e)))?;
+        let json = fs::read_to_string(&path).map_err(|e| {
+            TransferError::Unknown(format!("Failed to read checkpoint file: {}", e))
+        })?;
 
         let checkpoint: TransferCheckpoint =
             serde_json::from_str(&json).map_err(|e| TransferError::InvalidCheckpoint)?;
@@ -175,22 +183,29 @@ impl CheckpointManager {
         let path = TransferCheckpoint::checkpoint_path(&self.checkpoint_dir, transfer_id);
 
         if path.exists() {
-            fs::remove_file(&path)
-                .map_err(|e| TransferError::Unknown(format!("Failed to delete checkpoint: {}", e)))?;
+            fs::remove_file(&path).map_err(|e| {
+                TransferError::Unknown(format!("Failed to delete checkpoint: {}", e))
+            })?;
         }
 
         Ok(())
     }
 
     /// List all checkpoints for a client
-    pub fn list_checkpoints(&self, client_id: &str) -> Result<Vec<TransferCheckpoint>, TransferError> {
+    pub fn list_checkpoints(
+        &self,
+        client_id: &str,
+    ) -> Result<Vec<TransferCheckpoint>, TransferError> {
         let mut checkpoints = Vec::new();
 
-        let entries =
-            fs::read_dir(&self.checkpoint_dir).map_err(|e| TransferError::Unknown(format!("Failed to read checkpoint directory: {}", e)))?;
+        let entries = fs::read_dir(&self.checkpoint_dir).map_err(|e| {
+            TransferError::Unknown(format!("Failed to read checkpoint directory: {}", e))
+        })?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| TransferError::Unknown(format!("Failed to read directory entry: {}", e)))?;
+            let entry = entry.map_err(|e| {
+                TransferError::Unknown(format!("Failed to read directory entry: {}", e))
+            })?;
             let path = entry.path();
 
             // Only process JSON files
@@ -199,11 +214,12 @@ impl CheckpointManager {
             }
 
             // Read and parse checkpoint
-            let json = fs::read_to_string(&path)
-                .map_err(|e| TransferError::Unknown(format!("Failed to read checkpoint file: {}", e)))?;
+            let json = fs::read_to_string(&path).map_err(|e| {
+                TransferError::Unknown(format!("Failed to read checkpoint file: {}", e))
+            })?;
 
-            let checkpoint: TransferCheckpoint = serde_json::from_str(&json)
-                .map_err(|e| TransferError::InvalidCheckpoint)?;
+            let checkpoint: TransferCheckpoint =
+                serde_json::from_str(&json).map_err(|e| TransferError::InvalidCheckpoint)?;
 
             // Filter by client ID
             if checkpoint.client_id == client_id {
@@ -222,11 +238,14 @@ impl CheckpointManager {
         let cutoff = Utc::now() - chrono::Duration::days(max_age_days);
         let mut removed = 0;
 
-        let entries =
-            fs::read_dir(&self.checkpoint_dir).map_err(|e| TransferError::Unknown(format!("Failed to read checkpoint directory: {}", e)))?;
+        let entries = fs::read_dir(&self.checkpoint_dir).map_err(|e| {
+            TransferError::Unknown(format!("Failed to read checkpoint directory: {}", e))
+        })?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| TransferError::Unknown(format!("Failed to read directory entry: {}", e)))?;
+            let entry = entry.map_err(|e| {
+                TransferError::Unknown(format!("Failed to read directory entry: {}", e))
+            })?;
             let path = entry.path();
 
             // Only process JSON files
@@ -251,7 +270,10 @@ impl CheckpointManager {
     }
 
     /// Verify a checkpoint is still valid
-    pub fn verify_checkpoint(&self, checkpoint: &TransferCheckpoint) -> Result<bool, TransferError> {
+    pub fn verify_checkpoint(
+        &self,
+        checkpoint: &TransferCheckpoint,
+    ) -> Result<bool, TransferError> {
         checkpoint.is_valid()
     }
 }

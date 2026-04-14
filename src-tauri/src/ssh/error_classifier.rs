@@ -58,19 +58,19 @@ impl SshErrorClassifier {
 
         match error.kind() {
             // Temporary network errors
-            io::ErrorKind::WouldBlock |
-            io::ErrorKind::TimedOut |
-            io::ErrorKind::Interrupted |
-            io::ErrorKind::ConnectionReset |
-            io::ErrorKind::ConnectionAborted => SshErrorType::Temporary,
+            io::ErrorKind::WouldBlock
+            | io::ErrorKind::TimedOut
+            | io::ErrorKind::Interrupted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted => SshErrorType::Temporary,
 
             // Permanent errors
-            io::ErrorKind::NotFound |
-            io::ErrorKind::PermissionDenied |
-            io::ErrorKind::ConnectionRefused => SshErrorType::Permanent,
+            io::ErrorKind::NotFound
+            | io::ErrorKind::PermissionDenied
+            | io::ErrorKind::ConnectionRefused => SshErrorType::Permanent,
 
             // Other errors - check message content
-            _ => Self::classify_from_string(&msg)
+            _ => Self::classify_from_string(&msg),
         }
     }
 
@@ -185,31 +185,46 @@ mod tests {
     #[test]
     fn test_classify_permanent_auth() {
         let msg = "Authentication failed: invalid password";
-        assert_eq!(SshErrorClassifier::classify_from_string(msg), SshErrorType::Permanent);
+        assert_eq!(
+            SshErrorClassifier::classify_from_string(msg),
+            SshErrorType::Permanent
+        );
     }
 
     #[test]
     fn test_classify_permanent_host() {
         let msg = "Host key verification failed";
-        assert_eq!(SshErrorClassifier::classify_from_string(msg), SshErrorType::Permanent);
+        assert_eq!(
+            SshErrorClassifier::classify_from_string(msg),
+            SshErrorType::Permanent
+        );
     }
 
     #[test]
     fn test_classify_rate_limited() {
         let msg = "Too many connections from this IP";
-        assert_eq!(SshErrorClassifier::classify_from_string(msg), SshErrorType::RateLimited);
+        assert_eq!(
+            SshErrorClassifier::classify_from_string(msg),
+            SshErrorType::RateLimited
+        );
     }
 
     #[test]
     fn test_classify_resource_exhausted() {
         let msg = "Server is busy, try again later";
-        assert_eq!(SshErrorClassifier::classify_from_string(msg), SshErrorType::ResourceExhausted);
+        assert_eq!(
+            SshErrorClassifier::classify_from_string(msg),
+            SshErrorType::ResourceExhausted
+        );
     }
 
     #[test]
     fn test_classify_temporary() {
         let msg = "Connection timed out";
-        assert_eq!(SshErrorClassifier::classify_from_string(msg), SshErrorType::Temporary);
+        assert_eq!(
+            SshErrorClassifier::classify_from_string(msg),
+            SshErrorType::Temporary
+        );
     }
 
     #[test]
@@ -217,6 +232,8 @@ mod tests {
         assert!(SshErrorClassifier::should_retry(SshErrorType::Temporary));
         assert!(!SshErrorClassifier::should_retry(SshErrorType::Permanent));
         assert!(SshErrorClassifier::should_retry(SshErrorType::RateLimited));
-        assert!(SshErrorClassifier::should_retry(SshErrorType::ResourceExhausted));
+        assert!(SshErrorClassifier::should_retry(
+            SshErrorType::ResourceExhausted
+        ));
     }
 }

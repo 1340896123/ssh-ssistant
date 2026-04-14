@@ -1,5 +1,5 @@
+use crate::models::{ConnectionMetrics, ConnectionStatus, ConnectionStatusEvent};
 use tauri::{AppHandle, Emitter};
-use crate::models::{ConnectionStatusEvent, ConnectionStatus, ConnectionMetrics};
 
 pub const EVENT_CONNECTION_STATUS: &str = "connection:status";
 pub const EVENT_CONNECTION_ERROR: &str = "connection:error";

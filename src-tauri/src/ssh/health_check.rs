@@ -235,7 +235,10 @@ impl PoolHealthChecker {
         let main_score = self.calculate_health_score(main_metadata);
         scores.push(main_score);
 
-        if matches!(main_health, SessionHealth::Unhealthy | SessionHealth::Expired) {
+        if matches!(
+            main_health,
+            SessionHealth::Unhealthy | SessionHealth::Expired
+        ) {
             actions.push(HealthAction::RebuildMain);
         }
 

@@ -157,7 +157,8 @@ impl ReconnectManager {
 
     /// Get a status summary for logging/debugging
     pub fn status_summary(&self) -> String {
-        let error_desc = self.last_error_type
+        let error_desc = self
+            .last_error_type
             .map(|t| super::error_classifier::SshErrorClassifier::describe(t))
             .unwrap_or("No error");
 
@@ -334,9 +335,7 @@ mod tests {
 
     #[test]
     fn test_max_attempts() {
-        let mut manager = ReconnectManagerBuilder::new()
-            .max_attempts(3)
-            .build();
+        let mut manager = ReconnectManagerBuilder::new().max_attempts(3).build();
 
         manager.record_attempt(SshErrorType::Temporary);
         assert!(manager.should_retry());
@@ -351,9 +350,7 @@ mod tests {
 
     #[test]
     fn test_disabled() {
-        let manager = ReconnectManagerBuilder::new()
-            .enabled(false)
-            .build();
+        let manager = ReconnectManagerBuilder::new().enabled(false).build();
 
         assert!(!manager.should_retry());
     }

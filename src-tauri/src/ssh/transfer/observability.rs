@@ -3,7 +3,9 @@
 //! This module provides comprehensive logging, metrics collection,
 //! and monitoring capabilities for the transfer system.
 
-use crate::ssh::transfer::types::{TransferEvent, TransferHealth, TransferOperation, TransferStatus};
+use crate::ssh::transfer::types::{
+    TransferEvent, TransferHealth, TransferOperation, TransferStatus,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -73,8 +75,10 @@ impl TransferMetrics {
     pub fn record_transfer_complete(&self, bytes: u64, duration_ms: u64) {
         self.active_transfers.fetch_sub(1, Ordering::Relaxed);
         self.completed_transfers.fetch_add(1, Ordering::Relaxed);
-        self.total_bytes_transferred.fetch_add(bytes, Ordering::Relaxed);
-        self.total_transfer_time_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.total_bytes_transferred
+            .fetch_add(bytes, Ordering::Relaxed);
+        self.total_transfer_time_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
 
         // Update average speed
         let total_bytes = self.total_bytes_transferred.load(Ordering::Relaxed);
@@ -85,7 +89,11 @@ impl TransferMetrics {
         }
 
         // Update peak speed
-        let current_bps = if duration_ms > 0 { (bytes * 1000) / duration_ms } else { 0 };
+        let current_bps = if duration_ms > 0 {
+            (bytes * 1000) / duration_ms
+        } else {
+            0
+        };
         let peak_bps = self.peak_bps.load(Ordering::Relaxed);
         if current_bps > peak_bps {
             self.peak_bps.store(current_bps, Ordering::Relaxed);
@@ -96,7 +104,7 @@ impl TransferMetrics {
     /// Record transfer failure
     pub fn record_transfer_failed(&self, error_type: &str) {
         self.active_transfers.fetch_sub(1, Ordering::Relaxed);
-        
+
         match error_type {
             "connection" | "network" => self.connection_errors.fetch_add(1, Ordering::Relaxed),
             "permission" | "auth" => self.permission_errors.fetch_add(1, Ordering::Relaxed),
@@ -119,10 +127,10 @@ impl TransferMetrics {
     /// Get current health status
     pub fn get_health(&self) -> TransferHealth {
         let active = self.active_transfers.load(Ordering::Relaxed);
-        let failed = self.connection_errors.load(Ordering::Relaxed) 
-                   + self.permission_errors.load(Ordering::Relaxed)
-                   + self.timeout_errors.load(Ordering::Relaxed);
-        
+        let failed = self.connection_errors.load(Ordering::Relaxed)
+            + self.permission_errors.load(Ordering::Relaxed)
+            + self.timeout_errors.load(Ordering::Relaxed);
+
         TransferHealth {
             active_transfers: active,
             stuck_transfers: if active > 0 { failed } else { 0 },
@@ -307,12 +315,14 @@ impl ObservabilityManager {
     pub async fn get_health_summary(&self) -> HealthSummary {
         let metrics = &self.metrics;
         let recent_logs = self.get_recent_logs(Some(100)).await;
-        
-        let error_count = recent_logs.iter()
+
+        let error_count = recent_logs
+            .iter()
             .filter(|entry| matches!(entry.level, LogLevel::Error | LogLevel::Critical))
             .count();
-        
-        let warning_count = recent_logs.iter()
+
+        let warning_count = recent_logs
+            .iter()
             .filter(|entry| matches!(entry.level, LogLevel::Warning))
             .count();
 
@@ -333,7 +343,10 @@ impl ObservabilityManager {
             (LogLevel::Debug, LogLevel::Debug) => true,
             (LogLevel::Info, LogLevel::Debug | LogLevel::Info) => true,
             (LogLevel::Warning, LogLevel::Debug | LogLevel::Info | LogLevel::Warning) => true,
-            (LogLevel::Error, LogLevel::Debug | LogLevel::Info | LogLevel::Warning | LogLevel::Error) => true,
+            (
+                LogLevel::Error,
+                LogLevel::Debug | LogLevel::Info | LogLevel::Warning | LogLevel::Error,
+            ) => true,
             (LogLevel::Critical, _) => true,
             _ => false,
         }
@@ -353,44 +366,45 @@ pub struct HealthSummary {
 #[macro_export]
 macro_rules! transfer_log {
     ($manager:expr, $level:expr, $transfer_id:expr, $message:expr $(,)?) => {
-        $manager.log_event(
-            $transfer_id,
-            $level,
-            $message.to_string(),
-            None,
-            None,
-            None,
-        ).await
+        $manager
+            .log_event($transfer_id, $level, $message.to_string(), None, None, None)
+            .await
     };
     ($manager:expr, $level:expr, $transfer_id:expr, $message:expr, $operation:expr $(,)?) => {
-        $manager.log_event(
-            $transfer_id,
-            $level,
-            $message.to_string(),
-            Some($operation),
-            None,
-            None,
-        ).await
+        $manager
+            .log_event(
+                $transfer_id,
+                $level,
+                $message.to_string(),
+                Some($operation),
+                None,
+                None,
+            )
+            .await
     };
     ($manager:expr, $level:expr, $transfer_id:expr, $message:expr, $operation:expr, $status:expr $(,)?) => {
-        $manager.log_event(
-            $transfer_id,
-            $level,
-            $message.to_string(),
-            Some($operation),
-            Some($status),
-            None,
-        ).await
+        $manager
+            .log_event(
+                $transfer_id,
+                $level,
+                $message.to_string(),
+                Some($operation),
+                Some($status),
+                None,
+            )
+            .await
     };
     ($manager:expr, $level:expr, $transfer_id:expr, $message:expr, $operation:expr, $status:expr, $progress:expr $(,)?) => {
-        $manager.log_event(
-            $transfer_id,
-            $level,
-            $message.to_string(),
-            Some($operation),
-            Some($status),
-            Some($progress),
-        ).await
+        $manager
+            .log_event(
+                $transfer_id,
+                $level,
+                $message.to_string(),
+                Some($operation),
+                Some($status),
+                Some($progress),
+            )
+            .await
     };
 }
 
@@ -401,21 +415,24 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_recording() {
         let metrics = TransferMetrics::default();
-        
+
         metrics.record_transfer_start();
         assert_eq!(metrics.total_transfers.load(Ordering::Relaxed), 1);
         assert_eq!(metrics.active_transfers.load(Ordering::Relaxed), 1);
-        
+
         metrics.record_transfer_complete(1024, 1000);
         assert_eq!(metrics.active_transfers.load(Ordering::Relaxed), 0);
         assert_eq!(metrics.completed_transfers.load(Ordering::Relaxed), 1);
-        assert_eq!(metrics.total_bytes_transferred.load(Ordering::Relaxed), 1024);
+        assert_eq!(
+            metrics.total_bytes_transferred.load(Ordering::Relaxed),
+            1024
+        );
     }
 
     #[tokio::test]
     async fn test_observability_logging() {
         let obs = ObservabilityManager::new(100);
-        
+
         obs.log_event(
             "test_transfer",
             LogLevel::Info,
@@ -423,8 +440,9 @@ mod tests {
             Some(TransferOperation::Upload),
             Some(TransferStatus::Transferring),
             None,
-        ).await;
-        
+        )
+        .await;
+
         let logs = obs.get_recent_logs(None).await;
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].transfer_id, "test_transfer");
@@ -435,7 +453,7 @@ mod tests {
     async fn test_log_level_filtering() {
         let obs = ObservabilityManager::new(100);
         obs.set_log_level(LogLevel::Warning).await;
-        
+
         // This should not be logged
         obs.log_event(
             "test_transfer",
@@ -444,8 +462,9 @@ mod tests {
             None,
             None,
             None,
-        ).await;
-        
+        )
+        .await;
+
         // This should be logged
         obs.log_event(
             "test_transfer",
@@ -454,8 +473,9 @@ mod tests {
             None,
             None,
             None,
-        ).await;
-        
+        )
+        .await;
+
         let logs = obs.get_recent_logs(None).await;
         assert_eq!(logs.len(), 1);
         assert!(matches!(logs[0].level, LogLevel::Warning));

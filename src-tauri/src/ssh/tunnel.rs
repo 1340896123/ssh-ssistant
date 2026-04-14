@@ -261,11 +261,13 @@ fn prepare_ssh_command(
                 })
                 .ok_or_else(|| "Remote host is required".to_string())?;
             let remote_port = require_port(tunnel.remote_port, "Remote port")?;
-            format!("{}:{}:{}:{}", local_host, local_port, remote_host, remote_port)
+            format!(
+                "{}:{}:{}:{}",
+                local_host, local_port, remote_host, remote_port
+            )
         }
         "remote" => {
-            let remote_bind_host =
-                normalize_host(tunnel.remote_bind_host.as_ref(), "127.0.0.1");
+            let remote_bind_host = normalize_host(tunnel.remote_bind_host.as_ref(), "127.0.0.1");
             let remote_port = require_port(tunnel.remote_port, "Remote port")?;
             let local_port = require_port(tunnel.local_port, "Local port")?;
             format!(
@@ -304,34 +306,31 @@ fn prepare_ssh_command(
         main_password = Some(password);
     }
 
-    let jump_password = connection
-        .jump_password
-        .as_deref()
-        .and_then(|s| if s.trim().is_empty() { None } else { Some(s) });
+    let jump_password = connection.jump_password.as_deref().and_then(|s| {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    });
 
-    let proxy_command = tunnel
-        .proxy_command
-        .as_ref()
-        .and_then(|s| {
-            let trimmed = s.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
+    let proxy_command = tunnel.proxy_command.as_ref().and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
 
-    let mut proxy_jump = tunnel
-        .proxy_jump
-        .as_ref()
-        .and_then(|s| {
-            let trimmed = s.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
+    let mut proxy_jump = tunnel.proxy_jump.as_ref().and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
 
     if proxy_command.is_none() && proxy_jump.is_none() {
         if let Some(jump_host) = connection.jump_host.as_ref() {
@@ -361,14 +360,20 @@ fn prepare_ssh_command(
     if main_password.is_some() || key_passphrase.is_some() || jump_password.is_some() {
         let main_host = connection.host.trim();
         let main_user = connection.username.trim();
-        let jump_host = connection
-            .jump_host
-            .as_ref()
-            .and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) });
-        let jump_user = connection
-            .jump_username
-            .as_ref()
-            .and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) });
+        let jump_host = connection.jump_host.as_ref().and_then(|s| {
+            if s.trim().is_empty() {
+                None
+            } else {
+                Some(s.trim())
+            }
+        });
+        let jump_user = connection.jump_username.as_ref().and_then(|s| {
+            if s.trim().is_empty() {
+                None
+            } else {
+                Some(s.trim())
+            }
+        });
 
         askpass_path = Some(create_askpass_script(&AskpassSpec {
             main_password,
@@ -398,8 +403,7 @@ fn prepare_ssh_command(
     }
 
     if let Some(ref proxy_command) = proxy_command {
-        cmd.arg("-o")
-            .arg(format!("ProxyCommand={}", proxy_command));
+        cmd.arg("-o").arg(format!("ProxyCommand={}", proxy_command));
     } else if let Some(ref proxy_jump) = proxy_jump {
         cmd.arg("-J").arg(proxy_jump);
     }
@@ -448,7 +452,9 @@ fn tunnel_status_from_runtime(id: i64, runtime: &TunnelRuntime) -> TunnelStatus 
     }
 }
 
-fn cleanup_inactive_tunnels(tunnels: &mut MutexGuard<'_, std::collections::HashMap<i64, TunnelRuntime>>) {
+fn cleanup_inactive_tunnels(
+    tunnels: &mut MutexGuard<'_, std::collections::HashMap<i64, TunnelRuntime>>,
+) {
     let mut ended_ids = Vec::new();
     for (id, runtime) in tunnels.iter_mut() {
         if let Ok(Some(_)) = runtime.child.try_wait() {
@@ -484,8 +490,8 @@ pub fn start_tunnel(
         return Ok(tunnel_status_from_runtime(id, runtime));
     }
 
-    let tunnel = db::get_tunnel_by_id(&app_handle, id)?
-        .ok_or_else(|| "Tunnel not found".to_string())?;
+    let tunnel =
+        db::get_tunnel_by_id(&app_handle, id)?.ok_or_else(|| "Tunnel not found".to_string())?;
 
     let connection = db::get_connection_by_id(&app_handle, tunnel.connection_id)?
         .ok_or_else(|| "Connection not found for tunnel".to_string())?;
@@ -500,9 +506,12 @@ pub fn start_tunnel(
         None
     };
 
-    let (mut cmd, key_path, askpass_path) = prepare_ssh_command(&tunnel, &connection, key.as_ref())?;
+    let (mut cmd, key_path, askpass_path) =
+        prepare_ssh_command(&tunnel, &connection, key.as_ref())?;
 
-    let mut child = cmd.spawn().map_err(|e| format!("Failed to start SSH tunnel: {}", e))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start SSH tunnel: {}", e))?;
 
     std::thread::sleep(Duration::from_millis(200));
     if let Ok(Some(status)) = child.try_wait() {

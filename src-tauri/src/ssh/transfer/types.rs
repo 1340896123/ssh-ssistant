@@ -219,7 +219,12 @@ impl std::fmt::Display for TransferEvent {
             TransferEvent::Started { id, operation } => {
                 write!(f, "Transfer {} started ({})", id, operation)
             }
-            TransferEvent::Progress { id, transferred, total, speed_bps } => {
+            TransferEvent::Progress {
+                id,
+                transferred,
+                total,
+                speed_bps,
+            } => {
                 write!(
                     f,
                     "Transfer {} progress: {}/{} bytes ({:.2} MB/s)",
@@ -235,21 +240,37 @@ impl std::fmt::Display for TransferEvent {
             TransferEvent::Resumed { id, from_offset } => {
                 write!(f, "Transfer {} resumed from offset {}", id, from_offset)
             }
-            TransferEvent::Completed { id, duration_secs, total_bytes } => {
+            TransferEvent::Completed {
+                id,
+                duration_secs,
+                total_bytes,
+            } => {
                 write!(
                     f,
                     "Transfer {} completed: {} bytes in {}s",
                     id, total_bytes, duration_secs
                 )
             }
-            TransferEvent::Failed { id, error, transferred } => {
-                write!(f, "Transfer {} failed at {} bytes: {}", id, transferred, error)
+            TransferEvent::Failed {
+                id,
+                error,
+                transferred,
+            } => {
+                write!(
+                    f,
+                    "Transfer {} failed at {} bytes: {}",
+                    id, transferred, error
+                )
             }
             TransferEvent::Cancelled { id, transferred } => {
                 write!(f, "Transfer {} cancelled at {} bytes", id, transferred)
             }
             TransferEvent::CheckpointSaved { id, transferred } => {
-                write!(f, "Transfer {} checkpoint saved at {} bytes", id, transferred)
+                write!(
+                    f,
+                    "Transfer {} checkpoint saved at {} bytes",
+                    id, transferred
+                )
             }
         }
     }
@@ -327,7 +348,10 @@ impl TransferError {
 
     /// Check if this error is a permission issue
     pub fn is_permission_error(&self) -> bool {
-        matches!(self, TransferError::PermissionDenied(_) | TransferError::AuthenticationFailed(_))
+        matches!(
+            self,
+            TransferError::PermissionDenied(_) | TransferError::AuthenticationFailed(_)
+        )
     }
 }
 

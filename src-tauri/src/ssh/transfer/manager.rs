@@ -4,12 +4,15 @@
 //! file transfers with state management, connection pooling, and
 //! checkpoint support.
 
+use crate::models::Connection as SshConnConfig;
 use crate::ssh::transfer::async_sftp::AsyncSftp;
 use crate::ssh::transfer::checkpoint::{CheckpointManager, TransferCheckpoint};
 use crate::ssh::transfer::pool::{PoolStats, TransferPool};
 use crate::ssh::transfer::state::TransferState;
-use crate::ssh::transfer::types::{TransferError, TransferEvent, TransferHealth, TransferOperation, TransferSettings, TransferStatus};
-use crate::models::Connection as SshConnConfig;
+use crate::ssh::transfer::types::{
+    TransferError, TransferEvent, TransferHealth, TransferOperation, TransferSettings,
+    TransferStatus,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -176,10 +179,7 @@ impl TransferManager {
                     }
 
                     // Remove from active transfers
-                    transfers_clone
-                        .lock()
-                        .await
-                        .remove(&transfer_id_clone);
+                    transfers_clone.lock().await.remove(&transfer_id_clone);
 
                     // Delete checkpoint
                     let _ = checkpoint_manager_for_delete.delete_checkpoint(&transfer_id_clone);
@@ -205,10 +205,7 @@ impl TransferManager {
                     }
 
                     // Remove from active transfers (keep checkpoint for resume)
-                    transfers_clone
-                        .lock()
-                        .await
-                        .remove(&transfer_id_clone);
+                    transfers_clone.lock().await.remove(&transfer_id_clone);
 
                     // Emit failed event
                     if let Some(sender) = event_sender_clone {
@@ -250,7 +247,12 @@ impl TransferManager {
         let checkpoint = self
             .checkpoint_manager
             .load_checkpoint(transfer_id)?
-            .ok_or_else(|| TransferError::CannotResume(format!("No checkpoint found for transfer: {}", transfer_id)))?;
+            .ok_or_else(|| {
+                TransferError::CannotResume(format!(
+                    "No checkpoint found for transfer: {}",
+                    transfer_id
+                ))
+            })?;
 
         // Verify checkpoint is still valid
         if !self.checkpoint_manager.verify_checkpoint(&checkpoint)? {
@@ -266,7 +268,10 @@ impl TransferManager {
             if let Some(existing) = transfers.get(transfer_id) {
                 existing.clone()
             } else {
-                let new_state = Arc::new(TransferState::new(transfer_id.to_string(), checkpoint.file_size));
+                let new_state = Arc::new(TransferState::new(
+                    transfer_id.to_string(),
+                    checkpoint.file_size,
+                ));
                 transfers.insert(transfer_id.to_string(), new_state.clone());
                 new_state
             }
@@ -327,10 +332,7 @@ impl TransferManager {
                         stats.last_transfer_time = Some(Instant::now());
                     }
 
-                    transfers_clone
-                        .lock()
-                        .await
-                        .remove(&transfer_id_clone);
+                    transfers_clone.lock().await.remove(&transfer_id_clone);
 
                     let _ = checkpoint_manager_for_delete.delete_checkpoint(&transfer_id_clone);
 
@@ -466,7 +468,9 @@ impl TransferManager {
         // Acquire connection from pool
         let conn = {
             let mut pool_guard = pool.lock().await;
-            pool_guard.acquire("default").await
+            pool_guard
+                .acquire("default")
+                .await
                 .map_err(|e| TransferError::Unknown(e))?
         };
         let conn_for_release = conn.clone();
@@ -498,7 +502,11 @@ impl TransferManager {
             let mut last = last_checkpoint.blocking_lock();
             if last.elapsed() >= checkpoint_interval {
                 *last = Instant::now();
-                if let Some(mut checkpoint) = checkpoint_manager_clone.load_checkpoint(&transfer_id).ok().flatten() {
+                if let Some(mut checkpoint) = checkpoint_manager_clone
+                    .load_checkpoint(&transfer_id)
+                    .ok()
+                    .flatten()
+                {
                     checkpoint.update_transferred(transferred);
                     let _ = checkpoint_manager_clone.save_checkpoint(&checkpoint);
                 }
@@ -518,7 +526,12 @@ impl TransferManager {
         let result = match operation {
             TransferOperation::Download => {
                 async_sftp
-                    .download_with_timeout(&remote_path, &local_path, progress_callback, &cancel_flag)
+                    .download_with_timeout(
+                        &remote_path,
+                        &local_path,
+                        progress_callback,
+                        &cancel_flag,
+                    )
                     .await
             }
             TransferOperation::Upload => {
@@ -555,7 +568,9 @@ impl TransferManager {
         // Acquire connection from pool
         let conn = {
             let mut pool_guard = pool.lock().await;
-            pool_guard.acquire("default").await
+            pool_guard
+                .acquire("default")
+                .await
                 .map_err(|e| TransferError::Unknown(e))?
         };
         let conn_for_release = conn.clone();
@@ -587,7 +602,11 @@ impl TransferManager {
             let mut last = last_checkpoint.blocking_lock();
             if last.elapsed() >= checkpoint_interval {
                 *last = Instant::now();
-                if let Some(mut checkpoint) = checkpoint_manager_clone.load_checkpoint(&transfer_id).ok().flatten() {
+                if let Some(mut checkpoint) = checkpoint_manager_clone
+                    .load_checkpoint(&transfer_id)
+                    .ok()
+                    .flatten()
+                {
                     checkpoint.update_transferred(transferred);
                     let _ = checkpoint_manager_clone.save_checkpoint(&checkpoint);
                 }
@@ -598,12 +617,26 @@ impl TransferManager {
         let result = match operation {
             TransferOperation::Download => {
                 async_sftp
-                    .resume_download(&remote_path, &local_path, offset, file_size, progress_callback, &cancel_flag)
+                    .resume_download(
+                        &remote_path,
+                        &local_path,
+                        offset,
+                        file_size,
+                        progress_callback,
+                        &cancel_flag,
+                    )
                     .await
             }
             TransferOperation::Upload => {
                 async_sftp
-                    .resume_upload(&local_path, &remote_path, offset, file_size, progress_callback, &cancel_flag)
+                    .resume_upload(
+                        &local_path,
+                        &remote_path,
+                        offset,
+                        file_size,
+                        progress_callback,
+                        &cancel_flag,
+                    )
                     .await
             }
         };

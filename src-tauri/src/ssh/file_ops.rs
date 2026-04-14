@@ -3,8 +3,8 @@ use super::manager::SshCommand;
 use crate::models::FileEntry;
 use crate::models::Transfer;
 use crate::ssh::client::TransferState;
-use crate::ssh::ExecTarget;
 use crate::ssh::execute_ssh_operation;
+use crate::ssh::ExecTarget;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1071,6 +1071,7 @@ pub async fn search_remote_files(
                         listener: tx,
                         cancel_flag: None,
                         target: ExecTarget::FileBrowser,
+                        stream: None,
                     })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
 

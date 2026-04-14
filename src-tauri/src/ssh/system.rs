@@ -72,6 +72,7 @@ fn run_ssh_command(sender: &Sender<SshCommand>, cmd: &str) -> Result<String, Str
             listener: tx,
             cancel_flag: None,
             target: ExecTarget::Status,
+            stream: None,
         })
         .map_err(|e| format!("Failed to send command: {}", e))?;
 

@@ -65,7 +65,10 @@ impl RetryStrategy {
             let jitter_ms = ((std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_nanos() % 1000000) as f64 / 1000000.0 * jitter_range) as u64;
+                .as_nanos()
+                % 1000000) as f64
+                / 1000000.0
+                * jitter_range) as u64;
             Duration::from_millis(jitter_ms as u64)
         } else {
             Duration::ZERO
@@ -76,14 +79,15 @@ impl RetryStrategy {
 
     /// Exponential backoff calculation
     fn exponential_delay(&self, attempt: u32) -> Duration {
-        let delay_ms = self.initial_delay.as_millis() as f64 * self.backoff_multiplier.powi(attempt as i32);
+        let delay_ms =
+            self.initial_delay.as_millis() as f64 * self.backoff_multiplier.powi(attempt as i32);
         Duration::from_millis(delay_ms as u64)
     }
 
     /// Adaptive delay based on error type
     fn adaptive_delay(&self, attempt: u32, error: Option<&TransferError>) -> Duration {
         let base_delay = self.exponential_delay(attempt);
-        
+
         match error {
             Some(TransferError::TemporaryNetwork(_)) => {
                 // Network errors need more time to recover
@@ -202,13 +206,13 @@ impl RetryExecutor {
         Fut: std::future::Future<Output = Result<T, TransferError>>,
     {
         let mut context = RetryContext::new(self.strategy.max_attempts);
-        
+
         loop {
             // Execute the operation
             let attempt_start = Instant::now();
             let result = operation(context.attempt).await;
             let attempt_duration = attempt_start.elapsed();
-            
+
             match result {
                 Ok(value) => {
                     // Operation succeeded
@@ -238,7 +242,8 @@ impl RetryExecutor {
                         "[Retry] Attempt {} failed: {}, retrying in {:?}",
                         context.attempt + 1,
                         error,
-                        self.strategy.calculate_delay(context.attempt + 1, Some(&error))
+                        self.strategy
+                            .calculate_delay(context.attempt + 1, Some(&error))
                     );
 
                     // Move to next attempt
@@ -246,8 +251,10 @@ impl RetryExecutor {
                     context.update_retry_time(attempt_duration);
 
                     // Calculate and wait for delay
-                    let delay = self.strategy.calculate_delay(context.attempt, context.last_error.as_ref());
-                    
+                    let delay = self
+                        .strategy
+                        .calculate_delay(context.attempt, context.last_error.as_ref());
+
                     // For fast retries, use minimal delay
                     let actual_delay = if context.is_fast_retry {
                         std::cmp::min(delay, Duration::from_millis(100))
@@ -272,7 +279,7 @@ impl RetryExecutor {
         Fut: std::future::Future<Output = Result<T, TransferError>>,
     {
         let mut context = RetryContext::new(self.strategy.max_attempts);
-        
+
         loop {
             // Check for cancellation
             if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -282,7 +289,7 @@ impl RetryExecutor {
             let attempt_start = Instant::now();
             let result = operation(context.attempt).await;
             let attempt_duration = attempt_start.elapsed();
-            
+
             match result {
                 Ok(value) => return RetryResult::Success(value),
                 Err(error) => {
@@ -297,7 +304,9 @@ impl RetryExecutor {
                     context.next_attempt(error);
                     context.update_retry_time(attempt_duration);
 
-                    let delay = self.strategy.calculate_delay(context.attempt, context.last_error.as_ref());
+                    let delay = self
+                        .strategy
+                        .calculate_delay(context.attempt, context.last_error.as_ref());
                     let actual_delay = if context.is_fast_retry {
                         std::cmp::min(delay, Duration::from_millis(100))
                     } else {
@@ -310,8 +319,9 @@ impl RetryExecutor {
                         if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
                             return RetryResult::Cancelled;
                         }
-                        
-                        let sleep_duration = std::cmp::min(remaining_delay, Duration::from_millis(100));
+
+                        let sleep_duration =
+                            std::cmp::min(remaining_delay, Duration::from_millis(100));
                         sleep(sleep_duration).await;
                         remaining_delay -= sleep_duration;
                     }
@@ -364,9 +374,9 @@ pub struct CircuitBreaker {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CircuitBreakerState {
-    Closed,    // Normal operation
-    Open,      // Failing, reject calls
-    HalfOpen,  // Testing if recovered
+    Closed,   // Normal operation
+    Open,     // Failing, reject calls
+    HalfOpen, // Testing if recovered
 }
 
 impl CircuitBreaker {
@@ -384,7 +394,7 @@ impl CircuitBreaker {
     /// Check if operation should be allowed
     pub fn allow_operation(&self) -> bool {
         let state = *self.state.read().unwrap();
-        
+
         match state {
             CircuitBreakerState::Closed => true,
             CircuitBreakerState::Open => {
@@ -406,11 +416,14 @@ impl CircuitBreaker {
 
     /// Record successful operation
     pub fn record_success(&self) {
-        let current_count = self.failure_count.load(std::sync::atomic::Ordering::Relaxed);
+        let current_count = self
+            .failure_count
+            .load(std::sync::atomic::Ordering::Relaxed);
         if current_count > 0 {
-            self.failure_count.store(0, std::sync::atomic::Ordering::Relaxed);
+            self.failure_count
+                .store(0, std::sync::atomic::Ordering::Relaxed);
         }
-        
+
         if let Ok(mut state) = self.state.write() {
             *state = CircuitBreakerState::Closed;
         }
@@ -418,10 +431,13 @@ impl CircuitBreaker {
 
     /// Record failed operation
     pub fn record_failure(&self) {
-        let new_count = self.failure_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        
+        let new_count = self
+            .failure_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+
         *self.last_failure_time.write().unwrap() = Some(Instant::now());
-        
+
         if new_count >= self.failure_threshold {
             if let Ok(mut state) = self.state.write() {
                 *state = CircuitBreakerState::Open;
@@ -436,12 +452,14 @@ impl CircuitBreaker {
 
     /// Get failure count
     pub fn get_failure_count(&self) -> usize {
-        self.failure_count.load(std::sync::atomic::Ordering::Relaxed)
+        self.failure_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Reset the circuit breaker
     pub fn reset(&self) {
-        self.failure_count.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.failure_count
+            .store(0, std::sync::atomic::Ordering::Relaxed);
         *self.last_failure_time.write().unwrap() = None;
         if let Ok(mut state) = self.state.write() {
             *state = CircuitBreakerState::Closed;
@@ -456,24 +474,24 @@ mod tests {
     #[test]
     fn test_retry_strategy_delay_calculation() {
         let strategy = RetryStrategy::default();
-        
+
         // Test exponential backoff
         let delay1 = strategy.calculate_delay(0, None);
         let delay2 = strategy.calculate_delay(1, None);
         let delay3 = strategy.calculate_delay(2, None);
-        
+
         assert!(delay2 > delay1);
         assert!(delay3 > delay2);
-        
+
         // Test adaptive delay for different error types
         let network_error = TransferError::TemporaryNetwork("test".to_string());
         let timeout_error = TransferError::Timeout("test".to_string());
         let would_block_error = TransferError::WouldBlock;
-        
+
         let network_delay = strategy.calculate_delay(1, Some(&network_error));
         let timeout_delay = strategy.calculate_delay(1, Some(&timeout_error));
         let would_block_delay = strategy.calculate_delay(1, Some(&would_block_error));
-        
+
         assert!(timeout_delay > network_delay);
         assert!(network_delay > would_block_delay);
     }
@@ -482,17 +500,21 @@ mod tests {
     async fn test_retry_executor_success() {
         let strategy = RetryStrategy::default();
         let executor = RetryExecutor::new(strategy);
-        
+
         let mut call_count = 0;
-        let result = executor.execute(|attempt| async move {
-            call_count += 1;
-            if attempt == 0 {
-                Err(TransferError::TemporaryNetwork("First attempt fails".to_string()))
-            } else {
-                Ok("success")
-            }
-        }).await;
-        
+        let result = executor
+            .execute(|attempt| async move {
+                call_count += 1;
+                if attempt == 0 {
+                    Err(TransferError::TemporaryNetwork(
+                        "First attempt fails".to_string(),
+                    ))
+                } else {
+                    Ok("success")
+                }
+            })
+            .await;
+
         match result {
             RetryResult::Success(value) => {
                 assert_eq!(value, "success");
@@ -509,13 +531,17 @@ mod tests {
             ..Default::default()
         };
         let executor = RetryExecutor::new(strategy);
-        
-        let result = executor.execute(|_| async {
-            Err(TransferError::PermissionDenied("Always fails".to_string()))
-        }).await;
-        
+
+        let result = executor
+            .execute(|_| async { Err(TransferError::PermissionDenied("Always fails".to_string())) })
+            .await;
+
         match result {
-            RetryResult::Failed { last_error, total_attempts, .. } => {
+            RetryResult::Failed {
+                last_error,
+                total_attempts,
+                ..
+            } => {
                 assert!(matches!(last_error, TransferError::PermissionDenied(_)));
                 assert_eq!(total_attempts, 1); // Non-retryable errors don't retry
             }
@@ -526,22 +552,22 @@ mod tests {
     #[test]
     fn test_circuit_breaker() {
         let breaker = CircuitBreaker::new(3, Duration::from_millis(100));
-        
+
         // Initially closed
         assert_eq!(breaker.get_state(), CircuitBreakerState::Closed);
         assert!(breaker.allow_operation());
-        
+
         // Record failures
         breaker.record_failure();
         breaker.record_failure();
         assert_eq!(breaker.get_failure_count(), 2);
         assert!(breaker.allow_operation()); // Still closed
-        
+
         // Third failure trips the breaker
         breaker.record_failure();
         assert_eq!(breaker.get_state(), CircuitBreakerState::Open);
         assert!(!breaker.allow_operation()); // Now open
-        
+
         // Record success resets
         breaker.record_success();
         assert_eq!(breaker.get_state(), CircuitBreakerState::Closed);

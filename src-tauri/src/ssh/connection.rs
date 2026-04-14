@@ -1,8 +1,8 @@
 use crate::models::{Connection as SshConnConfig, ConnectionTimeoutSettings, ReconnectSettings};
 use crate::ssh::{
-    get_connection_timeout, get_jump_host_timeout, get_local_forward_timeout, get_sftp_operation_timeout, ssh2_retry,
-    HealthAction, PoolHealthChecker, PoolHealthReport, ReconnectManager, SessionHealth,
-    SessionHealthMetadata, SshErrorClassifier, SshErrorType,
+    get_connection_timeout, get_jump_host_timeout, get_local_forward_timeout,
+    get_sftp_operation_timeout, ssh2_retry, HealthAction, PoolHealthChecker, PoolHealthReport,
+    ReconnectManager, SessionHealth, SessionHealthMetadata, SshErrorClassifier, SshErrorType,
 };
 use socket2::{Domain, Protocol, Socket, Type};
 use ssh2::Session;
@@ -316,7 +316,9 @@ impl SessionSshPool {
 
         loop {
             if start.elapsed() > timeout {
-                return Err("Timeout waiting for available AI session. Please try again later.".to_string());
+                return Err(
+                    "Timeout waiting for available AI session. Please try again later.".to_string(),
+                );
             }
 
             let sessions = self.ai_pool.lock().map_err(|e| e.to_string())?;
@@ -945,7 +947,10 @@ impl SessionSshPool {
         Ok(())
     }
 
-    pub fn recycle_file_browser_session(&self, target: &Arc<Mutex<ManagedSession>>) -> Result<(), String> {
+    pub fn recycle_file_browser_session(
+        &self,
+        target: &Arc<Mutex<ManagedSession>>,
+    ) -> Result<(), String> {
         let removed_session = {
             let mut sessions = self.file_browser_pool.lock().map_err(|e| e.to_string())?;
             sessions
@@ -1523,11 +1528,8 @@ fn connect_with_timeout(addr_str: &str, timeout: Duration) -> Result<TcpStream, 
 // Helper to install public key
 pub fn install_public_key(session: &ssh2::Session, public_key: &str) -> Result<(), String> {
     // 1. Init SFTP
-    let sftp = crate::ssh::utils::open_sftp_with_timeout(
-        session,
-        get_sftp_operation_timeout(None),
-    )
-    .map_err(|e| format!("SFTP init failed: {}", e))?;
+    let sftp = crate::ssh::utils::open_sftp_with_timeout(session, get_sftp_operation_timeout(None))
+        .map_err(|e| format!("SFTP init failed: {}", e))?;
 
     // 2. Ensure .ssh directory exists
     // We ignore error because it might simply exist

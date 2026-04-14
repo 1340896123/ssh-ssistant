@@ -54,10 +54,12 @@ impl<'a> AsyncSftp<'a> {
             .await
         })
         .await
-        .map_err(|_| TransferError::Timeout(format!(
-            "Download operation timed out after {:?}",
-            operation_timeout
-        )))?
+        .map_err(|_| {
+            TransferError::Timeout(format!(
+                "Download operation timed out after {:?}",
+                operation_timeout
+            ))
+        })?
     }
 
     /// Internal download implementation with progress tracking
@@ -74,10 +76,9 @@ impl<'a> AsyncSftp<'a> {
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
         // Open remote file
-        let mut remote_file = self
-            .sftp
-            .open(remote_path)
-            .map_err(|e| TransferError::InvalidPath(format!("Failed to open remote file: {}", e)))?;
+        let mut remote_file = self.sftp.open(remote_path).map_err(|e| {
+            TransferError::InvalidPath(format!("Failed to open remote file: {}", e))
+        })?;
 
         // Get file size
         let metadata = remote_file
@@ -86,8 +87,8 @@ impl<'a> AsyncSftp<'a> {
         let file_size = metadata.size.unwrap_or(0) as u64;
 
         // Create local file
-        let mut local_file =
-            File::create(local_path).map_err(|e| TransferError::DiskFull(format!("Failed to create local file: {}", e)))?;
+        let mut local_file = File::create(local_path)
+            .map_err(|e| TransferError::DiskFull(format!("Failed to create local file: {}", e)))?;
 
         // Download loop with progress tracking
         let mut buffer = vec![0u8; chunk_size];
@@ -125,9 +126,9 @@ impl<'a> AsyncSftp<'a> {
             }
 
             // Write to local file
-            local_file
-                .write_all(&buffer[..bytes_read])
-                .map_err(|e| TransferError::DiskFull(format!("Failed to write to local file: {}", e)))?;
+            local_file.write_all(&buffer[..bytes_read]).map_err(|e| {
+                TransferError::DiskFull(format!("Failed to write to local file: {}", e))
+            })?;
 
             total_transferred += bytes_read as u64;
             last_progress_time = Instant::now();
@@ -171,10 +172,12 @@ impl<'a> AsyncSftp<'a> {
             .await
         })
         .await
-        .map_err(|_| TransferError::Timeout(format!(
-            "Upload operation timed out after {:?}",
-            operation_timeout
-        )))?
+        .map_err(|_| {
+            TransferError::Timeout(format!(
+                "Upload operation timed out after {:?}",
+                operation_timeout
+            ))
+        })?
     }
 
     /// Internal upload implementation with progress tracking
@@ -196,14 +199,13 @@ impl<'a> AsyncSftp<'a> {
             .len();
 
         // Open local file
-        let mut local_file =
-            File::open(local_path).map_err(|e| TransferError::InvalidPath(format!("Failed to open local file: {}", e)))?;
+        let mut local_file = File::open(local_path)
+            .map_err(|e| TransferError::InvalidPath(format!("Failed to open local file: {}", e)))?;
 
         // Create remote file
-        let mut remote_file = self
-            .sftp
-            .create(Path::new(remote_path))
-            .map_err(|e| TransferError::PermissionDenied(format!("Failed to create remote file: {}", e)))?;
+        let mut remote_file = self.sftp.create(Path::new(remote_path)).map_err(|e| {
+            TransferError::PermissionDenied(format!("Failed to create remote file: {}", e))
+        })?;
 
         // Upload loop with progress tracking
         let mut buffer = vec![0u8; chunk_size];
@@ -225,9 +227,9 @@ impl<'a> AsyncSftp<'a> {
             }
 
             // Read chunk from local file
-            let bytes_read = local_file
-                .read(&mut buffer)
-                .map_err(|e| TransferError::InvalidPath(format!("Failed to read from local file: {}", e)))?;
+            let bytes_read = local_file.read(&mut buffer).map_err(|e| {
+                TransferError::InvalidPath(format!("Failed to read from local file: {}", e))
+            })?;
 
             if bytes_read == 0 {
                 // EOF reached
@@ -286,7 +288,10 @@ impl<'a> AsyncSftp<'a> {
         })
         .await
         .map_err(|_| {
-            TransferError::Timeout(format!("Resume download timed out after {:?}", operation_timeout))
+            TransferError::Timeout(format!(
+                "Resume download timed out after {:?}",
+                operation_timeout
+            ))
         })?
     }
 
@@ -306,25 +311,27 @@ impl<'a> AsyncSftp<'a> {
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
         // Open remote file and seek to offset
-        let mut remote_file = self
-            .sftp
-            .open(remote_path)
-            .map_err(|e| TransferError::InvalidPath(format!("Failed to open remote file: {}", e)))?;
+        let mut remote_file = self.sftp.open(remote_path).map_err(|e| {
+            TransferError::InvalidPath(format!("Failed to open remote file: {}", e))
+        })?;
 
         remote_file
             .seek(std::io::SeekFrom::Start(offset))
-            .map_err(|e| TransferError::CannotResume(format!("Failed to seek in remote file: {}", e)))?;
+            .map_err(|e| {
+                TransferError::CannotResume(format!("Failed to seek in remote file: {}", e))
+            })?;
 
         // Open local file in append mode
-        let mut local_file =
-            File::options()
-                .write(true)
-                .open(local_path)
-                .map_err(|e| TransferError::DiskFull(format!("Failed to open local file: {}", e)))?;
+        let mut local_file = File::options()
+            .write(true)
+            .open(local_path)
+            .map_err(|e| TransferError::DiskFull(format!("Failed to open local file: {}", e)))?;
 
         local_file
             .seek(std::io::SeekFrom::Start(offset))
-            .map_err(|e| TransferError::CannotResume(format!("Failed to seek in local file: {}", e)))?;
+            .map_err(|e| {
+                TransferError::CannotResume(format!("Failed to seek in local file: {}", e))
+            })?;
 
         // Download loop starting from offset
         let mut buffer = vec![0u8; chunk_size];
@@ -361,9 +368,9 @@ impl<'a> AsyncSftp<'a> {
             }
 
             // Write to local file
-            local_file
-                .write_all(&buffer[..bytes_read])
-                .map_err(|e| TransferError::DiskFull(format!("Failed to write to local file: {}", e)))?;
+            local_file.write_all(&buffer[..bytes_read]).map_err(|e| {
+                TransferError::DiskFull(format!("Failed to write to local file: {}", e))
+            })?;
 
             total_transferred += bytes_read as u64;
             last_progress_time = Instant::now();
@@ -411,7 +418,10 @@ impl<'a> AsyncSftp<'a> {
         })
         .await
         .map_err(|_| {
-            TransferError::Timeout(format!("Resume upload timed out after {:?}", operation_timeout))
+            TransferError::Timeout(format!(
+                "Resume upload timed out after {:?}",
+                operation_timeout
+            ))
         })?
     }
 
@@ -431,22 +441,25 @@ impl<'a> AsyncSftp<'a> {
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
         // Open local file and seek to offset
-        let mut local_file =
-            File::open(local_path).map_err(|e| TransferError::InvalidPath(format!("Failed to open local file: {}", e)))?;
+        let mut local_file = File::open(local_path)
+            .map_err(|e| TransferError::InvalidPath(format!("Failed to open local file: {}", e)))?;
 
         local_file
             .seek(std::io::SeekFrom::Start(offset))
-            .map_err(|e| TransferError::CannotResume(format!("Failed to seek in local file: {}", e)))?;
+            .map_err(|e| {
+                TransferError::CannotResume(format!("Failed to seek in local file: {}", e))
+            })?;
 
         // Open remote file and seek to offset
-        let mut remote_file = self
-            .sftp
-            .open(remote_path)
-            .map_err(|e| TransferError::PermissionDenied(format!("Failed to open remote file: {}", e)))?;
+        let mut remote_file = self.sftp.open(remote_path).map_err(|e| {
+            TransferError::PermissionDenied(format!("Failed to open remote file: {}", e))
+        })?;
 
         remote_file
             .seek(std::io::SeekFrom::Start(offset))
-            .map_err(|e| TransferError::CannotResume(format!("Failed to seek in remote file: {}", e)))?;
+            .map_err(|e| {
+                TransferError::CannotResume(format!("Failed to seek in remote file: {}", e))
+            })?;
 
         // Upload loop starting from offset
         let mut buffer = vec![0u8; chunk_size];
@@ -468,9 +481,9 @@ impl<'a> AsyncSftp<'a> {
             }
 
             // Read chunk from local file
-            let bytes_read = local_file
-                .read(&mut buffer)
-                .map_err(|e| TransferError::InvalidPath(format!("Failed to read from local file: {}", e)))?;
+            let bytes_read = local_file.read(&mut buffer).map_err(|e| {
+                TransferError::InvalidPath(format!("Failed to read from local file: {}", e))
+            })?;
 
             if bytes_read == 0 {
                 break;
@@ -497,7 +510,11 @@ impl<'a> AsyncSftp<'a> {
     }
 
     /// Read from file with retry logic
-    fn read_with_retry(&self, file: &mut ssh2::File, buffer: &mut [u8]) -> Result<usize, TransferError> {
+    fn read_with_retry(
+        &self,
+        file: &mut ssh2::File,
+        buffer: &mut [u8],
+    ) -> Result<usize, TransferError> {
         let mut attempt = 0;
         let max_attempts = self.settings.max_retry_attempts as usize;
         let retry_delay = self.settings.retry_delay();

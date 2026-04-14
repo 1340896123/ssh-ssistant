@@ -82,9 +82,7 @@ impl TransferState {
 
     /// Get time since last progress update
     pub fn time_since_progress(&self) -> std::time::Duration {
-        self.last_progress_at
-            .blocking_lock()
-            .elapsed()
+        self.last_progress_at.blocking_lock().elapsed()
     }
 
     /// Check if transfer is cancelled
@@ -94,10 +92,7 @@ impl TransferState {
 
     /// Get error message if any
     pub fn error(&self) -> Option<String> {
-        self.error
-            .blocking_lock()
-            .as_ref()
-            .cloned()
+        self.error.blocking_lock().as_ref().cloned()
     }
 
     /// Update transferred bytes (returns true if value changed)

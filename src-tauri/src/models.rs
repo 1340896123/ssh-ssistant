@@ -139,11 +139,11 @@ impl Default for ConnectionTimeoutSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ReconnectSettings {
-    pub max_reconnect_attempts: u32,           // 最大重连次数，默认 5
-    pub initial_delay_ms: u32,                 // 初始延迟，默认 1000ms
-    pub max_delay_ms: u32,                     // 最大延迟，默认 30000ms
-    pub backoff_multiplier: f32,               // 退避倍数，默认 2.0
-    pub enable_auto_reconnect: bool,           // 是否启用自动重连，默认 true
+    pub max_reconnect_attempts: u32, // 最大重连次数，默认 5
+    pub initial_delay_ms: u32,       // 初始延迟，默认 1000ms
+    pub max_delay_ms: u32,           // 最大延迟，默认 30000ms
+    pub backoff_multiplier: f32,     // 退避倍数，默认 2.0
+    pub enable_auto_reconnect: bool, // 是否启用自动重连，默认 true
 }
 
 impl Default for ReconnectSettings {
@@ -161,11 +161,11 @@ impl Default for ReconnectSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HeartbeatSettings {
-    pub tcp_keepalive_interval_secs: u32,      // TCP keepalive 间隔，默认 60
-    pub ssh_keepalive_interval_secs: u32,      // SSH keepalive 间隔，默认 15
-    pub app_heartbeat_interval_secs: u32,      // 应用层心跳间隔，默认 30
-    pub heartbeat_timeout_secs: u32,           // 心跳超时，默认 5
-    pub failed_heartbeats_before_action: u32,  // 触发动作前的心跳失败次数，默认 3
+    pub tcp_keepalive_interval_secs: u32, // TCP keepalive 间隔，默认 60
+    pub ssh_keepalive_interval_secs: u32, // SSH keepalive 间隔，默认 15
+    pub app_heartbeat_interval_secs: u32, // 应用层心跳间隔，默认 30
+    pub heartbeat_timeout_secs: u32,      // 心跳超时，默认 5
+    pub failed_heartbeats_before_action: u32, // 触发动作前的心跳失败次数，默认 3
 }
 
 impl Default for HeartbeatSettings {
@@ -183,10 +183,10 @@ impl Default for HeartbeatSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolHealthSettings {
-    pub health_check_interval_secs: u32,     // 健康检查间隔，默认 60
-    pub session_warmup_count: u32,           // 预热会话数量，默认 1
-    pub max_session_age_minutes: u32,        // 会话最大存活时间，默认 60
-    pub unhealthy_threshold: u32,            // 判定为不健康的失败次数，默认 3
+    pub health_check_interval_secs: u32, // 健康检查间隔，默认 60
+    pub session_warmup_count: u32,       // 预热会话数量，默认 1
+    pub max_session_age_minutes: u32,    // 会话最大存活时间，默认 60
+    pub unhealthy_threshold: u32,        // 判定为不健康的失败次数，默认 3
 }
 
 impl Default for PoolHealthSettings {
@@ -271,20 +271,20 @@ pub struct ConnectionMetrics {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NetworkQuality {
-    Excellent,  // < 50ms
-    Good,       // 50-150ms
-    Fair,       // 150-300ms
-    Poor,       // > 300ms
+    Excellent, // < 50ms
+    Good,      // 50-150ms
+    Fair,      // 150-300ms
+    Poor,      // > 300ms
     Unknown,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkAdaptiveSettings {
-    pub enable_adaptive: bool,               // 是否启用自适应，默认 true
-    pub latency_check_interval_secs: u32,    // 延迟检测间隔，默认 30
-    pub high_latency_threshold_ms: u32,      // 高延迟阈值，默认 300
-    pub low_bandwidth_threshold_kbps: u32,   // 低带宽阈值，默认 100
+    pub enable_adaptive: bool,             // 是否启用自适应，默认 true
+    pub latency_check_interval_secs: u32,  // 延迟检测间隔，默认 30
+    pub high_latency_threshold_ms: u32,    // 高延迟阈值，默认 300
+    pub low_bandwidth_threshold_kbps: u32, // 低带宽阈值，默认 100
 }
 
 impl Default for NetworkAdaptiveSettings {
@@ -301,10 +301,10 @@ impl Default for NetworkAdaptiveSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkStatus {
-    pub latency_ms: u32,                     // 当前延迟
-    pub bandwidth_kbps: Option<u32>,         // 估算带宽
-    pub quality: NetworkQuality,             // 网络质量等级
-    pub last_update: i64,                    // 最后更新时间戳
+    pub latency_ms: u32,             // 当前延迟
+    pub bandwidth_kbps: Option<u32>, // 估算带宽
+    pub quality: NetworkQuality,     // 网络质量等级
+    pub last_update: i64,            // 最后更新时间戳
 }
 
 impl Default for NetworkStatus {
@@ -378,9 +378,7 @@ impl FileOperationError {
             || msg_lower.contains("network")
         {
             (FileErrorType::Network, true)
-        } else if msg_lower.contains("session")
-            || msg_lower.contains("disconnected")
-        {
+        } else if msg_lower.contains("session") || msg_lower.contains("disconnected") {
             (FileErrorType::Session, true)
         } else {
             (FileErrorType::Unknown, false)

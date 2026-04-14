@@ -55,8 +55,8 @@ pub use types::{
     TransferSettings, TransferStatus,
 };
 
-pub use state::{TransferState, TransferStateHandle};
+pub use async_sftp::AsyncSftp;
+pub use checkpoint::{CheckpointManager, TransferCheckpoint};
 pub use manager::TransferManager;
 pub use pool::{PoolStats, TransferConnection, TransferPool};
-pub use checkpoint::{CheckpointManager, TransferCheckpoint};
-pub use async_sftp::AsyncSftp;
+pub use state::{TransferState, TransferStateHandle};

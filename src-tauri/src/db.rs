@@ -521,14 +521,12 @@ pub fn create_tunnel(app_handle: AppHandle, tunnel: Tunnel) -> Result<i64, Strin
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let created_at = tunnel
-        .created_at
-        .unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64
-        });
+    let created_at = tunnel.created_at.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    });
 
     conn.execute(
         "INSERT INTO tunnels (name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -931,7 +929,10 @@ pub fn generate_ssh_key(
 // --- Transfer Record Functions ---
 
 /// Save or update a transfer record
-pub fn save_transfer_record(app_handle: &AppHandle, transfer: &TransferRecord) -> Result<(), String> {
+pub fn save_transfer_record(
+    app_handle: &AppHandle,
+    transfer: &TransferRecord,
+) -> Result<(), String> {
     let db_path = get_db_path(app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
@@ -960,7 +961,10 @@ pub fn save_transfer_record(app_handle: &AppHandle, transfer: &TransferRecord) -
 }
 
 /// Get transfer records by client ID
-pub fn get_transfer_records_by_client(app_handle: &AppHandle, client_id: &str) -> Result<Vec<TransferRecord>, String> {
+pub fn get_transfer_records_by_client(
+    app_handle: &AppHandle,
+    client_id: &str,
+) -> Result<Vec<TransferRecord>, String> {
     let db_path = get_db_path(app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
@@ -998,7 +1002,10 @@ pub fn get_transfer_records_by_client(app_handle: &AppHandle, client_id: &str) -
 }
 
 /// Get transfer record by ID
-pub fn get_transfer_record(app_handle: &AppHandle, transfer_id: &str) -> Result<Option<TransferRecord>, String> {
+pub fn get_transfer_record(
+    app_handle: &AppHandle,
+    transfer_id: &str,
+) -> Result<Option<TransferRecord>, String> {
     let db_path = get_db_path(app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
@@ -1039,21 +1046,28 @@ pub fn delete_transfer_record(app_handle: &AppHandle, transfer_id: &str) -> Resu
     let db_path = get_db_path(app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    conn.execute("DELETE FROM transfer_records WHERE id = ?1", params![transfer_id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM transfer_records WHERE id = ?1",
+        params![transfer_id],
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 /// Clean up old transfer records
-pub fn cleanup_old_transfer_records(app_handle: &AppHandle, days_old: i64) -> Result<usize, String> {
+pub fn cleanup_old_transfer_records(
+    app_handle: &AppHandle,
+    days_old: i64,
+) -> Result<usize, String> {
     let db_path = get_db_path(app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     let cutoff = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as i64 - (days_old * 86400);
+        .as_secs() as i64
+        - (days_old * 86400);
 
     let affected = conn.execute(
         "DELETE FROM transfer_records WHERE created_at < ?1 AND status IN ('completed', 'cancelled', 'failed')",
