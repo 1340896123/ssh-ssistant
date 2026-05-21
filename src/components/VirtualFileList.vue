@@ -30,7 +30,6 @@ interface Props {
     onOpenTreeFile?: (node: TreeNode) => void;
     onTreeContextMenu?: (event: MouseEvent, node: TreeNode) => void;
     onToggleDirectory?: (node: TreeNode) => void;
-    onDragStart: (event: DragEvent, element: FileEntry | TreeNode) => void;
     expandedPaths?: Set<string>;
     formatSize: (size: number) => string;
     formatDate: (timestamp: number) => string;
@@ -165,8 +164,6 @@ function renderFileItem(item: FileEntry, index: number) {
                 'text-text-muted': isParentDir // Special styling for parent directory
             }
         ],
-        draggable: true,
-        onDragstart: (e: DragEvent) => props.onDragStart(e, item),
         onClick: (e: MouseEvent) => props.onSelection(e, item, index),
         onDblclick: () => props.onNavigate(item),
         onContextmenu: (e: MouseEvent) => props.onContextMenu(e, item)
@@ -289,8 +286,6 @@ function renderTreeNode(node: TreeNode) {
                 'text-text-muted': isParentDir // Special styling for parent directory
             }
         ],
-        draggable: true,
-        onDragstart: (e: DragEvent) => props.onDragStart(e, node),
         onClick: () => props.onTreeSelection?.(node),
         onDblclick: () => props.onOpenTreeFile?.(node),
         onContextmenu: (e: MouseEvent) => props.onTreeContextMenu?.(e, node)

@@ -146,6 +146,7 @@
     "contextMenu": {
       "download": "Download",
       "batchDownload": "Batch Download",
+      "addToAiContext": "Add to AI Context",
       "rename": "Rename",
       "delete": "Delete",
       "copyPath": "Copy Path",

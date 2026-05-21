@@ -98,10 +98,15 @@ export interface I18nMessages {
     emptyDirectory: string
     contextMenu: {
       download: string
+      batchDownload: string
       rename: string
       delete: string
       copyPath: string
+      copyCurrentPath: string
       changePermissions: string
+      copyName: string
+      switchToTerminalPath: string
+      addToAiContext: string
     }
     deleteConfirm: {
       title: string

@@ -19,6 +19,10 @@ import { useI18n } from "./composables/useI18n";
 import type { Connection } from "./types";
 import { Settings, PanelLeftClose, PanelLeftOpen } from "lucide-vue-next";
 
+interface AiAssistantRef {
+  addContextPaths: (paths: { path: string; isDir: boolean }[]) => void;
+}
+
 const sessionStore = useSessionStore();
 const connectionStore = useConnectionStore();
 const settingsStore = useSettingsStore();
@@ -34,10 +38,12 @@ const isSidebarCollapsed = ref(false);
 
 // AI Context Refs
 const terminalTabAreaRefs = ref<any[]>([]);
+const aiAssistantRefs = ref<any[]>([]);
 const terminalContext = ref("");
 
 onBeforeUpdate(() => {
   terminalTabAreaRefs.value = [];
+  aiAssistantRefs.value = [];
   mainColumnRefs.value = [];
 });
 
@@ -404,6 +410,18 @@ function switchTerminalToPath(sessionId: string, path: string) {
     terminalTabAreaRefs.value[sessionIndex].switchToPath(path);
   }
 }
+
+function addAiContextPaths(
+  sessionId: string,
+  paths: { path: string; isDir: boolean }[]
+) {
+  const sessionIndex = sessionStore.sessions.findIndex((s) => s.id === sessionId);
+  const aiAssistant = sessionIndex !== -1
+    ? (aiAssistantRefs.value[sessionIndex] as AiAssistantRef | undefined)
+    : undefined;
+
+  aiAssistant?.addContextPaths(paths);
+}
 </script>
 
 <template>
@@ -498,7 +516,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
                 <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
-                " @switchToTerminalPath="switchTerminalToPath" />
+                " @switchToTerminalPath="switchTerminalToPath" @addAiContextPaths="addAiContextPaths" />
               </div>
             </div>
 
@@ -509,7 +527,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
                 <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
-                " @switchToTerminalPath="switchTerminalToPath" />
+                " @switchToTerminalPath="switchTerminalToPath" @addAiContextPaths="addAiContextPaths" />
               </div>
 
               <!-- Resizer (Vertical) -->
@@ -532,7 +550,7 @@ function switchTerminalToPath(sessionId: string, path: string) {
 
             <!-- AI -->
             <div class="overflow-hidden flex flex-col bg-bg-secondary/90 backdrop-blur-sm border border-border-primary" :style="{ width: aiWidth + '%' }">
-              <AIAssistant :sessionId="session.id" :terminal-context="terminalContext"
+              <AIAssistant :ref="(el: any) => { if (el) aiAssistantRefs[index] = el }" :sessionId="session.id" :terminal-context="terminalContext"
                 @refresh-context="updateTerminalContext" />
             </div>
           </div>

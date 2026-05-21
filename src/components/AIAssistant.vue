@@ -55,6 +55,7 @@ interface Message {
   tool_call_id?: string;
   name?: string;
   tool_calls?: any[];
+  referencedPaths?: ContextPath[];
 }
 
 interface ContextPath {
@@ -80,7 +81,6 @@ const STOPPED_MESSAGE = "Command execution stopped by user.";
 const contextPaths = ref<ContextPath[]>([]);
 const input = ref("");
 const isLoading = ref(false);
-const isDragOverInput = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 const toolStates = ref<Record<string, boolean>>({}); // Keep toolStates as an empty object by default
 const toolRunStates = ref<Record<string, ToolRunState>>({});
@@ -315,7 +315,7 @@ const tools = [
           path: {
             type: "string",
             description:
-              "Remote file path to read. Prefer using paths provided by the user via drag-and-drop.",
+              "Remote file path to read. Prefer using paths explicitly referenced by the user from the file manager.",
           },
           maxBytes: {
             type: "number",
@@ -533,8 +533,14 @@ async function sendMessage() {
 
   abortController.value = new AbortController();
   const userMsg = input.value.trim();
+  const referencedPaths = [...contextPaths.value];
   input.value = "";
-  messages.value.push({ role: "user", content: userMsg });
+  contextPaths.value = [];
+  messages.value.push({
+    role: "user",
+    content: userMsg,
+    referencedPaths: referencedPaths.length > 0 ? referencedPaths : undefined,
+  });
   scrollToBottom();
 
   await processChat();
@@ -617,8 +623,38 @@ async function processChat() {
   const currentController = abortController.value;
   isLoading.value = true;
 
-  // Clone messages for API to avoid mutating UI state, and inject context
-  const apiMessages = JSON.parse(JSON.stringify(messages.value));
+  let lastUserIndex = -1;
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].role === "user") {
+      lastUserIndex = i;
+      break;
+    }
+  }
+
+  // Clone messages for API without UI-only metadata, then inject context.
+  const apiMessages = messages.value.map((message, index) => {
+    const { referencedPaths, ...apiMessage } = message;
+    if (apiMessage.role !== "user") {
+      return apiMessage;
+    }
+
+    let content = apiMessage.content;
+    if (referencedPaths && referencedPaths.length > 0) {
+      const list = referencedPaths
+        .map((c) => `${c.path}${c.isDir ? "/" : ""}`)
+        .join("\n");
+      content = `Here are the remote paths I am working with (referenced from the file manager):\n\n${list}\n\nMy request is: ${content}`;
+    }
+
+    if (index === lastUserIndex && props.terminalContext) {
+      content = `Here is the current terminal output for context:\n\n---\n${props.terminalContext}\n---\n\n${content}`;
+    }
+
+    return {
+      ...apiMessage,
+      content,
+    };
+  });
 
   // Inject System Prompt with Workspace Context
   let systemContent =
@@ -655,22 +691,6 @@ ${activeWorkspace.value.context}
 
   // Prepend system message
   apiMessages.unshift({ role: "system", content: systemContent });
-
-  if (
-    props.terminalContext &&
-    apiMessages.length > 0 &&
-    apiMessages[apiMessages.length - 1].role === "user"
-  ) {
-    const lastMsg = apiMessages[apiMessages.length - 1];
-    let contextText = lastMsg.content;
-    if (contextPaths.value.length > 0) {
-      const list = contextPaths.value
-        .map((c) => `${c.path}${c.isDir ? "/" : ""}`)
-        .join("\n");
-      contextText = `Here are the remote paths I am working with (from the file manager drag-and-drop):\n\n${list}\n\nMy request is: ${contextText}`;
-    }
-    lastMsg.content = `Here is the current terminal output for context:\n\n---\n${props.terminalContext}\n---\n\n${contextText}`;
-  }
 
   try {
     const providerType = settingsStore.ai.providerType || "openai";
@@ -981,40 +1001,8 @@ ${activeWorkspace.value.context}
   }
 }
 
-const containerRef = ref<HTMLElement | null>(null);
-let unlistenDrop: (() => void) | null = null;
-
 onMounted(async () => {
   scrollToBottom();
-
-  unlistenDrop = await listen("tauri://drag-drop", (event) => {
-    const payload = event.payload as {
-      paths: string[];
-      position: { x: number; y: number };
-    };
-    if (containerRef.value) {
-      const rect = containerRef.value.getBoundingClientRect();
-      const x = payload.position.x;
-      const y = payload.position.y;
-
-      // Check if drop is within this component
-      if (
-        x >= rect.left &&
-        x <= rect.right &&
-        y >= rect.top &&
-        y <= rect.bottom
-      ) {
-        if (payload.paths && payload.paths.length > 0) {
-          for (const path of payload.paths) {
-            const exists = contextPaths.value.some((c) => c.path === path);
-            if (!exists) {
-              contextPaths.value.push({ path, isDir: false });
-            }
-          }
-        }
-      }
-    }
-  });
 });
 
 function handleMessagesScroll() {
@@ -1023,29 +1011,12 @@ function handleMessagesScroll() {
   }
 }
 
-function onInputDragOver(event: DragEvent) {
-  event.preventDefault();
-  isDragOverInput.value = true;
-}
-function onInputDragLeave(_: DragEvent) {
-  isDragOverInput.value = false;
-}
-
-function onInputDrop(event: DragEvent) {
-  event.preventDefault();
-  isDragOverInput.value = false;
-  const data = event.dataTransfer?.getData("application/json");
-  if (data) {
-    try {
-      const item = JSON.parse(data);
-      if (item.path) {
-        const exists = contextPaths.value.some((c) => c.path === item.path);
-        if (!exists) {
-          contextPaths.value.push(item);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to parse drop data", e);
+function addContextPaths(paths: ContextPath[]) {
+  for (const item of paths) {
+    if (!item?.path) continue;
+    const exists = contextPaths.value.some((c) => c.path === item.path);
+    if (!exists) {
+      contextPaths.value.push({ path: item.path, isDir: item.isDir });
     }
   }
 }
@@ -1076,10 +1047,11 @@ function rerunCommand(command: string) {
   });
 }
 
+defineExpose({
+  addContextPaths,
+});
+
 onUnmounted(() => {
-  if (unlistenDrop) {
-    unlistenDrop();
-  }
   for (const unlisten of toolOutputListeners.values()) {
     unlisten();
   }
@@ -1088,10 +1060,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    class="flex flex-col h-full bg-bg-primary text-text-primary"
-    ref="containerRef"
-  >
+  <div class="flex flex-col h-full bg-bg-primary text-text-primary">
     <!-- Header -->
     <div class="flex flex-col bg-bg-secondary border-b border-subtle">
       <div class="flex items-center justify-between px-4 py-2">
@@ -1341,19 +1310,8 @@ onUnmounted(() => {
     </div>
 
     <!-- Input Area -->
-    <div
-      class="shadow-interactive p-4 bg-bg-secondary border-t border-subtle"
-      @dragover="onInputDragOver"
-      @dragleave="onInputDragLeave"
-      @drop="onInputDrop"
-    >
-      <div
-        class="w-full"
-        :class="{
-          'opacity-50 border-2 border-dashed border-primary rounded-lg':
-            isDragOverInput,
-        }"
-      >
+    <div class="shadow-interactive p-4 bg-bg-secondary border-t border-subtle">
+      <div class="w-full">
         <div class="flex flex-col space-y-2">
           <!-- Context Chips -->
           <div v-if="contextPaths.length > 0" class="flex flex-wrap gap-2 px-1">

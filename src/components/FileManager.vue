@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, shallowRef, triggerRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy, Terminal as TerminalIcon } from 'lucide-vue-next';
+import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy, MessageSquareQuote, Terminal as TerminalIcon } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
 import type { FileEntry, FileManagerViewMode, FilePageResponse } from '../types';
@@ -120,6 +120,7 @@ const props = withDefaults(defineProps<{ sessionId: string; active?: boolean }>(
 const emit = defineEmits<{
     (e: 'openFileEditor', filePath: string, fileName: string): void;
     (e: 'switchToTerminalPath', sessionId: string, path: string): void;
+    (e: 'addAiContextPaths', sessionId: string, paths: { path: string; isDir: boolean }[]): void;
 }>();
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
@@ -697,33 +698,6 @@ const visibleTreeNodes = computed<TreeNode[]>(() => {
     collectChildren(treeRootPath.value === '.' ? null : treeRootPath.value);
     return result;
 });
-
-function onDragStart(event: DragEvent, element: FileEntry | TreeNode) {
-    let entry: FileEntry;
-    let path: string;
-
-    if ('entry' in element) { // TreeNode
-        if (isLoadMoreNode(element as TreeNode)) {
-            event.preventDefault();
-            return;
-        }
-        entry = (element as TreeNode).entry;
-        path = (element as TreeNode).path;
-    } else { // FileEntry
-        entry = element as FileEntry;
-        path = pathUtils.value.join(currentPath.value, entry.name);
-    }
-
-    const data = {
-        path: path,
-        isDir: entry.isDir
-    };
-
-    if (event.dataTransfer) {
-        event.dataTransfer.setData('application/json', JSON.stringify(data));
-        event.dataTransfer.effectAllowed = 'copy';
-    }
-}
 
 function setTreeLoadMoreLoadingState(parentPath: string | null, loading: boolean) {
     const childPaths = childrenMap.value.get(parentPath) || [];
@@ -1355,6 +1329,46 @@ function showContextMenu(e: MouseEvent, file: FileEntry) {
 
 function closeContextMenu() {
     contextMenu.value.show = false;
+}
+
+function getSelectedAiContextPaths() {
+    if (contextMenu.value.isTree) {
+        const paths = selectedTreePaths.value.size > 0
+            ? Array.from(selectedTreePaths.value)
+            : (contextMenu.value.treePath ? [contextMenu.value.treePath] : []);
+
+        return paths
+            .map((path) => {
+                const node = treeNodes.value.get(path);
+                if (!node || isLoadMoreNode(node)) return null;
+                return { path, isDir: node.entry.isDir };
+            })
+            .filter((item): item is { path: string; isDir: boolean } => item !== null);
+    }
+
+    const names = selectedFiles.value.size > 0
+        ? Array.from(selectedFiles.value)
+        : (contextMenu.value.file ? [contextMenu.value.file.name] : []);
+
+    return names
+        .map((name) => {
+            const entry = files.value.find((file) => file.name === name);
+            if (!entry) return null;
+            return {
+                path: pathUtils.value.join(currentPath.value, entry.name),
+                isDir: entry.isDir
+            };
+        })
+        .filter((item): item is { path: string; isDir: boolean } => item !== null);
+}
+
+function handleAddToAiContext() {
+    const paths = getSelectedAiContextPaths();
+    if (paths.length === 0) return;
+
+    emit('addAiContextPaths', props.sessionId, paths);
+    sessionStore.setActiveTab('ai');
+    closeContextMenu();
 }
 
 async function handleUpload() {
@@ -2212,7 +2226,7 @@ function formatSize(size: number): string {
                     :selected-tree-paths="selectedTreePaths" :column-widths="columnWidths"
                     :scroll-element="fileListScrollRef"
                     :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
-                    :on-drag-start="onDragStart" :expanded-paths="expandedPaths" :format-size="formatSize"
+                    :expanded-paths="expandedPaths" :format-size="formatSize"
                     :format-date="formatDate" :renaming-path="renamingPath" v-model:rename-input="renameInput"
                     @confirm-rename="confirmRename" @cancel-rename="cancelRename" :current-path="currentPath" />
             </template>
@@ -2225,7 +2239,7 @@ function formatSize(size: number): string {
                     :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
                     :on-tree-selection="handleTreeSelection" :on-open-tree-file="openTreeFile"
                     :on-tree-context-menu="showTreeContextMenu" :on-toggle-directory="toggleDirectory"
-                    :on-drag-start="onDragStart" :expanded-paths="expandedPaths" :format-size="formatSize"
+                    :expanded-paths="expandedPaths" :format-size="formatSize"
                     :format-date="formatDate" :renaming-path="renamingPath" v-model:rename-input="renameInput"
                     @confirm-rename="confirmRename" @cancel-rename="cancelRename" :current-path="currentPath" />
             </template>
@@ -2310,6 +2324,17 @@ function formatSize(size: number): string {
                     <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-text-tertiary">({{
                         selectedFiles.size
                     }})</span>
+                </button>
+                <button @click.stop="handleAddToAiContext()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center transition-all duration-fast">
+                    <MessageSquareQuote class="w-4 h-4 mr-2 text-text-tertiary" />
+                    <span class="flex-1">{{
+                        t('fileManager.contextMenu.addToAiContext')
+                    }}</span>
+                    <span v-if="(contextMenu.isTree ? selectedTreePaths.size : selectedFiles.size) > 1"
+                        class="text-xs text-text-tertiary">({{
+                            contextMenu.isTree ? selectedTreePaths.size : selectedFiles.size
+                        }})</span>
                 </button>
                 <button @click.stop="handleRename(contextMenu.file!)"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">{{ t('fileManager.contextMenu.rename')
