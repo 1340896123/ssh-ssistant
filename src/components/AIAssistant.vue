@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
+import { useI18n } from "../composables/useI18n";
 
 const md = new MarkdownIt({
   html: false,
@@ -38,6 +39,7 @@ const emit = defineEmits(["refresh-context"]);
 
 const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
+const { t } = useI18n();
 
 const activeWorkspace = computed(() => {
   const session = sessionStore.sessions.find((s) => s.id === props.sessionId);
@@ -92,8 +94,7 @@ let abortController = ref<AbortController | null>(null);
 
 const initialMessage: Message = {
   role: "assistant",
-  content:
-    "Hello! I am your SSH AI Assistant. I can help you execute commands and manage your server. How can I help you today?",
+  content: t("aiAssistant.welcome"),
 };
 
 const messages = ref<Message[]>([{ ...initialMessage }]);
@@ -1066,13 +1067,15 @@ onUnmounted(() => {
       <div class="flex items-center justify-between px-4 py-2">
         <div class="flex items-center space-x-2">
           <Bot class="w-5 h-5 text-accent" />
-          <span class="font-medium text-text-primary">AI Assistant</span>
+          <span class="font-medium text-text-primary">{{
+            t("aiAssistant.title")
+          }}</span>
         </div>
         <div class="flex items-center space-x-1">
           <button
             @click="clearSession"
             class="text-text-muted hover:text-error transition-colors p-1 rounded hover:bg-bg-tertiary"
-            title="Clear Session"
+            :title="t('aiAssistant.clearSession')"
           >
             <Trash2 class="w-4 h-4" />
           </button>
@@ -1090,10 +1093,11 @@ onUnmounted(() => {
         <span class="truncate opacity-60">{{ activeWorkspace.path }}</span>
         <div class="flex-1"></div>
         <span v-if="activeWorkspace.isIndexed" class="status-online"
-          >Indexed</span
+          >{{ t("aiAssistant.workspaceIndexed") }}</span
         >
         <span v-else class="status-warning flex items-center">
-          <Loader2 class="w-3 h-3 animate-spin mr-1" /> Indexing
+          <Loader2 class="w-3 h-3 animate-spin mr-1" />
+          {{ t("aiAssistant.workspaceIndexing") }}
         </span>
       </div>
     </div>
@@ -1205,21 +1209,21 @@ onUnmounted(() => {
                     class="flex items-center text-warning ml-2"
                   >
                     <Loader2 class="w-3 h-3 animate-spin mr-1" />
-                    Running
+                    {{ t("aiAssistant.toolStatus.running") }}
                   </span>
                   <span
                     v-else-if="exec.status === 'stopped'"
                     class="text-error ml-2 text-[10px] uppercase"
                   >
-                    Stopped
+                    {{ t("aiAssistant.toolStatus.stopped") }}
                   </span>
                   <span
                     v-else-if="exec.status === 'error'"
                     class="text-error ml-2 text-[10px] uppercase"
-                    >Error</span
+                    >{{ t("aiAssistant.toolStatus.error") }}</span
                   >
                   <span v-else class="text-success ml-2 text-[10px] uppercase"
-                    >Done</span
+                    >{{ t("aiAssistant.toolStatus.done") }}</span
                   >
 
                   <!-- Action buttons -->
@@ -1228,7 +1232,7 @@ onUnmounted(() => {
                     <button
                       @click.stop="copyCommand(exec.command)"
                       class="p-1 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded transition-colors"
-                      title="Copy command"
+                      :title="t('aiAssistant.copyCommand')"
                     >
                       <ClipboardPlus class="w-3 h-3" />
                     </button>
@@ -1238,7 +1242,7 @@ onUnmounted(() => {
                       v-if="exec.status !== 'running'"
                       @click.stop="rerunCommand(exec.command)"
                       class="p-1 text-text-muted hover:text-success hover:bg-bg-tertiary rounded transition-colors"
-                      title="Rerun command"
+                      :title="t('aiAssistant.rerunCommand')"
                     >
                       <Loader2 class="w-3 h-3" />
                     </button>
@@ -1248,7 +1252,7 @@ onUnmounted(() => {
                       v-if="exec.status === 'running' && isLoading"
                       @click.stop="stopMessage()"
                       class="p-1 text-error hover:text-error hover:bg-bg-tertiary rounded transition-colors"
-                      title="Stop command"
+                      :title="t('aiAssistant.stopCommand')"
                     >
                       <Square class="w-3 h-3 fill-current" />
                     </button>
@@ -1272,7 +1276,7 @@ onUnmounted(() => {
                       {{ exec.streamedOutput }}
                     </template>
 <template v-else-if="exec.status === 'running'">
-                      Waiting for output...
+                      {{ t("aiAssistant.waitingForOutput") }}
                     </template>
 </pre>
                 </div>
@@ -1305,7 +1309,7 @@ onUnmounted(() => {
         class="flex items-center space-x-2 text-text-muted text-sm pl-12 fade-in"
       >
         <Loader2 class="w-4 h-4 animate-spin text-primary" />
-        <span>AI is thinking...</span>
+        <span>{{ t("aiAssistant.thinking") }}</span>
       </div>
     </div>
 
@@ -1336,7 +1340,7 @@ onUnmounted(() => {
             <button
               @click="emit('refresh-context')"
               class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-primary transition-colors"
-              title="Import terminal context"
+              :title="t('aiAssistant.importTerminalContext')"
             >
               <ClipboardPlus class="w-5 h-5" />
             </button>

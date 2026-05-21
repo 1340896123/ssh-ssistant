@@ -123,9 +123,9 @@ const tabs = [
   { id: 'ai', label: 'settings.aiAssistant' },
   { id: 'terminal', label: 'settings.terminalAppearance' },
   { id: 'fileManager', label: 'settings.fileManagement' },
-  { id: 'connection', label: 'Connection' },
+  { id: 'connection', label: 'settings.connection' },
   { id: 'sshPool', label: 'settings.sshPool' },
-  { id: 'sshKeys', label: 'SSH Keys' },
+  { id: 'sshKeys', label: 'settings.sshKeys' },
 ];
 
 </script>
@@ -149,7 +149,7 @@ const tabs = [
                 ? 'bg-accent text-text-primary'
                 : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
             ]">
-              {{ activeTab === 'sshKeys' && tab.id === 'sshKeys' ? 'SSH Keys' : t(tab.label) }}
+              {{ t(tab.label) }}
             </button>
           </nav>
         </div>
@@ -197,6 +197,7 @@ const tabs = [
           <div v-if="activeTab === 'ai'" class="space-y-6">
             <section>
               <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.aiAssistant') }}</h3>
+              <p class="text-sm text-text-secondary mb-4">{{ t('settings.aiAssistantDesc') }}</p>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.providerType') }}</label>
@@ -280,18 +281,18 @@ const tabs = [
                   </select>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Layout Position</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.layoutPosition') }}</label>
                   <select v-model="form.fileManager.layout"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
-                    <option value="bottom">Bottom (Below Terminal)</option>
-                    <option value="left">Left (Side by Side)</option>
+                    <option value="bottom">{{ t('settings.layoutBottom') }}</option>
+                    <option value="left">{{ t('settings.layoutLeft') }}</option>
                   </select>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">SFTP Buffer Size (KB)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.sftpBufferSize') }}</label>
                   <input v-model.number="form.fileManager.sftpBufferSize" type="number" min="64" max="1024" step="64"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Buffer size for SFTP file transfers (64KB-1024KB, step 64KB)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.sftpBufferSizeDesc') }}</p>
                 </div>
               </div>
             </section>
@@ -300,37 +301,37 @@ const tabs = [
           <!-- Connection Tab -->
           <div v-if="activeTab === 'connection'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-text-primary mb-4">Connection Timeout Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.connectionTimeout') }}</h3>
               <div class="space-y-4">
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Connection Timeout (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.connectionTimeoutSecs') }}</label>
                   <input v-model.number="form.connectionTimeout.connectionTimeoutSecs" type="number" min="5" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Timeout for establishing SSH connections (default: 15s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.connectionTimeoutSecsDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Jump Host Timeout (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.jumpHostTimeoutSecs') }}</label>
                   <input v-model.number="form.connectionTimeout.jumpHostTimeoutSecs" type="number" min="10" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Timeout for connecting to jump host (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.jumpHostTimeoutSecsDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Local Forward Timeout (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.localForwardTimeoutSecs') }}</label>
                   <input v-model.number="form.connectionTimeout.localForwardTimeoutSecs" type="number" min="5" max="60"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Timeout for local port forwarding (default: 10s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.localForwardTimeoutSecsDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Command Timeout (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.commandTimeoutSecs') }}</label>
                   <input v-model.number="form.connectionTimeout.commandTimeoutSecs" type="number" min="10" max="300"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Timeout for executing remote commands (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.commandTimeoutSecsDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">SFTP Operation Timeout (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.sftpOperationTimeoutSecs') }}</label>
                   <input v-model.number="form.connectionTimeout.sftpOperationTimeoutSecs" type="number" min="30" max="600"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Timeout for SFTP file operations (default: 60s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.sftpOperationTimeoutSecsDesc') }}</p>
                 </div>
               </div>
             </section>
@@ -530,10 +531,10 @@ const tabs = [
           <!-- SSH Keys Tab -->
           <div v-if="activeTab === 'sshKeys'" class="space-y-6">
             <div class="flex justify-between items-center mb-4">
-              <h3 class="text-lg font-semibold text-primary">SSH Keys</h3>
+              <h3 class="text-lg font-semibold text-primary">{{ t('settings.sshKeys') }}</h3>
               <button @click="showAddKeyForm = true"
                 class="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-accent/80 text-text-primary rounded text-sm">
-                <Plus class="w-4 h-4" /> Add Key
+                <Plus class="w-4 h-4" /> {{ t('settings.addKey') }}
               </button>
             </div>
 
@@ -542,71 +543,71 @@ const tabs = [
                 <button @click="keyInputMode = 'import'" :class="[
                   'text-sm font-medium pb-1 transition-colors-fast',
                   keyInputMode === 'import' ? 'text-accent border-b-2 border-accent' : 'text-text-secondary hover:text-text-primary'
-                ]">Import Existing Key</button>
+                ]">{{ t('settings.importExistingKey') }}</button>
                 <button @click="keyInputMode = 'generate'" :class="[
                   'text-sm font-medium pb-1 transition-colors-fast',
                   keyInputMode === 'generate' ? 'text-accent border-b-2 border-accent' : 'text-text-secondary hover:text-text-primary'
-                ]">Generate New Key</button>
+                ]">{{ t('settings.generateNewKey') }}</button>
               </div>
 
               <!-- Import Mode -->
               <div v-if="keyInputMode === 'import'" class="space-y-3">
                 <div>
-                  <label class="block text-xs uppercase text-text-secondary mb-1">Key Name</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">{{ t('settings.keyName') }}</label>
                   <input v-model="newKey.name"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
-                    placeholder="My Private Key" />
+                    :placeholder="t('settings.keyNamePlaceholder')" />
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-text-secondary mb-1">Private Key Content</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">{{ t('settings.privateKeyContent') }}</label>
                   <textarea v-model="newKey.content" rows="4"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast font-mono text-xs"
                     placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..." />
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-text-secondary mb-1">Passphrase (Optional)</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">{{ t('settings.passphraseOptional') }}</label>
                   <input v-model="newKey.passphrase" type="password"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
-                    placeholder="Key Passphrase" />
+                    :placeholder="t('settings.keyPassphrasePlaceholder')" />
                 </div>
                 <div class="flex justify-end gap-2 mt-2">
                   <button @click="showAddKeyForm = false"
-                    class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
+                    class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">{{ t('settings.cancel') }}</button>
                   <button @click="addKey"
-                    class="px-3 py-1.5 text-sm bg-success hover:bg-success/80 text-text-primary rounded">Import Key</button>
+                    class="px-3 py-1.5 text-sm bg-success hover:bg-success/80 text-text-primary rounded">{{ t('settings.importKey') }}</button>
                 </div>
               </div>
 
               <!-- Generate Mode -->
               <div v-if="keyInputMode === 'generate'" class="space-y-3">
                 <div>
-                  <label class="block text-xs uppercase text-text-secondary mb-1">Key Name</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">{{ t('settings.keyName') }}</label>
                   <input v-model="genKey.name"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
                     placeholder="id_ed25519" />
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-text-secondary mb-1">Algorithm</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">{{ t('settings.algorithm') }}</label>
                   <select v-model="genKey.algorithm"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast">
-                    <option value="ed25519">Ed25519 (Recommended)</option>
-                    <option value="rsa">RSA (3072-bit)</option>
+                    <option value="ed25519">{{ t('settings.algorithmEd25519') }}</option>
+                    <option value="rsa">{{ t('settings.algorithmRsa') }}</option>
                   </select>
                 </div>
                 <div>
-                  <label class="block text-xs uppercase text-text-secondary mb-1">Passphrase (Optional)</label>
+                  <label class="block text-xs uppercase text-text-secondary mb-1">{{ t('settings.passphraseOptional') }}</label>
                   <input v-model="genKey.passphrase" type="password"
                     class="w-full p-2 bg-bg-tertiary border border-border-primary rounded text-text-primary focus:border-accent outline-none transition-all-fast"
-                    placeholder="Secure Passphrase" />
+                    :placeholder="t('settings.securePassphrasePlaceholder')" />
                 </div>
                 <div class="flex justify-end gap-2 mt-2">
                   <button @click="showAddKeyForm = false"
-                    class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
+                    class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">{{ t('settings.cancel') }}</button>
                   <button @click="generateKey" :disabled="isGenerating"
                     class="px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded disabled:opacity-50 flex items-center gap-2">
                     <div v-if="isGenerating"
                       class="w-3 h-3 border-2 border-bg-primary border-t-transparent rounded-full animate-spin"></div>
-                    Generate & Save
+                    {{ t('settings.generateAndSave') }}
                   </button>
                 </div>
               </div>
@@ -614,7 +615,7 @@ const tabs = [
 
             <div class="space-y-2">
               <div v-if="sshKeyStore.keys.length === 0" class="text-text-secondary text-center py-8">
-                No SSH keys found. Add one to get started.
+                {{ t('settings.noSshKeys') }}
               </div>
               <div v-else v-for="key in sshKeyStore.keys" :key="key.id"
                 class="flex items-center justify-between p-3 bg-bg-elevated/50 rounded border border-border-primary hover:border-accent transition-all-fast">
@@ -624,7 +625,7 @@ const tabs = [
                   </div>
                   <div>
                     <div class="font-medium text-text-primary">{{ key.name }}</div>
-                    <div class="text-xs text-text-secondary">Created: {{ formatDate(key.createdAt) }}</div>
+                    <div class="text-xs text-text-secondary">{{ t('settings.createdAt') }}: {{ formatDate(key.createdAt) }}</div>
                   </div>
                 </div>
                 <button @click="deleteKey(key.id)"

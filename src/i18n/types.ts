@@ -27,6 +27,27 @@ export interface I18nMessages {
     cancel: string
     save: string
     tunnels: string
+    searchPlaceholder: string
+    recentTitle: string
+    recentHint: string
+    quickAccessTitle: string
+    summary: {
+      total: string
+      groups: string
+      active: string
+    }
+    empty: {
+      title: string
+      description: string
+      createConnection: string
+      createGroup: string
+      tipConnect: string
+      tipImport: string
+    }
+    searchEmpty: {
+      title: string
+      description: string
+    }
   }
   tunnels: {
     title: string

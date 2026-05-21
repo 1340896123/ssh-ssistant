@@ -13,8 +13,10 @@ import 'xterm/css/xterm.css';
 import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown, RotateCw, Unplug, Eraser } from 'lucide-vue-next';
 import { useSettingsStore } from '../stores/settings';
 import { useSessionStore } from '../stores/sessions';
+import { useI18n } from '../composables/useI18n';
 
 const props = defineProps<{ sessionId: string }>();
+const { t } = useI18n();
 
 function getContent(): string {
   if (!term) return '';
@@ -153,6 +155,8 @@ const selectedAiIndex = ref(0);
 const showAiCompletions = ref(false);
 
 const isAiLoading = ref(false);
+
+const hasCommandInput = computed(() => commandInput.value.trim().length > 0);
 
 // Context Tracking
 const currentDir = ref('.');
@@ -989,25 +993,40 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
     <div class="h-8 bg-bg-secondary border-b border-border-primary flex items-center px-2 space-x-2 flex-shrink-0">
       <button v-if="currentSession && currentSession.status === 'disconnected'" @click="handleReconnect"
         class="flex items-center px-2 py-1 text-xs text-success hover:bg-bg-tertiary rounded transition-colors"
-        title="Reconnect">
+        :title="t('terminal.toolbar.reconnect')">
         <RotateCw class="w-3 h-3 mr-1" />
-        Reconnect
+        {{ t('terminal.toolbar.reconnect') }}
       </button>
 
       <button v-if="currentSession && currentSession.status === 'connected'" @click="handleDisconnect"
         class="flex items-center px-2 py-1 text-xs text-error hover:bg-bg-tertiary rounded transition-colors"
-        title="Disconnect">
+        :title="t('terminal.toolbar.disconnect')">
         <Unplug class="w-3 h-3 mr-1" />
-        Disconnect
+        {{ t('terminal.toolbar.disconnect') }}
+      </button>
+
+      <button @click="showSearch = !showSearch; showSearch && nextTick(() => searchInputRef?.focus?.())"
+        class="flex items-center px-2 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors"
+        :title="t('terminal.toolbar.search')">
+        <Search class="w-3 h-3 mr-1" />
+        {{ t('terminal.toolbar.search') }}
       </button>
 
       <div class="flex-1"></div>
 
+      <button @click="triggerAiCompletion"
+        :disabled="!hasCommandInput"
+        class="flex items-center px-2 py-1 text-xs text-accent hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        :title="t('terminal.toolbar.aiCompletion')">
+        <Sparkles class="w-3 h-3 mr-1" />
+        {{ t('terminal.toolbar.aiCompletion') }}
+      </button>
+
       <button @click="handleClearLog"
         class="flex items-center px-2 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors"
-        title="Clear Log">
+        :title="t('terminal.toolbar.clear')">
         <Eraser class="w-3 h-3 mr-1" />
-        Clear Log
+        {{ t('terminal.toolbar.clear') }}
       </button>
     </div>
 
@@ -1021,20 +1040,20 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
         <div class="flex items-center bg-bg-primary rounded border border-border-secondary mr-1">
           <Search class="w-3 h-3 text-text-muted ml-2" />
           <input ref="searchInputRef" v-model="searchText" type="text"
-            class="bg-transparent text-text-primary text-xs px-2 py-1 focus:outline-none w-40 font-mono" placeholder="Find..."
+            class="bg-transparent text-text-primary text-xs px-2 py-1 focus:outline-none w-40 font-mono" :placeholder="t('terminal.search.placeholder')"
             @keydown.enter="searchNext" @keydown.esc="closeSearch" />
         </div>
         <div class="flex items-center border-l border-border-secondary pl-1">
           <button @click="searchPrev" class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded"
-            title="Previous (Shift+Enter)">
+            :title="t('terminal.search.previous')">
             <ArrowUp class="w-4 h-4" />
           </button>
           <button @click="searchNext" class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded"
-            title="Next (Enter)">
+            :title="t('terminal.search.next')">
             <ArrowDown class="w-4 h-4" />
           </button>
           <button @click="closeSearch" class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded ml-1"
-            title="Close (Esc)">
+            :title="t('terminal.search.close')">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -1061,7 +1080,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
         class="absolute bottom-full left-0 mb-1 bg-bg-secondary border border-accent rounded shadow-lg max-h-60 overflow-y-auto min-w-[300px] z-20">
         <div v-if="isAiLoading" class="p-2 text-text-muted text-sm flex items-center">
           <Sparkles class="w-3 h-3 mr-2 animate-pulse" />
-          AI Thinking...
+          {{ t('terminal.completion.loading') }}
         </div>
         <div v-else v-for="(item, index) in aiCompletions" :key="index"
           class="px-3 py-2 text-sm cursor-pointer border-b border-border-secondary last:border-0"
@@ -1073,7 +1092,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
               <span>{{ item }}</span>
             </div>
             <span
-              class="text-[10px] text-accent bg-accent/20 px-1 rounded border border-accent/30">AI推荐</span>
+              class="text-[10px] text-accent bg-accent/20 px-1 rounded border border-accent/30">{{ t('terminal.completion.badge') }}</span>
           </div>
         </div>
       </div>
@@ -1098,19 +1117,19 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 
           <input ref="inputRef" v-model="commandInput" type="text"
             class="w-full bg-bg-primary/50 border border-border-primary rounded pl-8 pr-12 py-2 text-sm text-text-primary font-mono focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            placeholder="Type a command..." @keydown="handleKeyDown" spellcheck="false" autocomplete="off" />
+            :placeholder="t('terminal.input.placeholder')" @keydown="handleKeyDown" spellcheck="false" autocomplete="off" />
         </div>
 
         <button @click="sendCommand" class="absolute right-2 p-1 text-text-muted hover:text-text-primary transition-colors"
-          title="Send Command">
+          :title="t('terminal.input.send')">
           <Send class="w-4 h-4" />
         </button>
       </div>
 
       <!-- Helper Text -->
       <div class="mt-1 flex justify-between text-[10px] text-text-muted px-1">
-        <span>Tab: AI Completion</span>
-        <span>↑/↓: History/Select</span>
+        <span>{{ t('terminal.input.helperLeft') }}</span>
+        <span>{{ t('terminal.input.helperRight') }}</span>
       </div>
     </div>
   </div>

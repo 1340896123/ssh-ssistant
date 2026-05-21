@@ -42,6 +42,27 @@
       "newConnection": "New Connection",
       "newGroup": "New Group",
       "tunnels": "Tunnels"
+    },
+    "searchPlaceholder": "Search by name / host / username",
+    "recentTitle": "Recent",
+    "recentHint": "Click to reconnect quickly",
+    "quickAccessTitle": "Quick Access",
+    "summary": {
+      "total": "Connections",
+      "groups": "Groups",
+      "active": "Active Sessions"
+    },
+    "empty": {
+      "title": "No connections yet",
+      "description": "Create a connection or group first, then search, launch, and manage your frequent servers here.",
+      "createConnection": "Create first connection",
+      "createGroup": "Create group",
+      "tipConnect": "Supports quick connect and drag reorganization",
+      "tipImport": "Drop JSON here to import in batch"
+    },
+    "searchEmpty": {
+      "title": "No matching connections",
+      "description": "Try another keyword or create a new connection directly."
     }
   },
   "tunnels": {
@@ -84,6 +105,7 @@
     "language": "Language",
     "theme": "Theme",
     "aiAssistant": "AI Assistant",
+    "aiAssistantDesc": "Configure providers, endpoints, and model names for a clearer AI setup experience.",
     "apiUrl": "API Base URL",
     "apiKey": "API Key",
     "modelName": "Model Name",
@@ -91,6 +113,7 @@
     "saveChanges": "Save Changes",
     "cancel": "Cancel",
     "general": "General",
+    "connection": "Connection & Network",
     "terminalAppearance": "Terminal Appearance",
     "terminalFontSize": "Font Size",
     "terminalFontFamily": "Font Family",
@@ -98,7 +121,40 @@
     "terminalLineHeight": "Line Height",
     "fileManagement": "File Management",
     "fileManagerViewMode": "View Mode",
+    "layoutPosition": "Layout Position",
+    "layoutBottom": "Bottom (Below Terminal)",
+    "layoutLeft": "Left (Side by Side)",
+    "sftpBufferSize": "SFTP Buffer Size (KB)",
+    "sftpBufferSizeDesc": "Set the SFTP transfer buffer size from 64KB to 1024KB in 64KB steps.",
+    "connectionTimeout": "Connection Timeouts",
+    "connectionTimeoutSecs": "Connection Timeout (seconds)",
+    "connectionTimeoutSecsDesc": "Timeout for establishing SSH connections. Default: 15s.",
+    "jumpHostTimeoutSecs": "Jump Host Timeout (seconds)",
+    "jumpHostTimeoutSecsDesc": "Timeout for connecting to the jump host. Default: 30s.",
+    "localForwardTimeoutSecs": "Local Forward Timeout (seconds)",
+    "localForwardTimeoutSecsDesc": "Timeout for establishing local port forwarding. Default: 10s.",
+    "commandTimeoutSecs": "Command Timeout (seconds)",
+    "commandTimeoutSecsDesc": "Timeout for executing remote commands. Default: 30s.",
+    "sftpOperationTimeoutSecs": "SFTP Operation Timeout (seconds)",
+    "sftpOperationTimeoutSecsDesc": "Timeout for SFTP file operations. Default: 60s.",
     "sshPool": "SSH Pool",
+    "sshKeys": "SSH Keys",
+    "addKey": "Add Key",
+    "importExistingKey": "Import Existing Key",
+    "generateNewKey": "Generate New Key",
+    "keyName": "Key Name",
+    "keyNamePlaceholder": "My Private Key",
+    "privateKeyContent": "Private Key Content",
+    "passphraseOptional": "Passphrase (Optional)",
+    "keyPassphrasePlaceholder": "Key Passphrase",
+    "importKey": "Import Key",
+    "algorithm": "Algorithm",
+    "algorithmEd25519": "Ed25519 (Recommended)",
+    "algorithmRsa": "RSA (3072-bit)",
+    "securePassphrasePlaceholder": "Secure Passphrase",
+    "generateAndSave": "Generate & Save",
+    "noSshKeys": "No SSH keys found. Add one to get started.",
+    "createdAt": "Created",
     "maxBackgroundSessions": "Max Background Sessions",
     "maxBackgroundSessionsDesc": "Maximum number of background SSH sessions for file operations and command execution",
     "enableAutoCleanup": "Enable Auto Cleanup",
@@ -114,6 +170,29 @@
     "anthropic": "Anthropic"
   },
   "terminal": {
+    "toolbar": {
+      "reconnect": "Reconnect",
+      "disconnect": "Disconnect",
+      "search": "Search",
+      "clear": "Clear",
+      "aiCompletion": "AI Complete"
+    },
+    "search": {
+      "placeholder": "Search terminal output...",
+      "previous": "Previous (Shift+Enter)",
+      "next": "Next (Enter)",
+      "close": "Close (Esc)"
+    },
+    "completion": {
+      "loading": "AI is generating suggestions...",
+      "badge": "AI Suggestion"
+    },
+    "input": {
+      "placeholder": "Type a command...",
+      "send": "Send command",
+      "helperLeft": "Tab: trigger or accept AI completion",
+      "helperRight": "↑/↓: history and suggestion navigation"
+    },
     "cursor": {
       "block": "Block",
       "underline": "Underline",
@@ -158,6 +237,21 @@
     "deleteConfirm": {
       "title": "Confirm Deletion",
       "message": "Delete {count} item(s)?"
+    },
+    "actions": {
+      "openInTerminal": "Open current path in terminal",
+      "addSelectionToAi": "Add current selection to AI context"
+    },
+    "hints": {
+      "path": "Path: {path}",
+      "selection": "Selected: {count}",
+      "target": "Linked target: {target}",
+      "multipleTargets": "{count} items selected",
+      "visibleRange": "Visible list: {range}",
+      "pagination": "Pagination: {status}",
+      "allLoaded": "All pages loaded",
+      "loadingMore": "Loading more items",
+      "hasMore": "More items available to load"
     }
   },
   "transfers": {
@@ -177,7 +271,23 @@
     }
   },
   "aiAssistant": {
-    "welcome": "Hello! I am your SSH AI Assistant. I can help you execute commands and manage your server. How can I help you today?"
+    "title": "AI Assistant",
+    "welcome": "Hello, I'm the AI assistant for SSH Assistant. I can analyze terminal context, run commands, and work with remote files. What would you like to tackle first?",
+    "clearSession": "Clear session",
+    "workspaceIndexed": "Indexed",
+    "workspaceIndexing": "Indexing",
+    "thinking": "AI is thinking...",
+    "importTerminalContext": "Import terminal context",
+    "copyCommand": "Copy command",
+    "rerunCommand": "Rerun command",
+    "stopCommand": "Stop command",
+    "waitingForOutput": "Waiting for output...",
+    "toolStatus": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "error": "Error",
+      "done": "Done"
+    }
   },
   "themes": {
     "light": "Light",

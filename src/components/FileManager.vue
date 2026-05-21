@@ -194,6 +194,39 @@ const typeSearchBuffer = ref('');
 let typeSearchTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTypeTimestamp = 0;
 
+const isTreeMode = computed(() => viewMode.value === 'tree');
+const selectedFileCount = computed(() => selectedFiles.value.size);
+const selectedTreeCount = computed(() => selectedTreePaths.value.size);
+const selectedCount = computed(() => isTreeMode.value ? selectedTreeCount.value : selectedFileCount.value);
+const visibleRangeText = computed(() => {
+    if (isTreeMode.value) {
+        const total = visibleTreeNodes.value.length;
+        return total > 0 ? `1-${total}` : '0-0';
+    }
+    const total = sortedFiles.value.length;
+    return total > 0 ? `1-${total}` : '0-0';
+});
+const currentPageText = computed(() => {
+    if (!isPagedDirectoryLoad.value) return null;
+    if (hasMoreFiles.value && nextPageCursor.value) {
+        return `${nextPageCursor.value}`;
+    }
+    return t('fileManager.hints.allLoaded');
+});
+const currentLocationLabel = computed(() => isTreeMode.value ? treeRootPath.value : currentPath.value);
+const selectedTargetLabel = computed(() => {
+    if (selectedCount.value === 0) return '';
+    if (selectedCount.value === 1) {
+        if (isTreeMode.value) {
+            const [path] = Array.from(selectedTreePaths.value);
+            return path || currentLocationLabel.value;
+        }
+        const [name] = Array.from(selectedFiles.value);
+        return name ? pathUtils.value.join(currentPath.value, name) : currentLocationLabel.value;
+    }
+    return t('fileManager.hints.multipleTargets', { count: selectedCount.value });
+});
+
 function compareEntries(a: FileEntry, b: FileEntry, key: ColumnKey, direction: SortDirection) {
     if (a.name === '..' && b.name !== '..') return -1;
     if (b.name === '..' && a.name !== '..') return 1;
@@ -1206,6 +1239,15 @@ function deactivateFileManager() {
     closeContextMenu();
 }
 
+function openCurrentPathInTerminal() {
+    emit('switchToTerminalPath', props.sessionId, currentLocationLabel.value);
+}
+
+function addCurrentSelectionToAi() {
+    if (selectedCount.value === 0) return;
+    handleAddToAiContext();
+}
+
 onMounted(() => {
     if (props.active) {
         void activateFileManager();
@@ -2158,6 +2200,42 @@ function formatSize(size: number): string {
                 </button>
             </div>
 
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <button
+                    @click="openCurrentPathInTerminal"
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all duration-fast"
+                >
+                    <TerminalIcon class="w-3.5 h-3.5" />
+                    {{ t('fileManager.actions.openInTerminal') }}
+                </button>
+                <button
+                    @click="addCurrentSelectionToAi"
+                    :disabled="selectedCount === 0"
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 transition-all duration-fast disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <MessageSquareQuote class="w-3.5 h-3.5" />
+                    {{ t('fileManager.actions.addSelectionToAi') }}
+                </button>
+                <span class="inline-flex items-center px-2 py-1 rounded-md bg-bg-primary text-text-secondary border border-border-secondary">
+                    {{ t('fileManager.hints.path', { path: currentLocationLabel }) }}
+                </span>
+                <span class="inline-flex items-center px-2 py-1 rounded-md bg-bg-primary text-text-secondary border border-border-secondary">
+                    {{ t('fileManager.hints.selection', { count: selectedCount }) }}
+                </span>
+                <span v-if="selectedCount > 0" class="inline-flex items-center px-2 py-1 rounded-md bg-bg-primary text-text-secondary border border-border-secondary max-w-full truncate">
+                    {{ t('fileManager.hints.target', { target: selectedTargetLabel }) }}
+                </span>
+                <span class="inline-flex items-center px-2 py-1 rounded-md bg-bg-primary text-text-secondary border border-border-secondary">
+                    {{ t('fileManager.hints.visibleRange', { range: visibleRangeText }) }}
+                </span>
+                <span v-if="isPagedDirectoryLoad" class="inline-flex items-center px-2 py-1 rounded-md bg-bg-primary text-text-secondary border border-border-secondary">
+                    {{ t('fileManager.hints.pagination', { status: currentPageText }) }}
+                </span>
+                <span v-if="hasMoreFiles || isLoadingNextPage" class="inline-flex items-center px-2 py-1 rounded-md bg-bg-primary text-text-secondary border border-border-secondary">
+                    {{ isLoadingNextPage ? t('fileManager.hints.loadingMore') : t('fileManager.hints.hasMore') }}
+                </span>
+            </div>
+
             <!-- Action Buttons -->
             <div class="flex items-center space-x-2 border-t border-subtle pt-2">
                 <button @click="createFile"
@@ -2248,7 +2326,7 @@ function formatSize(size: number): string {
                 {{ t('fileManager.emptyDirectory') }}
             </div>
             <div v-else-if="viewMode === 'flat' && isLoadingNextPage" class="p-3 text-center text-text-tertiary text-xs">
-                Loading more...
+                {{ t('fileManager.hints.loadingMore') }}
             </div>
         </div>
 

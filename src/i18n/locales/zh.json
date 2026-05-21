@@ -42,6 +42,27 @@
       "newConnection": "新建连接",
       "newGroup": "新建分组",
       "tunnels": "隧道"
+    },
+    "searchPlaceholder": "搜索名称 / 主机 / 用户名",
+    "recentTitle": "最近使用",
+    "recentHint": "点击即可快速连接",
+    "quickAccessTitle": "高频入口",
+    "summary": {
+      "total": "连接数",
+      "groups": "分组数",
+      "active": "活跃会话"
+    },
+    "empty": {
+      "title": "还没有任何连接",
+      "description": "先创建一个连接或分组，后续可以在这里搜索、快速启动与管理常用服务器。",
+      "createConnection": "新建第一个连接",
+      "createGroup": "新建分组",
+      "tipConnect": "支持快速连接与拖拽整理",
+      "tipImport": "拖入 JSON 可批量导入连接"
+    },
+    "searchEmpty": {
+      "title": "没有匹配的连接",
+      "description": "尝试更换关键词，或直接新建连接。"
     }
   },
   "tunnels": {
@@ -84,6 +105,7 @@
     "language": "语言",
     "theme": "主题",
     "aiAssistant": "AI 助手",
+    "aiAssistantDesc": "配置模型提供商、接口地址和模型名称，统一管理 AI 对话能力。",
     "apiUrl": "API 基础地址",
     "apiKey": "API 密钥",
     "modelName": "模型名称",
@@ -91,6 +113,7 @@
     "saveChanges": "保存更改",
     "cancel": "取消",
     "general": "通用",
+    "connection": "连接与网络",
     "terminalAppearance": "终端外观",
     "terminalFontSize": "字体大小",
     "terminalFontFamily": "字体",
@@ -98,7 +121,40 @@
     "terminalLineHeight": "行高",
     "fileManagement": "文件管理",
     "fileManagerViewMode": "视图模式",
+    "layoutPosition": "布局位置",
+    "layoutBottom": "底部（位于终端下方）",
+    "layoutLeft": "左侧（与终端并排）",
+    "sftpBufferSize": "SFTP 缓冲区大小（KB）",
+    "sftpBufferSizeDesc": "设置 SFTP 文件传输缓冲区大小，范围 64KB - 1024KB，步进 64KB。",
+    "connectionTimeout": "连接超时",
+    "connectionTimeoutSecs": "连接超时（秒）",
+    "connectionTimeoutSecsDesc": "建立 SSH 连接的超时时间，默认 15 秒。",
+    "jumpHostTimeoutSecs": "跳板机超时（秒）",
+    "jumpHostTimeoutSecsDesc": "连接跳板机的超时时间，默认 30 秒。",
+    "localForwardTimeoutSecs": "本地转发超时（秒）",
+    "localForwardTimeoutSecsDesc": "建立本地端口转发的超时时间，默认 10 秒。",
+    "commandTimeoutSecs": "命令超时（秒）",
+    "commandTimeoutSecsDesc": "执行远程命令的超时时间，默认 30 秒。",
+    "sftpOperationTimeoutSecs": "SFTP 操作超时（秒）",
+    "sftpOperationTimeoutSecsDesc": "执行 SFTP 文件操作的超时时间，默认 60 秒。",
     "sshPool": "SSH 连接池",
+    "sshKeys": "SSH 密钥",
+    "addKey": "添加密钥",
+    "importExistingKey": "导入现有密钥",
+    "generateNewKey": "生成新密钥",
+    "keyName": "密钥名称",
+    "keyNamePlaceholder": "我的私钥",
+    "privateKeyContent": "私钥内容",
+    "passphraseOptional": "口令（可选）",
+    "keyPassphrasePlaceholder": "密钥口令",
+    "importKey": "导入密钥",
+    "algorithm": "算法",
+    "algorithmEd25519": "Ed25519（推荐）",
+    "algorithmRsa": "RSA（3072 位）",
+    "securePassphrasePlaceholder": "安全口令",
+    "generateAndSave": "生成并保存",
+    "noSshKeys": "暂无 SSH 密钥，添加一个以开始使用。",
+    "createdAt": "创建时间",
     "maxBackgroundSessions": "最大后台会话数",
     "maxBackgroundSessionsDesc": "用于文件操作和命令执行的后台SSH会话的最大数量",
     "enableAutoCleanup": "启用自动清理",
@@ -114,6 +170,29 @@
     "anthropic": "Anthropic"
   },
   "terminal": {
+    "toolbar": {
+      "reconnect": "重连",
+      "disconnect": "断开",
+      "search": "搜索",
+      "clear": "清屏",
+      "aiCompletion": "AI 补全"
+    },
+    "search": {
+      "placeholder": "搜索终端内容...",
+      "previous": "上一个（Shift+Enter）",
+      "next": "下一个（Enter）",
+      "close": "关闭（Esc）"
+    },
+    "completion": {
+      "loading": "AI 正在补全...",
+      "badge": "AI 推荐"
+    },
+    "input": {
+      "placeholder": "输入命令...",
+      "send": "发送命令",
+      "helperLeft": "Tab：触发或接受 AI 补全",
+      "helperRight": "↑/↓：历史与候选切换"
+    },
     "cursor": {
       "block": "块状",
       "underline": "下划线",
@@ -158,6 +237,21 @@
     "deleteConfirm": {
       "title": "确认删除",
       "message": "删除 {count} 个项目？"
+    },
+    "actions": {
+      "openInTerminal": "在终端打开当前路径",
+      "addSelectionToAi": "将当前选择加入 AI 上下文"
+    },
+    "hints": {
+      "path": "路径：{path}",
+      "selection": "已选择：{count} 项",
+      "target": "联动目标：{target}",
+      "multipleTargets": "已选择 {count} 个项目",
+      "visibleRange": "当前列表：{range}",
+      "pagination": "分页状态：{status}",
+      "allLoaded": "已加载全部分页",
+      "loadingMore": "正在加载更多项目",
+      "hasMore": "存在更多项目，可继续加载"
     }
   },
   "transfers": {
@@ -177,7 +271,23 @@
     }
   },
   "aiAssistant": {
-    "welcome": "你好！我是你的 SSH AI 助手。我可以帮你执行命令和管理服务器。今天我能为你做些什么？"
+    "title": "AI 助手",
+    "welcome": "你好，我是 SSH Assistant 的 AI 助手。我可以帮你分析终端上下文、执行命令并处理远程文件。想先从哪项任务开始？",
+    "clearSession": "清空会话",
+    "workspaceIndexed": "已索引",
+    "workspaceIndexing": "索引中",
+    "thinking": "AI 正在思考...",
+    "importTerminalContext": "导入终端上下文",
+    "copyCommand": "复制命令",
+    "rerunCommand": "重新执行命令",
+    "stopCommand": "停止命令",
+    "waitingForOutput": "等待输出...",
+    "toolStatus": {
+      "running": "运行中",
+      "stopped": "已停止",
+      "error": "错误",
+      "done": "完成"
+    }
   },
   "themes": {
     "light": "浅色",

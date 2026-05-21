@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, onBeforeUpdate } from "vue";
+import { ref, computed, onMounted, onUnmounted, onBeforeUpdate, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
@@ -17,7 +17,15 @@ import { useSettingsStore } from "./stores/settings";
 import { useNotificationStore } from "./stores/notifications";
 import { useI18n } from "./composables/useI18n";
 import type { Connection } from "./types";
-import { Settings, PanelLeftClose, PanelLeftOpen } from "lucide-vue-next";
+import {
+  Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Rows3,
+  Focus,
+} from "lucide-vue-next";
 
 interface AiAssistantRef {
   addContextPaths: (paths: { path: string; isDir: boolean }[]) => void;
@@ -35,6 +43,92 @@ const showTunnelModal = ref(false);
 const tunnelConnection = ref<Connection | null>(null);
 const sidebarTab = ref<'connections' | 'tunnels'>('connections');
 const isSidebarCollapsed = ref(false);
+
+type WorkspaceMode = "default" | "terminalFocus" | "fullWorkbench";
+
+interface WorkspaceLayoutState {
+  sidebarWidth: number;
+  sidebarTab: "connections" | "tunnels";
+  isSidebarCollapsed: boolean;
+  fileWidth: number;
+  fileHeight: number;
+  aiWidth: number;
+  showAuxiliaryPanel: boolean;
+  workspaceMode: WorkspaceMode;
+}
+
+const WORKSPACE_LAYOUT_STORAGE_KEY = "appWorkspaceLayout";
+const DEFAULT_SIDEBAR_WIDTH = 256;
+const defaultWorkspaceLayoutState: WorkspaceLayoutState = {
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+  sidebarTab: "connections",
+  isSidebarCollapsed: false,
+  fileWidth: 30,
+  fileHeight: 30,
+  aiWidth: 30,
+  showAuxiliaryPanel: true,
+  workspaceMode: "default",
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function parseWorkspaceLayoutState(): WorkspaceLayoutState {
+  if (typeof localStorage === "undefined") {
+    return { ...defaultWorkspaceLayoutState };
+  }
+
+  const raw = localStorage.getItem(WORKSPACE_LAYOUT_STORAGE_KEY);
+  if (!raw) {
+    return { ...defaultWorkspaceLayoutState };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<WorkspaceLayoutState>;
+
+    return {
+      sidebarWidth: clamp(
+        Number(parsed.sidebarWidth ?? defaultWorkspaceLayoutState.sidebarWidth),
+        180,
+        640
+      ),
+      sidebarTab:
+        parsed.sidebarTab === "tunnels" ? "tunnels" : "connections",
+      isSidebarCollapsed: Boolean(
+        parsed.isSidebarCollapsed ?? defaultWorkspaceLayoutState.isSidebarCollapsed
+      ),
+      fileWidth: clamp(
+        Number(parsed.fileWidth ?? defaultWorkspaceLayoutState.fileWidth),
+        15,
+        55
+      ),
+      fileHeight: clamp(
+        Number(parsed.fileHeight ?? defaultWorkspaceLayoutState.fileHeight),
+        15,
+        60
+      ),
+      aiWidth: clamp(
+        Number(parsed.aiWidth ?? defaultWorkspaceLayoutState.aiWidth),
+        18,
+        45
+      ),
+      showAuxiliaryPanel: Boolean(
+        parsed.showAuxiliaryPanel ??
+          defaultWorkspaceLayoutState.showAuxiliaryPanel
+      ),
+      workspaceMode:
+        parsed.workspaceMode === "terminalFocus" ||
+        parsed.workspaceMode === "fullWorkbench"
+          ? parsed.workspaceMode
+          : "default",
+    };
+  } catch {
+    return { ...defaultWorkspaceLayoutState };
+  }
+}
+
+const initialWorkspaceLayoutState = parseWorkspaceLayoutState();
 
 // AI Context Refs
 const terminalTabAreaRefs = ref<any[]>([]);
@@ -75,30 +169,132 @@ function openTunnelModal(conn: Connection) {
 }
 
 // Layout state
-// Layout state
-const fileWidth = ref(30); // percentage width for file manager (Left Layout)
-const fileHeight = ref(30); // percentage height for file manager (Bottom Layout)
-const aiWidth = ref(30); // percentage width for AI assistant
+const fileWidth = ref(initialWorkspaceLayoutState.fileWidth);
+const fileHeight = ref(initialWorkspaceLayoutState.fileHeight);
+const aiWidth = ref(initialWorkspaceLayoutState.aiWidth);
+const showAuxiliaryPanel = ref(initialWorkspaceLayoutState.showAuxiliaryPanel);
+const workspaceMode = ref<WorkspaceMode>(initialWorkspaceLayoutState.workspaceMode);
 // Terminal occupies remaining space in the left column
 
 const layoutMode = computed(() => settingsStore.fileManager.layout || 'bottom');
 
 
-// Sidebar width state - initialize from cache immediately
-const getInitialSidebarWidth = () => {
-  const cachedWidth =
-    typeof localStorage !== "undefined"
-      ? localStorage.getItem("sidebarWidth")
-      : null;
-  return cachedWidth ? parseInt(cachedWidth, 10) : 256;
-};
-const sidebarWidth = ref(getInitialSidebarWidth());
+const sidebarWidth = ref(initialWorkspaceLayoutState.sidebarWidth);
+
+sidebarTab.value = initialWorkspaceLayoutState.sidebarTab;
+isSidebarCollapsed.value = initialWorkspaceLayoutState.isSidebarCollapsed;
 
 const containerRef = ref<HTMLElement | null>(null);
 const mainColumnRefs = ref<HTMLElement[]>([]);
 const isResizing = ref<"file" | "ai" | "sidebar" | null>(null);
 
 const activeSession = computed(() => sessionStore.activeSession);
+const isTerminalFocusMode = computed(() => workspaceMode.value === "terminalFocus");
+const isFullWorkbenchMode = computed(() => workspaceMode.value === "fullWorkbench");
+const shouldShowSidebar = computed(
+  () => !isSidebarCollapsed.value && !isTerminalFocusMode.value
+);
+const shouldShowAuxiliaryPanel = computed(
+  () => showAuxiliaryPanel.value && !isTerminalFocusMode.value
+);
+const shouldShowFileManager = computed(
+  () => shouldShowAuxiliaryPanel.value || isFullWorkbenchMode.value
+);
+const terminalPaneStyle = computed(() => {
+  if (layoutMode.value === "bottom") {
+    return shouldShowFileManager.value
+      ? { height: `calc(100% - ${fileHeight.value}%)` }
+      : { height: "100%" };
+  }
+
+  if (shouldShowAuxiliaryPanel.value && shouldShowFileManager.value) {
+    return { width: `calc(100% - ${fileWidth.value}% - ${aiWidth.value}%)` };
+  }
+
+  if (shouldShowFileManager.value) {
+    return { width: `calc(100% - ${fileWidth.value}%)` };
+  }
+
+  if (shouldShowAuxiliaryPanel.value) {
+    return { width: `calc(100% - ${aiWidth.value}%)` };
+  }
+
+  return { width: "100%", height: "100%" };
+});
+
+function persistWorkspaceLayoutState() {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+
+  const layoutState: WorkspaceLayoutState = {
+    sidebarWidth: Math.round(sidebarWidth.value),
+    sidebarTab: sidebarTab.value,
+    isSidebarCollapsed: isSidebarCollapsed.value,
+    fileWidth: Number(fileWidth.value.toFixed(2)),
+    fileHeight: Number(fileHeight.value.toFixed(2)),
+    aiWidth: Number(aiWidth.value.toFixed(2)),
+    showAuxiliaryPanel: showAuxiliaryPanel.value,
+    workspaceMode: workspaceMode.value,
+  };
+
+  localStorage.setItem(WORKSPACE_LAYOUT_STORAGE_KEY, JSON.stringify(layoutState));
+}
+
+watch(
+  [
+    sidebarWidth,
+    sidebarTab,
+    isSidebarCollapsed,
+    fileWidth,
+    fileHeight,
+    aiWidth,
+    showAuxiliaryPanel,
+    workspaceMode,
+  ],
+  () => {
+    persistWorkspaceLayoutState();
+  },
+  { deep: false }
+);
+
+function toggleSidebar() {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value;
+}
+
+function toggleAuxiliaryPanel() {
+  showAuxiliaryPanel.value = !showAuxiliaryPanel.value;
+}
+
+function setWorkspaceMode(mode: WorkspaceMode) {
+  workspaceMode.value = workspaceMode.value === mode ? "default" : mode;
+}
+
+function getWorkspaceModeLabel(mode: WorkspaceMode) {
+  if (mode === "terminalFocus") {
+    return "终端聚焦";
+  }
+
+  if (mode === "fullWorkbench") {
+    return "完整工作台";
+  }
+
+  return "默认布局";
+}
+
+function cycleWorkspaceMode() {
+  if (workspaceMode.value === "default") {
+    workspaceMode.value = "terminalFocus";
+    return;
+  }
+
+  if (workspaceMode.value === "terminalFocus") {
+    workspaceMode.value = "fullWorkbench";
+    return;
+  }
+
+  workspaceMode.value = "default";
+}
 
 // Session status bar state
 const now = ref(Date.now());
@@ -283,8 +479,6 @@ function handleMouseMove(e: MouseEvent) {
     const maxWidth = screenWidth * 0.5; // 50% of screen width
     if (newSidebarWidth >= minWidth && newSidebarWidth <= maxWidth) {
       sidebarWidth.value = newSidebarWidth;
-      // Save to localStorage
-      localStorage.setItem("sidebarWidth", newSidebarWidth.toString());
     }
     return;
   }
@@ -299,7 +493,7 @@ function handleMouseMove(e: MouseEvent) {
     const mousePercent = ((e.clientX - containerRect.left) / totalWidth) * 100;
     const newAiWidth = 100 - mousePercent;
 
-    if (newAiWidth > 10 && newAiWidth < 90) {
+    if (newAiWidth > 18 && newAiWidth < 45) {
       aiWidth.value = newAiWidth;
     }
   } else if (isResizing.value === "file") {
@@ -326,7 +520,7 @@ function handleMouseMove(e: MouseEvent) {
           const newFileHeight = 100 - mousePercent;
 
           // Constraints: min 10%, max 80% (leave space for terminal)
-          if (newFileHeight > 5 && newFileHeight < 90) {
+          if (newFileHeight > 15 && newFileHeight < 60) {
             fileHeight.value = newFileHeight;
           }
         }
@@ -343,7 +537,7 @@ function handleMouseMove(e: MouseEvent) {
 
       // Constraints
       // Max width limited by AI width
-      if (newFileWidth > 10 && newFileWidth < 100 - aiWidth.value - 10) {
+      if (newFileWidth > 15 && newFileWidth < 100 - aiWidth.value - 10) {
         fileWidth.value = newFileWidth;
       }
     }
@@ -365,6 +559,25 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     // For example, if you want Ctrl+F to focus the terminal search bar if it's visible,
     // you could dispatch a custom event or handle it in the specific component.
     // But the user specifically asked to just "block default browser search".
+  }
+
+  if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    const key = e.key.toLowerCase();
+
+    if (key === "1") {
+      e.preventDefault();
+      cycleWorkspaceMode();
+    }
+
+    if (key === "2") {
+      e.preventDefault();
+      toggleAuxiliaryPanel();
+    }
+
+    if (key === "3") {
+      e.preventDefault();
+      toggleSidebar();
+    }
   }
 }
 
@@ -427,7 +640,7 @@ function addAiContextPaths(
 <template>
   <div class="h-screen w-screen bg-bg-primary text-text-primary flex overflow-hidden font-sans relative">
     <!-- Sidebar -->
-    <aside v-show="!isSidebarCollapsed" class="bg-bg-secondary/95 backdrop-blur-sm border-r border-subtle flex flex-col flex-shrink-0"
+    <aside v-show="shouldShowSidebar" class="bg-bg-secondary/95 backdrop-blur-sm border-r border-subtle flex flex-col flex-shrink-0"
       :style="{ width: sidebarWidth + 'px' }">
       <div class="p-4 border-b border-subtle flex justify-between items-center bg-bg-tertiary/80">
         <h1 class="text-lg font-semibold text-text-primary">{{ t("app.title") }}</h1>
@@ -436,7 +649,7 @@ function addAiContextPaths(
             :title="t('app.settings')">
             <Settings class="w-4 h-4" />
           </button>
-          <button @click="isSidebarCollapsed = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-elevated transition-all duration-fast"
+          <button @click="toggleSidebar" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-elevated transition-all duration-fast"
             :title="t('app.collapseSidebar') || 'Collapse Sidebar'">
             <PanelLeftClose class="w-4 h-4" />
           </button>
@@ -471,7 +684,7 @@ function addAiContextPaths(
     </aside>
 
     <!-- Sidebar Resizer -->
-    <div v-show="!isSidebarCollapsed"
+    <div v-show="shouldShowSidebar"
       class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
       @mousedown.prevent="startResize('sidebar')">
     </div>
@@ -480,11 +693,40 @@ function addAiContextPaths(
     <main class="flex-1 flex flex-col bg-bg-primary min-w-0 relative">
       <!-- Tabs -->
       <div class="h-10 bg-bg-secondary/95 backdrop-blur-sm border-b border-subtle flex flex-shrink-0">
-        <button v-if="isSidebarCollapsed" @click="isSidebarCollapsed = false"
+        <button v-if="!shouldShowSidebar" @click="toggleSidebar"
           class="px-3 hover:bg-bg-tertiary border-r border-subtle flex items-center justify-center text-text-muted hover:text-primary transition-all duration-fast"
           :title="t('app.expandSidebar') || 'Expand Sidebar'">
           <PanelLeftOpen class="w-4 h-4" />
         </button>
+        <div class="flex items-center gap-1 border-r border-subtle px-2">
+          <button
+            class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
+            :class="isTerminalFocusMode ? 'bg-bg-tertiary text-primary' : ''"
+            :title="'终端聚焦（Alt+1）'"
+            @click="setWorkspaceMode('terminalFocus')"
+          >
+            <Focus class="w-4 h-4" />
+          </button>
+          <button
+            class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
+            :class="isFullWorkbenchMode ? 'bg-bg-tertiary text-primary' : ''"
+            :title="'完整工作台（Alt+1 循环）'"
+            @click="setWorkspaceMode('fullWorkbench')"
+          >
+            <Rows3 class="w-4 h-4" />
+          </button>
+          <button
+            class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
+            :class="shouldShowAuxiliaryPanel ? 'bg-bg-tertiary text-primary' : ''"
+            :title="'辅助面板显隐（Alt+2）'"
+            @click="toggleAuxiliaryPanel"
+          >
+            <component :is="shouldShowAuxiliaryPanel ? PanelRightClose : PanelRightOpen" class="w-4 h-4" />
+          </button>
+        </div>
+        <div class="px-3 text-xs text-text-muted border-r border-subtle flex items-center whitespace-nowrap">
+          {{ getWorkspaceModeLabel(workspaceMode) }}
+        </div>
         <SessionTabs />
       </div>
 
@@ -497,22 +739,24 @@ function addAiContextPaths(
 
             <!-- LAYOUT: BOTTOM (Flex Column) -->
             <div v-if="layoutMode === 'bottom'" class="flex flex-col h-full overflow-hidden"
-              :style="{ width: `calc(100% - ${aiWidth}%)` }" :ref="(el: any) => { if (el) mainColumnRefs[index] = el }">
+              :style="shouldShowAuxiliaryPanel ? { width: `calc(100% - ${aiWidth}%)` } : { width: '100%' }" :ref="(el: any) => { if (el) mainColumnRefs[index] = el }">
               <!-- Terminal -->
               <div class="overflow-hidden flex flex-col flex-1 border-r border-subtle"
-                :style="{ height: `calc(100% - ${fileHeight}%)` }">
+                :class="shouldShowFileManager ? '' : 'border-b-0'"
+                :style="terminalPaneStyle">
                 <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
                   :sessionId="session.id" />
               </div>
 
               <!-- Resizer (Horizontal) -->
               <div
+                v-if="shouldShowFileManager"
                 class="h-1 bg-bg-tertiary hover:bg-primary cursor-row-resize flex-shrink-0 transition-all duration-normal"
                 @mousedown.prevent="startResize('file')">
               </div>
 
               <!-- Files -->
-              <div class="overflow-hidden flex flex-col border-r border-subtle bg-bg-secondary/30" :style="{ height: fileHeight + '%' }">
+              <div v-if="shouldShowFileManager" class="overflow-hidden flex flex-col border-r border-subtle bg-bg-secondary/30" :style="{ height: fileHeight + '%' }">
                 <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
@@ -523,7 +767,7 @@ function addAiContextPaths(
             <!-- LAYOUT: LEFT (Side by Side) -->
             <template v-else>
               <!-- Files (Left) -->
-              <div class="overflow-hidden flex flex-col bg-bg-secondary/30" :style="{ width: fileWidth + '%' }">
+              <div v-if="shouldShowFileManager" class="overflow-hidden flex flex-col bg-bg-secondary/30" :style="{ width: fileWidth + '%' }">
                 <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
                   (filePath, fileName) =>
                     openFileEditor(session.id, filePath, fileName)
@@ -531,25 +775,26 @@ function addAiContextPaths(
               </div>
 
               <!-- Resizer (Vertical) -->
-              <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
+              <div v-if="shouldShowFileManager" class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
                 @mousedown.prevent="startResize('file')">
               </div>
 
               <!-- Terminal (Center) -->
               <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-subtle"
-                :style="{ width: `calc(100% - ${fileWidth}% - ${aiWidth}%)` }">
+                :class="shouldShowFileManager ? '' : 'border-l-0'"
+                :style="terminalPaneStyle">
                 <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
                   :sessionId="session.id" />
               </div>
             </template>
 
             <!-- Resizer (Vertical separator) -->
-            <div class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
+            <div v-if="shouldShowAuxiliaryPanel" class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
               @mousedown.prevent="startResize('ai')">
             </div>
 
             <!-- AI -->
-            <div class="overflow-hidden flex flex-col bg-bg-secondary/90 backdrop-blur-sm border border-border-primary" :style="{ width: aiWidth + '%' }">
+            <div v-if="shouldShowAuxiliaryPanel" class="overflow-hidden flex flex-col bg-bg-secondary/90 backdrop-blur-sm border border-border-primary" :style="{ width: aiWidth + '%' }">
               <AIAssistant :ref="(el: any) => { if (el) aiAssistantRefs[index] = el }" :sessionId="session.id" :terminal-context="terminalContext"
                 @refresh-context="updateTerminalContext" />
             </div>
@@ -765,8 +1010,21 @@ function addAiContextPaths(
           </div>
         </div>
       </div>
-      <div class="flex-1 flex items-center justify-center text-text-muted" v-else>
-        {{ t("app.selectConnectionToStart") }}
+      <div class="flex-1 flex items-center justify-center px-6" v-else>
+        <div class="max-w-md w-full rounded-2xl border border-subtle bg-bg-secondary/60 backdrop-blur-sm p-6 text-center space-y-3">
+          <div class="text-lg font-semibold text-text-primary">SSH Assistant</div>
+          <div class="text-sm text-text-muted">{{ t("app.selectConnectionToStart") }}</div>
+          <div class="flex items-center justify-center gap-2 text-xs text-text-muted">
+            <span>Alt+1 切换工作区</span>
+            <span>•</span>
+            <span>Alt+2 切换辅助面板</span>
+            <span>•</span>
+            <span>Alt+3 切换侧边栏</span>
+          </div>
+          <button @click="openNewConnectionModal" class="btn btn-primary w-full">
+            {{ t("app.newConnection") }}
+          </button>
+        </div>
       </div>
     </main>
 
