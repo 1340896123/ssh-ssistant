@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2, Plus, Terminal } from 'lucide-vue-next';
+import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2, Plus, Terminal, Star } from 'lucide-vue-next';
 import type { Connection, ConnectionGroup } from '../types';
 import { useI18n } from '../composables/useI18n';
+import { useConnectionStore } from '../stores/connections';
 // import draggable from 'vuedraggable'; // Removed
 
 const props = defineProps<{
@@ -13,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group', 'drag-start', 'drop-item', 'context-menu']);
 
 const { t } = useI18n();
+const connectionStore = useConnectionStore();
 const isExpanded = ref(false);
 
 const isGroup = computed(() => 'children' in props.item || 'parentId' in props.item);
@@ -129,6 +131,20 @@ const isWsl = computed(() => {
     return (props.item as Connection).host.startsWith('wsl://');
 });
 
+const isFavorite = computed(() => {
+    if (isGroup.value) return false;
+    const connectionId = (props.item as Connection).id;
+    return connectionId !== undefined && connectionStore.isFavorite(connectionId);
+});
+
+function toggleFavorite() {
+    if (isGroup.value) return;
+    const connectionId = (props.item as Connection).id;
+    if (connectionId !== undefined) {
+        connectionStore.toggleFavorite(connectionId);
+    }
+}
+
 </script>
 
 <template>
@@ -151,10 +167,17 @@ const isWsl = computed(() => {
                     <Terminal v-if="isWsl" class="w-4 h-4 text-accent" />
                     <Monitor v-else class="w-4 h-4 text-info" />
                 </template>
-                <span class="text-sm text-text-primary truncate" :title="item.name">{{ item.name }}</span>
+                <div class="min-w-0 flex items-center gap-2">
+                    <span class="text-sm text-text-primary truncate" :title="item.name">{{ item.name }}</span>
+                    <Star v-if="isFavorite" class="w-3.5 h-3.5 text-warning fill-current shrink-0" />
+                </div>
             </div>
 
             <div class="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <button v-if="!isGroup" @click.stop="toggleFavorite"
+                    class="p-1 text-text-muted hover:text-warning cursor-pointer mr-1" :title="t(isFavorite ? 'connections.contextMenu.unfavorite' : 'connections.contextMenu.favorite')">
+                    <Star class="w-3 h-3" :class="isFavorite ? 'fill-current text-warning' : ''" />
+                </button>
                 <button v-if="isGroup" @click.stop="handleCreateSubGroup"
                     class="p-1 text-text-muted hover:text-success cursor-pointer mr-1" title="New Subgroup">
                     <Plus class="w-3 h-3" />

@@ -31,6 +31,15 @@
     "deleteConfirm": "确定要删除连接 '{name}' 吗？",
     "deleteGroupConfirm": "确定要删除组 '{name}' 及其所有内容吗？",
     "copied": "已复制到 {name}",
+    "imported": "已导入 {count} 个连接",
+    "importDropTitle": "拖放 JSON 以导入连接",
+    "dropToRoot": "拖放到此处以移动到根目录",
+    "rootLabel": "根目录",
+    "confirmTitle": "确认操作",
+    "groupPrompt": {
+      "create": "输入分组名称：",
+      "rename": "输入新的分组名称："
+    },
     "contextMenu": {
       "connect": "连接",
       "edit": "编辑",
@@ -41,12 +50,37 @@
       "copy": "复制连接",
       "newConnection": "新建连接",
       "newGroup": "新建分组",
-      "tunnels": "隧道"
+      "tunnels": "隧道",
+      "favorite": "加入收藏",
+      "unfavorite": "取消收藏"
     },
     "searchPlaceholder": "搜索名称 / 主机 / 用户名",
     "recentTitle": "最近使用",
     "recentHint": "点击即可快速连接",
     "quickAccessTitle": "高频入口",
+    "treeTitle": "连接树",
+    "treeHint": "拖拽即可整理分组结构",
+    "searchResultsTitle": "搜索结果",
+    "sources": {
+      "favorite": "收藏",
+      "history": "历史",
+      "quick": "快捷",
+      "search": "搜索",
+      "tree": "树形"
+    },
+    "history": {
+      "title": "连接历史",
+      "empty": "暂无符合条件的连接历史，连接一次后会显示在这里。",
+      "filters": {
+        "all": "全部",
+        "success": "成功",
+        "failed": "失败"
+      },
+      "status": {
+        "success": "成功",
+        "failed": "失败"
+      }
+    },
     "summary": {
       "total": "连接数",
       "groups": "分组数",

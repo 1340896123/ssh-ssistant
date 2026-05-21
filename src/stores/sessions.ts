@@ -106,6 +106,9 @@ export const useSessionStore = defineStore('sessions', {
     },
 
     async createSession(conn: Connection) {
+      const { useConnectionStore } = await import('./connections');
+      const connectionStore = useConnectionStore();
+
       try {
         const id = await invoke<string>('connect', { config: conn });
         const session: Session = {
@@ -129,8 +132,14 @@ export const useSessionStore = defineStore('sessions', {
 
         this.sessions.push(session);
         this.activeSessionId = id;
+        if (conn.id !== undefined) {
+          connectionStore.addSuccessfulConnection(conn.id);
+        }
       } catch (e) {
         console.error('Failed to connect', e);
+        if (conn.id !== undefined) {
+          connectionStore.addFailedConnection(conn.id, String(e));
+        }
         useNotificationStore().error('Failed to connect: ' + e);
       }
     },

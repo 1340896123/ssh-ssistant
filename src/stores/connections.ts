@@ -1,11 +1,67 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
-import type { Connection, ConnectionGroup } from '../types';
+import type { Connection, ConnectionGroup, ConnectionHistoryEntry, ConnectionHistorySource, ConnectionHistoryStatus } from '../types';
+
+const FAVORITES_STORAGE_KEY = 'connection-favorites';
+const HISTORY_STORAGE_KEY = 'connection-history';
+const MAX_HISTORY_ITEMS = 40;
+
+function canUseStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function readFavorites(): number[] {
+  if (!canUseStorage()) return [];
+
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is number => typeof value === 'number')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function readHistory(): ConnectionHistoryEntry[] {
+  if (!canUseStorage()) return [];
+
+  try {
+    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is ConnectionHistoryEntry => {
+        return typeof item?.connectionId === 'number'
+          && typeof item?.connectedAt === 'number'
+          && typeof item?.status === 'string'
+          && typeof item?.source === 'string';
+      })
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFavorites(favorites: number[]) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+}
+
+function writeHistory(history: ConnectionHistoryEntry[]) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+}
 
 export const useConnectionStore = defineStore('connections', {
   state: () => ({
     connections: [] as Connection[],
     groups: [] as ConnectionGroup[],
+    favorites: readFavorites() as number[],
+    history: readHistory() as ConnectionHistoryEntry[],
   }),
   getters: {
     treeData: (state) => {
@@ -28,7 +84,11 @@ export const useConnectionStore = defineStore('connections', {
         return result;
       };
       return buildTree(null);
-    }
+    },
+    favoriteConnections: (state) => state.connections.filter(conn => conn.id !== undefined && state.favorites.includes(conn.id)),
+    historyEntries: (state) => state.history
+      .filter(entry => state.connections.some(conn => conn.id === entry.connectionId))
+      .sort((a, b) => b.connectedAt - a.connectedAt),
   },
   actions: {
     async loadConnections() {
@@ -39,6 +99,10 @@ export const useConnectionStore = defineStore('connections', {
         ]);
         this.connections = conns;
         this.groups = groups;
+        this.favorites = this.favorites.filter(id => this.connections.some(conn => conn.id === id));
+        this.history = this.history.filter(entry => this.connections.some(conn => conn.id === entry.connectionId));
+        writeFavorites(this.favorites);
+        writeHistory(this.history);
         console.log('Loaded connections and groups');
       } catch (e) {
         console.error('Failed to load connections/groups:', e);
@@ -68,6 +132,10 @@ export const useConnectionStore = defineStore('connections', {
     },
     async deleteConnection(id: number) {
       await invoke('delete_connection', { id });
+      this.favorites = this.favorites.filter(favoriteId => favoriteId !== id);
+      this.history = this.history.filter(entry => entry.connectionId !== id);
+      writeFavorites(this.favorites);
+      writeHistory(this.history);
       await this.loadConnections();
     },
     async addGroup(group: ConnectionGroup): Promise<boolean> {
@@ -123,6 +191,42 @@ export const useConnectionStore = defineStore('connections', {
         console.error('Connection test failed:', e);
         throw e; // Re-throw to let the UI handle the error message
       }
+    },
+    toggleFavorite(connectionId: number) {
+      if (this.favorites.includes(connectionId)) {
+        this.favorites = this.favorites.filter(id => id !== connectionId);
+      } else {
+        this.favorites = [connectionId, ...this.favorites].slice(0, 8);
+      }
+
+      writeFavorites(this.favorites);
+    },
+    isFavorite(connectionId: number) {
+      return this.favorites.includes(connectionId);
+    },
+    recordHistory(entry: ConnectionHistoryEntry) {
+      this.history = [entry, ...this.history]
+        .sort((a, b) => b.connectedAt - a.connectedAt)
+        .slice(0, MAX_HISTORY_ITEMS);
+
+      writeHistory(this.history);
+    },
+    addSuccessfulConnection(connectionId: number, source: ConnectionHistorySource = 'tree') {
+      this.recordHistory({
+        connectionId,
+        connectedAt: Date.now(),
+        status: 'success',
+        source,
+      });
+    },
+    addFailedConnection(connectionId: number, reason?: string, source: ConnectionHistorySource = 'tree') {
+      this.recordHistory({
+        connectionId,
+        connectedAt: Date.now(),
+        status: 'failed' as ConnectionHistoryStatus,
+        reason,
+        source,
+      });
     }
   }
 });

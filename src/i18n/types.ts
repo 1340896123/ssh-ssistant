@@ -31,6 +31,52 @@ export interface I18nMessages {
     recentTitle: string
     recentHint: string
     quickAccessTitle: string
+    treeTitle: string
+    treeHint: string
+    searchResultsTitle: string
+    imported: string
+    importDropTitle: string
+    dropToRoot: string
+    rootLabel: string
+    confirmTitle: string
+    groupPrompt: {
+      create: string
+      rename: string
+    }
+    contextMenu: {
+      connect: string
+      edit: string
+      delete: string
+      newSubGroup: string
+      editGroup: string
+      deleteGroup: string
+      copy: string
+      newConnection: string
+      newGroup: string
+      tunnels: string
+      favorite: string
+      unfavorite: string
+    }
+    sources: {
+      favorite: string
+      history: string
+      quick: string
+      search: string
+      tree: string
+    }
+    history: {
+      title: string
+      empty: string
+      filters: {
+        all: string
+        success: string
+        failed: string
+      }
+      status: {
+        success: string
+        failed: string
+      }
+    }
     summary: {
       total: string
       groups: string

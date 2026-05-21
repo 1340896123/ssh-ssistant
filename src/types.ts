@@ -24,6 +24,18 @@ export interface Connection {
   osType?: string; // Operating system type: "Linux", "Windows", "macOS", optional for backward compatibility
 }
 
+export type ConnectionHistoryStatus = "success" | "failed";
+
+export type ConnectionHistorySource = "quick" | "history" | "tree" | "search";
+
+export interface ConnectionHistoryEntry {
+  connectionId: number;
+  connectedAt: number;
+  status: ConnectionHistoryStatus;
+  reason?: string;
+  source: ConnectionHistorySource;
+}
+
 export interface ConnectionGroup {
   id?: number;
   name: string;

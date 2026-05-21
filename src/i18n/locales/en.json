@@ -31,6 +31,15 @@
     "deleteConfirm": "Are you sure you want to delete connection '{name}'?",
     "deleteGroupConfirm": "Are you sure you want to delete group '{name}' and all its contents?",
     "copied": "Copied to {name}",
+    "imported": "Imported {count} connections",
+    "importDropTitle": "Drop JSON to import connections",
+    "dropToRoot": "Drop here to move into root",
+    "rootLabel": "Root",
+    "confirmTitle": "Confirm",
+    "groupPrompt": {
+      "create": "Enter group name:",
+      "rename": "Enter the new group name:"
+    },
     "contextMenu": {
       "connect": "Connect",
       "edit": "Edit",
@@ -41,12 +50,37 @@
       "copy": "Copy Connection",
       "newConnection": "New Connection",
       "newGroup": "New Group",
-      "tunnels": "Tunnels"
+      "tunnels": "Tunnels",
+      "favorite": "Add to favorites",
+      "unfavorite": "Remove from favorites"
     },
     "searchPlaceholder": "Search by name / host / username",
     "recentTitle": "Recent",
     "recentHint": "Click to reconnect quickly",
     "quickAccessTitle": "Quick Access",
+    "treeTitle": "Connection Tree",
+    "treeHint": "Drag and drop to reorganize groups",
+    "searchResultsTitle": "Search Results",
+    "sources": {
+      "favorite": "Favorite",
+      "history": "History",
+      "quick": "Quick",
+      "search": "Search",
+      "tree": "Tree"
+    },
+    "history": {
+      "title": "Connection History",
+      "empty": "No matching history yet. Connect once and it will appear here.",
+      "filters": {
+        "all": "All",
+        "success": "Success",
+        "failed": "Failed"
+      },
+      "status": {
+        "success": "Success",
+        "failed": "Failed"
+      }
+    },
     "summary": {
       "total": "Connections",
       "groups": "Groups",
