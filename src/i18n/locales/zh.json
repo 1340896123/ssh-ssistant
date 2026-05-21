@@ -10,6 +10,57 @@
     "loadingStatus": "正在加载状态...",
     "collapseSidebar": "折叠侧边栏"
   },
+  "workbench": {
+    "connectionsSubtitle": "连接资源、收藏和历史记录",
+    "tunnelsSubtitle": "统一管理端口转发和隧道状态",
+    "sessionsTitle": "会话",
+    "sessionsSubtitle": "查看当前工作中的 SSH 会话",
+    "collapseResourcePane": "收起资源区",
+    "expandResourcePane": "展开资源区",
+    "showContextPane": "显示上下文区",
+    "hideContextPane": "隐藏上下文区",
+    "focusMode": "聚焦模式",
+    "noActiveSession": "没有活动会话",
+    "openConnections": "打开连接",
+    "statusIdle": "空闲",
+    "statusSelection": "{count} 个已选项",
+    "statusContext": "AI 上下文 {count}",
+    "statusTransfers": "传输 {total} / 运行中 {running}",
+    "refreshContext": "刷新上下文",
+    "contextTitle": "共享上下文",
+    "contextEmptyTitle": "等待连接",
+    "contextEmptyDescription": "连接会话后，这里会显示 AI 和文件上下文。",
+    "sessionTabsLabel": "会话"
+  },
+  "sessionsPane": {
+    "title": "会话工作台",
+    "subtitle": "快速切换、重连和整理会话",
+    "summary": {
+      "total": "总数",
+      "connected": "在线",
+      "disconnected": "离线"
+    },
+    "bulk": {
+      "title": "批量操作",
+      "hint": "管理当前会话",
+      "disconnectConnected": "断开在线会话",
+      "reconnectDisconnected": "重连离线会话",
+      "closeDisconnected": "关闭离线会话",
+      "closeAll": "关闭全部会话"
+    },
+    "files": "文件",
+    "ai": "AI",
+    "shell": "终端",
+    "current": "当前",
+    "unknownOs": "未知系统",
+    "noPath": "尚未定位目录",
+    "closeOther": "关闭其他会话",
+    "disconnect": "断开连接",
+    "reconnect": "重新连接",
+    "close": "关闭会话",
+    "empty": "当前还没有会话",
+    "emptyHint": "连接一台服务器后，会话会出现在这里。"
+  },
   "connections": {
     "edit": "编辑",
     "delete": "删除",

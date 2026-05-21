@@ -71,6 +71,7 @@ function save() {
 }
 
 function clearCache() {
+  localStorage.removeItem('appWorkspaceLayout');
   localStorage.removeItem('sidebarWidth');
   // 重置侧边栏宽度到默认值
   const defaultWidth = 256;
@@ -278,14 +279,6 @@ const tabs = [
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
                     <option value="flat">{{ t('fileManager.viewMode.flat') }}</option>
                     <option value="tree">{{ t('fileManager.viewMode.tree') }}</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.layoutPosition') }}</label>
-                  <select v-model="form.fileManager.layout"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
-                    <option value="bottom">{{ t('settings.layoutBottom') }}</option>
-                    <option value="left">{{ t('settings.layoutLeft') }}</option>
                   </select>
                 </div>
                 <div>

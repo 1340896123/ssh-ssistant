@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, onBeforeUpdate, watch } from "vue";
+import {
+  computed,
+  onBeforeUpdate,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ConnectionList from "./components/ConnectionList.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import TunnelModal from "./components/TunnelModal.vue";
 import TunnelPanel from "./components/TunnelPanel.vue";
 import SessionTabs from "./components/SessionTabs.vue";
+import SessionsWorkbenchPanel from "./components/SessionsWorkbenchPanel.vue";
 import TerminalTabArea from "./components/TerminalTabArea.vue";
 import FileManager from "./components/FileManager.vue";
 import AIAssistant from "./components/AIAssistant.vue";
@@ -15,289 +24,42 @@ import { useSessionStore } from "./stores/sessions";
 import { useConnectionStore } from "./stores/connections";
 import { useSettingsStore } from "./stores/settings";
 import { useNotificationStore } from "./stores/notifications";
+import { useTransferStore } from "./stores/transfers";
 import { useI18n } from "./composables/useI18n";
 import type { Connection } from "./types";
 import {
-  Settings,
+  Bot,
+  Cable,
+  Focus,
+  FolderOpen,
+  Monitor,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Plus,
+  RefreshCw,
   Rows3,
-  Focus,
+  Settings,
 } from "lucide-vue-next";
+
+type ActivityId = "connections" | "tunnels" | "sessions";
+type ContextTab = "ai" | "files";
+type ResizeTarget = "resource" | "context";
 
 interface AiAssistantRef {
   addContextPaths: (paths: { path: string; isDir: boolean }[]) => void;
 }
 
-const sessionStore = useSessionStore();
-const connectionStore = useConnectionStore();
-const settingsStore = useSettingsStore();
-const notificationStore = useNotificationStore();
-const { t } = useI18n();
-const showConnectionModal = ref(false);
-const showSettingsModal = ref(false);
-const editingConnection = ref<Connection | null>(null);
-const showTunnelModal = ref(false);
-const tunnelConnection = ref<Connection | null>(null);
-const sidebarTab = ref<'connections' | 'tunnels'>('connections');
-const isSidebarCollapsed = ref(false);
-
-type WorkspaceMode = "default" | "terminalFocus" | "fullWorkbench";
-
 interface WorkspaceLayoutState {
-  sidebarWidth: number;
-  sidebarTab: "connections" | "tunnels";
-  isSidebarCollapsed: boolean;
-  fileWidth: number;
-  fileHeight: number;
-  aiWidth: number;
-  showAuxiliaryPanel: boolean;
-  workspaceMode: WorkspaceMode;
+  activeActivity: ActivityId;
+  resourcePaneWidth: number;
+  contextPaneWidth: number;
+  isResourcePaneCollapsed: boolean;
+  isContextPaneCollapsed: boolean;
+  isFocusMode: boolean;
 }
 
-const WORKSPACE_LAYOUT_STORAGE_KEY = "appWorkspaceLayout";
-const DEFAULT_SIDEBAR_WIDTH = 256;
-const defaultWorkspaceLayoutState: WorkspaceLayoutState = {
-  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
-  sidebarTab: "connections",
-  isSidebarCollapsed: false,
-  fileWidth: 30,
-  fileHeight: 30,
-  aiWidth: 30,
-  showAuxiliaryPanel: true,
-  workspaceMode: "default",
-};
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function parseWorkspaceLayoutState(): WorkspaceLayoutState {
-  if (typeof localStorage === "undefined") {
-    return { ...defaultWorkspaceLayoutState };
-  }
-
-  const raw = localStorage.getItem(WORKSPACE_LAYOUT_STORAGE_KEY);
-  if (!raw) {
-    return { ...defaultWorkspaceLayoutState };
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<WorkspaceLayoutState>;
-
-    return {
-      sidebarWidth: clamp(
-        Number(parsed.sidebarWidth ?? defaultWorkspaceLayoutState.sidebarWidth),
-        180,
-        640
-      ),
-      sidebarTab:
-        parsed.sidebarTab === "tunnels" ? "tunnels" : "connections",
-      isSidebarCollapsed: Boolean(
-        parsed.isSidebarCollapsed ?? defaultWorkspaceLayoutState.isSidebarCollapsed
-      ),
-      fileWidth: clamp(
-        Number(parsed.fileWidth ?? defaultWorkspaceLayoutState.fileWidth),
-        15,
-        55
-      ),
-      fileHeight: clamp(
-        Number(parsed.fileHeight ?? defaultWorkspaceLayoutState.fileHeight),
-        15,
-        60
-      ),
-      aiWidth: clamp(
-        Number(parsed.aiWidth ?? defaultWorkspaceLayoutState.aiWidth),
-        18,
-        45
-      ),
-      showAuxiliaryPanel: Boolean(
-        parsed.showAuxiliaryPanel ??
-          defaultWorkspaceLayoutState.showAuxiliaryPanel
-      ),
-      workspaceMode:
-        parsed.workspaceMode === "terminalFocus" ||
-        parsed.workspaceMode === "fullWorkbench"
-          ? parsed.workspaceMode
-          : "default",
-    };
-  } catch {
-    return { ...defaultWorkspaceLayoutState };
-  }
-}
-
-const initialWorkspaceLayoutState = parseWorkspaceLayoutState();
-
-// AI Context Refs
-const terminalTabAreaRefs = ref<any[]>([]);
-const aiAssistantRefs = ref<any[]>([]);
-const terminalContext = ref("");
-
-onBeforeUpdate(() => {
-  terminalTabAreaRefs.value = [];
-  aiAssistantRefs.value = [];
-  mainColumnRefs.value = [];
-});
-
-function getActiveTerminalView() {
-  if (!activeSession.value) return null;
-  const activeIndex = sessionStore.sessions.findIndex(
-    (s) => s.id === activeSession.value?.id
-  );
-  if (activeIndex !== -1 && terminalTabAreaRefs.value[activeIndex]) {
-    // Get the terminal view from within the tab area
-    const tabArea = terminalTabAreaRefs.value[activeIndex];
-    return tabArea.terminalView || null;
-  }
-  return null;
-}
-
-function updateTerminalContext() {
-  const activeTerminal = getActiveTerminalView();
-  if (activeTerminal && typeof activeTerminal.getContent === "function") {
-    terminalContext.value = activeTerminal.getContent();
-  } else {
-    terminalContext.value = "";
-  }
-}
-
-function openTunnelModal(conn: Connection) {
-  tunnelConnection.value = conn;
-  showTunnelModal.value = true;
-}
-
-// Layout state
-const fileWidth = ref(initialWorkspaceLayoutState.fileWidth);
-const fileHeight = ref(initialWorkspaceLayoutState.fileHeight);
-const aiWidth = ref(initialWorkspaceLayoutState.aiWidth);
-const showAuxiliaryPanel = ref(initialWorkspaceLayoutState.showAuxiliaryPanel);
-const workspaceMode = ref<WorkspaceMode>(initialWorkspaceLayoutState.workspaceMode);
-// Terminal occupies remaining space in the left column
-
-const layoutMode = computed(() => settingsStore.fileManager.layout || 'bottom');
-
-
-const sidebarWidth = ref(initialWorkspaceLayoutState.sidebarWidth);
-
-sidebarTab.value = initialWorkspaceLayoutState.sidebarTab;
-isSidebarCollapsed.value = initialWorkspaceLayoutState.isSidebarCollapsed;
-
-const containerRef = ref<HTMLElement | null>(null);
-const mainColumnRefs = ref<HTMLElement[]>([]);
-const isResizing = ref<"file" | "ai" | "sidebar" | null>(null);
-
-const activeSession = computed(() => sessionStore.activeSession);
-const isTerminalFocusMode = computed(() => workspaceMode.value === "terminalFocus");
-const isFullWorkbenchMode = computed(() => workspaceMode.value === "fullWorkbench");
-const shouldShowSidebar = computed(
-  () => !isSidebarCollapsed.value && !isTerminalFocusMode.value
-);
-const shouldShowAuxiliaryPanel = computed(
-  () => showAuxiliaryPanel.value && !isTerminalFocusMode.value
-);
-const shouldShowFileManager = computed(
-  () => shouldShowAuxiliaryPanel.value || isFullWorkbenchMode.value
-);
-const terminalPaneStyle = computed(() => {
-  if (layoutMode.value === "bottom") {
-    return shouldShowFileManager.value
-      ? { height: `calc(100% - ${fileHeight.value}%)` }
-      : { height: "100%" };
-  }
-
-  if (shouldShowAuxiliaryPanel.value && shouldShowFileManager.value) {
-    return { width: `calc(100% - ${fileWidth.value}% - ${aiWidth.value}%)` };
-  }
-
-  if (shouldShowFileManager.value) {
-    return { width: `calc(100% - ${fileWidth.value}%)` };
-  }
-
-  if (shouldShowAuxiliaryPanel.value) {
-    return { width: `calc(100% - ${aiWidth.value}%)` };
-  }
-
-  return { width: "100%", height: "100%" };
-});
-
-function persistWorkspaceLayoutState() {
-  if (typeof localStorage === "undefined") {
-    return;
-  }
-
-  const layoutState: WorkspaceLayoutState = {
-    sidebarWidth: Math.round(sidebarWidth.value),
-    sidebarTab: sidebarTab.value,
-    isSidebarCollapsed: isSidebarCollapsed.value,
-    fileWidth: Number(fileWidth.value.toFixed(2)),
-    fileHeight: Number(fileHeight.value.toFixed(2)),
-    aiWidth: Number(aiWidth.value.toFixed(2)),
-    showAuxiliaryPanel: showAuxiliaryPanel.value,
-    workspaceMode: workspaceMode.value,
-  };
-
-  localStorage.setItem(WORKSPACE_LAYOUT_STORAGE_KEY, JSON.stringify(layoutState));
-}
-
-watch(
-  [
-    sidebarWidth,
-    sidebarTab,
-    isSidebarCollapsed,
-    fileWidth,
-    fileHeight,
-    aiWidth,
-    showAuxiliaryPanel,
-    workspaceMode,
-  ],
-  () => {
-    persistWorkspaceLayoutState();
-  },
-  { deep: false }
-);
-
-function toggleSidebar() {
-  isSidebarCollapsed.value = !isSidebarCollapsed.value;
-}
-
-function toggleAuxiliaryPanel() {
-  showAuxiliaryPanel.value = !showAuxiliaryPanel.value;
-}
-
-function setWorkspaceMode(mode: WorkspaceMode) {
-  workspaceMode.value = workspaceMode.value === mode ? "default" : mode;
-}
-
-function getWorkspaceModeLabel(mode: WorkspaceMode) {
-  if (mode === "terminalFocus") {
-    return "终端聚焦";
-  }
-
-  if (mode === "fullWorkbench") {
-    return "完整工作台";
-  }
-
-  return "默认布局";
-}
-
-function cycleWorkspaceMode() {
-  if (workspaceMode.value === "default") {
-    workspaceMode.value = "terminalFocus";
-    return;
-  }
-
-  if (workspaceMode.value === "terminalFocus") {
-    workspaceMode.value = "fullWorkbench";
-    return;
-  }
-
-  workspaceMode.value = "default";
-}
-
-// Session status bar state
-const now = ref(Date.now());
 interface DiskInfo {
   size: string;
   used: string;
@@ -337,12 +99,241 @@ interface SessionStats {
   memory: MemoryInfo | null;
 }
 
+const sessionStore = useSessionStore();
+const connectionStore = useConnectionStore();
+const settingsStore = useSettingsStore();
+const notificationStore = useNotificationStore();
+const transferStore = useTransferStore();
+const { t } = useI18n();
+
+const WORKSPACE_LAYOUT_STORAGE_KEY = "appWorkspaceLayout";
+const RESOURCE_PANE_MIN = 260;
+const RESOURCE_PANE_MAX = 420;
+const CONTEXT_PANE_MIN = 320;
+const CONTEXT_PANE_MAX = 520;
+const DEFAULT_RESOURCE_PANE_WIDTH = 300;
+const DEFAULT_CONTEXT_PANE_WIDTH = 380;
+const RESOURCE_DRAWER_BREAKPOINT = 1280;
+const CONTEXT_DRAWER_BREAKPOINT = 980;
+const DEFAULT_WINDOW_WIDTH = 1440;
+
+const showConnectionModal = ref(false);
+const showSettingsModal = ref(false);
+const editingConnection = ref<Connection | null>(null);
+const showTunnelModal = ref(false);
+const tunnelConnection = ref<Connection | null>(null);
+const clockTimer = ref<number | null>(null);
+const statusTimer = ref<number | null>(null);
+
+const windowWidth = ref(
+  typeof window === "undefined" ? DEFAULT_WINDOW_WIDTH : window.innerWidth
+);
+const shellViewportRef = ref<HTMLElement | null>(null);
+const isResizing = ref<ResizeTarget | null>(null);
+
+const resourceDrawerOpen = ref(false);
+const contextDrawerOpen = ref(false);
+
+const terminalTabAreaRefs = ref<any[]>([]);
+const aiAssistantRefs = ref<any[]>([]);
+const terminalContext = ref("");
+
+const sessionContextTabs = reactive<Record<string, ContextTab>>({});
+const sessionSelectionState = reactive<
+  Record<string, { count: number; targetLabel: string }>
+>({});
+const sessionAiContextCounts = reactive<Record<string, number>>({});
+
+const now = ref(Date.now());
 const sessionStatus = ref<Record<string, SessionStats>>({});
-let statusTimer: number | null = null;
-let clockTimer: number | null = null;
 const isRefreshingSessionStatus = ref(false);
 
-function formatDuration(totalSeconds: number): string {
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function deriveLegacyContextPaneWidth(legacyAiWidth?: unknown) {
+  const aiWidthPercent = Number(legacyAiWidth);
+  if (!Number.isFinite(aiWidthPercent)) {
+    return DEFAULT_CONTEXT_PANE_WIDTH;
+  }
+
+  const viewportWidth =
+    typeof window === "undefined" ? DEFAULT_WINDOW_WIDTH : window.innerWidth;
+  return clamp(
+    Math.round((viewportWidth * aiWidthPercent) / 100),
+    CONTEXT_PANE_MIN,
+    CONTEXT_PANE_MAX
+  );
+}
+
+function parseWorkspaceLayoutState(): WorkspaceLayoutState {
+  const defaultState: WorkspaceLayoutState = {
+    activeActivity: "connections",
+    resourcePaneWidth: DEFAULT_RESOURCE_PANE_WIDTH,
+    contextPaneWidth: DEFAULT_CONTEXT_PANE_WIDTH,
+    isResourcePaneCollapsed: false,
+    isContextPaneCollapsed: false,
+    isFocusMode: false,
+  };
+
+  if (typeof localStorage === "undefined") {
+    return defaultState;
+  }
+
+  const raw = localStorage.getItem(WORKSPACE_LAYOUT_STORAGE_KEY);
+  if (!raw) {
+    return defaultState;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const legacyActivity =
+      parsed.sidebarTab === "tunnels" ? "tunnels" : "connections";
+    const derivedContextWidth = deriveLegacyContextPaneWidth(parsed.aiWidth);
+    const showAuxiliaryPanel =
+      typeof parsed.showAuxiliaryPanel === "boolean"
+        ? parsed.showAuxiliaryPanel
+        : undefined;
+
+    return {
+      activeActivity:
+        parsed.activeActivity === "tunnels" || parsed.activeActivity === "sessions"
+          ? parsed.activeActivity
+          : legacyActivity,
+      resourcePaneWidth: clamp(
+        Number(
+          parsed.resourcePaneWidth ?? parsed.sidebarWidth ?? DEFAULT_RESOURCE_PANE_WIDTH
+        ),
+        RESOURCE_PANE_MIN,
+        RESOURCE_PANE_MAX
+      ),
+      contextPaneWidth: clamp(
+        Number(parsed.contextPaneWidth ?? derivedContextWidth),
+        CONTEXT_PANE_MIN,
+        CONTEXT_PANE_MAX
+      ),
+      isResourcePaneCollapsed: Boolean(
+        parsed.isResourcePaneCollapsed ?? parsed.isSidebarCollapsed ?? false
+      ),
+      isContextPaneCollapsed: Boolean(
+        parsed.isContextPaneCollapsed ??
+          (showAuxiliaryPanel === undefined ? false : !showAuxiliaryPanel)
+      ),
+      isFocusMode: Boolean(
+        parsed.isFocusMode ?? (parsed.workspaceMode === "terminalFocus")
+      ),
+    };
+  } catch {
+    return defaultState;
+  }
+}
+
+const initialLayoutState = parseWorkspaceLayoutState();
+
+const activeActivity = ref<ActivityId>(initialLayoutState.activeActivity);
+const resourcePaneWidth = ref(initialLayoutState.resourcePaneWidth);
+const contextPaneWidth = ref(initialLayoutState.contextPaneWidth);
+const isResourcePaneCollapsed = ref(initialLayoutState.isResourcePaneCollapsed);
+const isContextPaneCollapsed = ref(initialLayoutState.isContextPaneCollapsed);
+const isFocusMode = ref(initialLayoutState.isFocusMode);
+
+const activeSession = computed(() => sessionStore.activeSession);
+const activeConnection = computed(() =>
+  connectionStore.connections.find(
+    (connection) => connection.id === activeSession.value?.connectionId
+  )
+);
+const activeWorkspace = computed(() => activeSession.value?.activeWorkspace);
+const activeSelection = computed(() =>
+  activeSession.value
+    ? sessionSelectionState[activeSession.value.id] ?? { count: 0, targetLabel: "" }
+    : { count: 0, targetLabel: "" }
+);
+const activeAiContextCount = computed(() =>
+  activeSession.value ? sessionAiContextCounts[activeSession.value.id] ?? 0 : 0
+);
+const activeContextTab = computed<ContextTab>(() => {
+  if (!activeSession.value) return "ai";
+  return sessionContextTabs[activeSession.value.id] ?? "ai";
+});
+
+const activeSessionTransferItems = computed(() => {
+  if (!activeSession.value) return [];
+  return transferStore.items.filter(
+    (item) => item.sessionId === activeSession.value?.id
+  );
+});
+const activeTransferSummary = computed(() => {
+  const items = activeSessionTransferItems.value;
+  const running = items.filter((item) => item.status === "running").length;
+  const pending = items.filter((item) => item.status === "pending").length;
+  const failed = items.filter((item) => item.status === "error").length;
+  return {
+    total: items.length,
+    running,
+    pending,
+    failed,
+  };
+});
+
+const isCompactResourceMode = computed(
+  () => windowWidth.value < RESOURCE_DRAWER_BREAKPOINT
+);
+const isCompactContextMode = computed(
+  () => windowWidth.value < CONTEXT_DRAWER_BREAKPOINT
+);
+const shouldShowInlineResourcePane = computed(
+  () =>
+    !isFocusMode.value &&
+    !isCompactResourceMode.value &&
+    !isResourcePaneCollapsed.value
+);
+const shouldShowInlineContextPane = computed(
+  () =>
+    !isFocusMode.value &&
+    !isCompactContextMode.value &&
+    !isContextPaneCollapsed.value
+);
+const shouldShowResourceDrawer = computed(
+  () =>
+    !isFocusMode.value &&
+    isCompactResourceMode.value &&
+    resourceDrawerOpen.value
+);
+const shouldShowContextDrawer = computed(
+  () => !isFocusMode.value && isCompactContextMode.value && contextDrawerOpen.value
+);
+const shouldShowAnyDrawer = computed(
+  () => shouldShowResourceDrawer.value || shouldShowContextDrawer.value
+);
+
+const activeResourcePaneMeta = computed(() => {
+  if (activeActivity.value === "tunnels") {
+    return {
+      title: t("app.tunnels"),
+      subtitle: t("workbench.tunnelsSubtitle"),
+    };
+  }
+
+  if (activeActivity.value === "sessions") {
+    return {
+      title: t("workbench.sessionsTitle"),
+      subtitle: t("workbench.sessionsSubtitle"),
+    };
+  }
+
+  return {
+    title: t("app.connections"),
+    subtitle: t("workbench.connectionsSubtitle"),
+  };
+});
+
+const activeSessionDuration = computed(() => {
+  if (!activeSession.value?.connectedAt) return "0s";
+  const diffMs = now.value - activeSession.value.connectedAt;
+  if (diffMs <= 0) return "0s";
+  const totalSeconds = Math.floor(diffMs / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = Math.floor(totalSeconds % 60);
@@ -351,19 +342,279 @@ function formatDuration(totalSeconds: number): string {
   if (minutes > 0) parts.push(`${minutes}m`);
   parts.push(`${seconds}s`);
   return parts.join(" ");
-}
-
-const activeSessionDuration = computed(() => {
-  if (!activeSession.value || !activeSession.value.connectedAt) return "";
-  const diffMs = now.value - activeSession.value.connectedAt;
-  if (diffMs <= 0) return "0s";
-  const diffSeconds = Math.floor(diffMs / 1000);
-  return formatDuration(diffSeconds);
 });
 
-async function refreshActiveSessionStatus() {
-  if (!activeSession.value || activeSession.value.status !== "connected")
+function persistWorkspaceLayoutState() {
+  if (typeof localStorage === "undefined") return;
+
+  const layoutState: WorkspaceLayoutState = {
+    activeActivity: activeActivity.value,
+    resourcePaneWidth: Math.round(resourcePaneWidth.value),
+    contextPaneWidth: Math.round(contextPaneWidth.value),
+    isResourcePaneCollapsed: isResourcePaneCollapsed.value,
+    isContextPaneCollapsed: isContextPaneCollapsed.value,
+    isFocusMode: isFocusMode.value,
+  };
+
+  localStorage.setItem(WORKSPACE_LAYOUT_STORAGE_KEY, JSON.stringify(layoutState));
+}
+
+watch(
+  [
+    activeActivity,
+    resourcePaneWidth,
+    contextPaneWidth,
+    isResourcePaneCollapsed,
+    isContextPaneCollapsed,
+    isFocusMode,
+  ],
+  () => {
+    persistWorkspaceLayoutState();
+  }
+);
+
+watch(isCompactResourceMode, (isCompact) => {
+  if (!isCompact) {
+    resourceDrawerOpen.value = false;
+  }
+});
+
+watch(isCompactContextMode, (isCompact) => {
+  if (!isCompact) {
+    contextDrawerOpen.value = false;
+  }
+});
+
+watch(
+  () => sessionStore.sessions.map((session) => session.id),
+  (sessionIds) => {
+    const knownIds = new Set(sessionIds);
+    for (const id of Object.keys(sessionContextTabs)) {
+      if (!knownIds.has(id)) delete sessionContextTabs[id];
+    }
+    for (const id of Object.keys(sessionSelectionState)) {
+      if (!knownIds.has(id)) delete sessionSelectionState[id];
+    }
+    for (const id of Object.keys(sessionAiContextCounts)) {
+      if (!knownIds.has(id)) delete sessionAiContextCounts[id];
+    }
+
+    for (const id of sessionIds) {
+      if (!sessionContextTabs[id]) {
+        sessionContextTabs[id] = "ai";
+      }
+      if (!sessionSelectionState[id]) {
+        sessionSelectionState[id] = { count: 0, targetLabel: "" };
+      }
+      if (typeof sessionAiContextCounts[id] !== "number") {
+        sessionAiContextCounts[id] = 0;
+      }
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => activeSession.value?.id,
+  (sessionId) => {
+    if (!sessionId) return;
+    if (!sessionContextTabs[sessionId]) {
+      sessionContextTabs[sessionId] = "ai";
+    }
+    const tab = sessionContextTabs[sessionId];
+    sessionStore.setActiveTab(tab);
+    void refreshActiveSessionStatus();
+  },
+  { immediate: true }
+);
+
+onBeforeUpdate(() => {
+  terminalTabAreaRefs.value = [];
+  aiAssistantRefs.value = [];
+});
+
+function getActiveTerminalView() {
+  if (!activeSession.value) return null;
+  const activeIndex = sessionStore.sessions.findIndex(
+    (session) => session.id === activeSession.value?.id
+  );
+  if (activeIndex === -1) return null;
+  const tabArea = terminalTabAreaRefs.value[activeIndex];
+  return tabArea?.terminalView || null;
+}
+
+function updateTerminalContext() {
+  const activeTerminal = getActiveTerminalView();
+  if (activeTerminal && typeof activeTerminal.getContent === "function") {
+    terminalContext.value = activeTerminal.getContent();
+  } else {
+    terminalContext.value = "";
+  }
+}
+
+function setWindowWidth() {
+  windowWidth.value =
+    typeof window === "undefined" ? DEFAULT_WINDOW_WIDTH : window.innerWidth;
+}
+
+function handleSaveConnection(connection: Connection) {
+  const action = connection.id
+    ? connectionStore.updateConnection(connection)
+    : connectionStore.addConnection(connection);
+
+  action.then((success) => {
+    if (success) {
+      showConnectionModal.value = false;
+      editingConnection.value = null;
+    } else {
+      notificationStore.error("Failed to save connection. Please check the logs.");
+    }
+  });
+}
+
+function openNewConnectionModal() {
+  editingConnection.value = null;
+  showConnectionModal.value = true;
+}
+
+function openEditConnectionModal(connection: Connection) {
+  editingConnection.value = connection;
+  showConnectionModal.value = true;
+}
+
+function openTunnelModal(connection: Connection) {
+  tunnelConnection.value = connection;
+  showTunnelModal.value = true;
+}
+
+function ensureResourcePaneVisible() {
+  if (isFocusMode.value) {
+    isFocusMode.value = false;
+  }
+  if (isCompactResourceMode.value) {
+    resourceDrawerOpen.value = true;
+  } else {
+    isResourcePaneCollapsed.value = false;
+  }
+}
+
+function ensureContextPaneVisible() {
+  if (isFocusMode.value) {
+    isFocusMode.value = false;
+  }
+  if (isCompactContextMode.value) {
+    contextDrawerOpen.value = true;
+  } else {
+    isContextPaneCollapsed.value = false;
+  }
+}
+
+function activateActivity(activity: ActivityId) {
+  activeActivity.value = activity;
+  ensureResourcePaneVisible();
+}
+
+function toggleResourcePane() {
+  if (isCompactResourceMode.value) {
+    if (isFocusMode.value) {
+      isFocusMode.value = false;
+    }
+    resourceDrawerOpen.value = !resourceDrawerOpen.value;
     return;
+  }
+  isResourcePaneCollapsed.value = !isResourcePaneCollapsed.value;
+}
+
+function toggleContextPane() {
+  if (isCompactContextMode.value) {
+    if (isFocusMode.value) {
+      isFocusMode.value = false;
+    }
+    contextDrawerOpen.value = !contextDrawerOpen.value;
+    return;
+  }
+  isContextPaneCollapsed.value = !isContextPaneCollapsed.value;
+}
+
+function setContextTab(tab: ContextTab) {
+  if (!activeSession.value) return;
+  ensureContextPaneVisible();
+  sessionContextTabs[activeSession.value.id] = tab;
+  sessionStore.setActiveTab(tab);
+}
+
+function toggleFocusMode() {
+  isFocusMode.value = !isFocusMode.value;
+  if (isFocusMode.value) {
+    resourceDrawerOpen.value = false;
+    contextDrawerOpen.value = false;
+  }
+}
+
+function openFileEditor(sessionId: string, filePath: string, fileName: string) {
+  const sessionIndex = sessionStore.sessions.findIndex(
+    (session) => session.id === sessionId
+  );
+  if (sessionIndex !== -1 && terminalTabAreaRefs.value[sessionIndex]) {
+    sessionStore.setActiveSession(sessionId);
+    sessionStore.setActiveTab("terminal");
+    terminalTabAreaRefs.value[sessionIndex].openFileEditor(filePath, fileName);
+  }
+}
+
+function switchTerminalToPath(sessionId: string, path: string) {
+  const sessionIndex = sessionStore.sessions.findIndex(
+    (session) => session.id === sessionId
+  );
+  if (sessionIndex !== -1 && terminalTabAreaRefs.value[sessionIndex]) {
+    sessionStore.setActiveSession(sessionId);
+    sessionStore.setActiveTab("terminal");
+    terminalTabAreaRefs.value[sessionIndex].switchToPath(path);
+  }
+}
+
+function addAiContextPaths(
+  sessionId: string,
+  paths: { path: string; isDir: boolean }[]
+) {
+  const sessionIndex = sessionStore.sessions.findIndex(
+    (session) => session.id === sessionId
+  );
+  const aiAssistant =
+    sessionIndex !== -1
+      ? (aiAssistantRefs.value[sessionIndex] as AiAssistantRef | undefined)
+      : undefined;
+
+  sessionStore.setActiveSession(sessionId);
+  sessionContextTabs[sessionId] = "ai";
+  sessionStore.setActiveTab("ai");
+  ensureContextPaneVisible();
+  aiAssistant?.addContextPaths(paths);
+}
+
+function handleFilePathChange(sessionId: string, path: string) {
+  const session = sessionStore.sessions.find((item) => item.id === sessionId);
+  if (session) {
+    session.currentPath = path;
+  }
+}
+
+function handleFileSelectionChange(
+  sessionId: string,
+  payload: { count: number; targetLabel: string }
+) {
+  sessionSelectionState[sessionId] = payload;
+}
+
+function handleContextMetaChange(
+  sessionId: string,
+  payload: { count: number }
+) {
+  sessionAiContextCounts[sessionId] = payload.count;
+}
+
+async function refreshActiveSessionStatus() {
+  if (!activeSession.value || activeSession.value.status !== "connected") return;
   if (isRefreshingSessionStatus.value) return;
 
   const id = activeSession.value.id;
@@ -375,34 +626,94 @@ async function refreshActiveSessionStatus() {
       ...sessionStatus.value,
       [id]: stats,
     };
-  } catch (error: any) {
+  } catch (error) {
     console.error(`System monitoring failed for ${id}:`, error);
-
-    // Keep existing data or set simplified error state to avoid empty UI
-    const current = sessionStatus.value[id];
-    sessionStatus.value = {
-      ...sessionStatus.value,
-      [id]: {
-        uptime: current?.uptime || "Connection Error",
-        disk: current?.disk || null,
-        mounts: current?.mounts || [],
-        ip: current?.ip || "N/A",
-        cpu: current?.cpu || null,
-        memory: current?.memory || null,
-      },
-    };
   } finally {
     isRefreshingSessionStatus.value = false;
   }
 }
 
+function startResize(target: ResizeTarget) {
+  isResizing.value = target;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+}
+
+function handleMouseMove(event: MouseEvent) {
+  if (!isResizing.value || !shellViewportRef.value) return;
+
+  const rect = shellViewportRef.value.getBoundingClientRect();
+  if (isResizing.value === "resource") {
+    const nextWidth = event.clientX - rect.left - 56;
+    resourcePaneWidth.value = clamp(
+      Math.round(nextWidth),
+      RESOURCE_PANE_MIN,
+      RESOURCE_PANE_MAX
+    );
+    return;
+  }
+
+  const nextWidth = rect.right - event.clientX;
+  contextPaneWidth.value = clamp(
+    Math.round(nextWidth),
+    CONTEXT_PANE_MIN,
+    CONTEXT_PANE_MAX
+  );
+}
+
+function handleMouseUp() {
+  if (!isResizing.value) return;
+  isResizing.value = null;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+}
+
+function closeDrawers() {
+  resourceDrawerOpen.value = false;
+  contextDrawerOpen.value = false;
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+  }
+
+  if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+    const key = event.key.toLowerCase();
+
+    if (key === "1") {
+      event.preventDefault();
+      toggleFocusMode();
+      return;
+    }
+
+    if (key === "2") {
+      event.preventDefault();
+      toggleContextPane();
+      return;
+    }
+
+    if (key === "3") {
+      event.preventDefault();
+      setContextTab("ai");
+      return;
+    }
+
+    if (key === "4") {
+      event.preventDefault();
+      setContextTab("files");
+    }
+  }
+}
+
+function openConnectionsWorkbench() {
+  activateActivity("connections");
+}
+
 onMounted(async () => {
-  // 配置 Monaco Editor 的 Web Worker
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, label: string) {
-      if (label === "json") {
-        return "./json.worker.js";
-      }
+      if (label === "json") return "./json.worker.js";
       if (label === "css" || label === "scss" || label === "less") {
         return "./css.worker.js";
       }
@@ -416,626 +727,680 @@ onMounted(async () => {
     },
   };
 
-  // 确保设置在组件挂载前完成加载
   await settingsStore.loadSettings();
+  await connectionStore.loadConnections();
+  await sessionStore.setupEventListeners();
+  await transferStore.initListeners();
+
+  setWindowWidth();
+  window.addEventListener("resize", setWindowWidth);
   window.addEventListener("mousemove", handleMouseMove);
   window.addEventListener("mouseup", handleMouseUp);
   window.addEventListener("keydown", handleGlobalKeydown);
 
-  clockTimer = window.setInterval(() => {
+  clockTimer.value = window.setInterval(() => {
     now.value = Date.now();
   }, 1000);
 
-  // Use a gentler interval to keep status polling from competing with interactive work.
-  statusTimer = window.setInterval(() => {
-    refreshActiveSessionStatus();
+  statusTimer.value = window.setInterval(() => {
+    void refreshActiveSessionStatus();
   }, 3000);
 });
 
 onUnmounted(() => {
+  window.removeEventListener("resize", setWindowWidth);
   window.removeEventListener("mousemove", handleMouseMove);
   window.removeEventListener("mouseup", handleMouseUp);
   window.removeEventListener("keydown", handleGlobalKeydown);
-
-  // User activity listeners no longer needed - using fixed interval
-
-  if (clockTimer !== null) {
-    clearInterval(clockTimer);
-    clockTimer = null;
+  sessionStore.cleanupEventListeners();
+  if (clockTimer.value !== null) {
+    clearInterval(clockTimer.value);
+    clockTimer.value = null;
   }
-
-  if (statusTimer !== null) {
-    clearInterval(statusTimer);
-    statusTimer = null;
+  if (statusTimer.value !== null) {
+    clearInterval(statusTimer.value);
+    statusTimer.value = null;
   }
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
 });
-
-
-function startResize(target: "file" | "ai" | "sidebar") {
-  isResizing.value = target;
-  if (target === "file") {
-    // Cursor depends on layout mode
-    if (layoutMode.value === 'bottom') {
-      document.body.style.cursor = "row-resize";
-    } else {
-      document.body.style.cursor = "col-resize";
-    }
-  } else {
-    document.body.style.cursor = "col-resize";
-  }
-  document.body.style.userSelect = "none";
-}
-
-function handleMouseMove(e: MouseEvent) {
-  if (!isResizing.value) return;
-
-  if (isResizing.value === "sidebar") {
-    // Calculate new sidebar width in pixels relative to the viewport
-    const windowRect = document.body.getBoundingClientRect();
-    const newSidebarWidth = e.clientX - windowRect.left;
-    // Constraints: min 10% of screen width, max 50% of screen width
-    const screenWidth = window.innerWidth;
-    const minWidth = screenWidth * 0.1; // 10% of screen width
-    const maxWidth = screenWidth * 0.5; // 50% of screen width
-    if (newSidebarWidth >= minWidth && newSidebarWidth <= maxWidth) {
-      sidebarWidth.value = newSidebarWidth;
-    }
-    return;
-  }
-
-  // For ai resizer, we need containerRef
-  if (isResizing.value === "ai" && containerRef.value) {
-    const containerRect = containerRef.value.getBoundingClientRect();
-    const totalWidth = containerRect.width;
-
-    // Calculate new AI width. Mouse X is the left edge of AI panel approximately.
-    // AI width = 100 - (percent at mouse X)
-    const mousePercent = ((e.clientX - containerRect.left) / totalWidth) * 100;
-    const newAiWidth = 100 - mousePercent;
-
-    if (newAiWidth > 18 && newAiWidth < 45) {
-      aiWidth.value = newAiWidth;
-    }
-  } else if (isResizing.value === "file") {
-    if (layoutMode.value === 'bottom') {
-      // BOTTOM LAYOUT: Vertical Resize
-
-      // For file resizer, we need mainColumnRefs (vertical resize) of the active session
-      // Find active session index
-      const activeIndex = sessionStore.sessions.findIndex(
-        (s) => s.id === activeSession.value?.id
-      );
-
-      const colEl = activeIndex !== -1 ? mainColumnRefs.value[activeIndex] : null;
-
-      if (colEl) {
-        const columnRect = colEl.getBoundingClientRect();
-        const totalHeight = columnRect.height;
-
-        if (totalHeight > 0) {
-          // Calculate new file height percentage based on mouse Y relative to main column
-          // The resizer is at the top of the file manager, so mouse Y decides the top edge of file manager
-          // File Height = 100 - (percent at mouse Y)
-          const mousePercent = ((e.clientY - columnRect.top) / totalHeight) * 100;
-          const newFileHeight = 100 - mousePercent;
-
-          // Constraints: min 10%, max 80% (leave space for terminal)
-          if (newFileHeight > 15 && newFileHeight < 60) {
-            fileHeight.value = newFileHeight;
-          }
-        }
-      }
-    } else {
-      // LEFT LAYOUT: Horizontal Resize
-
-      if (!containerRef.value) return;
-      const containerRect = containerRef.value.getBoundingClientRect();
-      const totalWidth = containerRect.width;
-
-      // Calculate new file width percentage based on mouse X relative to container
-      const newFileWidth = ((e.clientX - containerRect.left) / totalWidth) * 100;
-
-      // Constraints
-      // Max width limited by AI width
-      if (newFileWidth > 15 && newFileWidth < 100 - aiWidth.value - 10) {
-        fileWidth.value = newFileWidth;
-      }
-    }
-  }
-}
-
-function handleMouseUp() {
-  if (isResizing.value) {
-    isResizing.value = null;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-  }
-}
-
-function handleGlobalKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
-    e.preventDefault();
-    // Optional: Trigger your own search functionality here if needed
-    // For example, if you want Ctrl+F to focus the terminal search bar if it's visible,
-    // you could dispatch a custom event or handle it in the specific component.
-    // But the user specifically asked to just "block default browser search".
-  }
-
-  if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-    const key = e.key.toLowerCase();
-
-    if (key === "1") {
-      e.preventDefault();
-      cycleWorkspaceMode();
-    }
-
-    if (key === "2") {
-      e.preventDefault();
-      toggleAuxiliaryPanel();
-    }
-
-    if (key === "3") {
-      e.preventDefault();
-      toggleSidebar();
-    }
-  }
-}
-
-function handleSaveConnection(conn: Connection) {
-  const action = conn.id
-    ? connectionStore.updateConnection(conn)
-    : connectionStore.addConnection(conn);
-
-  action.then((success) => {
-    if (success) {
-      showConnectionModal.value = false;
-      editingConnection.value = null;
-    } else {
-      notificationStore.error(
-        "Failed to save connection. Please check the logs."
-      );
-    }
-  });
-}
-
-function openNewConnectionModal() {
-  editingConnection.value = null;
-  showConnectionModal.value = true;
-}
-
-function openFileEditor(sessionId: string, filePath: string, fileName: string) {
-  const sessionIndex = sessionStore.sessions.findIndex(
-    (s) => s.id === sessionId
-  );
-  if (sessionIndex !== -1 && terminalTabAreaRefs.value[sessionIndex]) {
-    terminalTabAreaRefs.value[sessionIndex].openFileEditor(filePath, fileName);
-  }
-}
-
-function openEditConnectionModal(conn: Connection) {
-  editingConnection.value = conn;
-  showConnectionModal.value = true;
-}
-
-function switchTerminalToPath(sessionId: string, path: string) {
-  const sessionIndex = sessionStore.sessions.findIndex(s => s.id === sessionId);
-  if (sessionIndex !== -1 && terminalTabAreaRefs.value[sessionIndex]) {
-    terminalTabAreaRefs.value[sessionIndex].switchToPath(path);
-  }
-}
-
-function addAiContextPaths(
-  sessionId: string,
-  paths: { path: string; isDir: boolean }[]
-) {
-  const sessionIndex = sessionStore.sessions.findIndex((s) => s.id === sessionId);
-  const aiAssistant = sessionIndex !== -1
-    ? (aiAssistantRefs.value[sessionIndex] as AiAssistantRef | undefined)
-    : undefined;
-
-  aiAssistant?.addContextPaths(paths);
-}
 </script>
 
 <template>
-  <div class="h-screen w-screen bg-bg-primary text-text-primary flex overflow-hidden font-sans relative">
-    <!-- Sidebar -->
-    <aside v-show="shouldShowSidebar" class="bg-bg-secondary/95 backdrop-blur-sm border-r border-subtle flex flex-col flex-shrink-0"
-      :style="{ width: sidebarWidth + 'px' }">
-      <div class="p-4 border-b border-subtle flex justify-between items-center bg-bg-tertiary/80">
-        <h1 class="text-lg font-semibold text-text-primary">{{ t("app.title") }}</h1>
-        <div class="flex items-center space-x-2">
-          <button @click="showSettingsModal = true" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-elevated transition-all duration-fast"
-            :title="t('app.settings')">
-            <Settings class="w-4 h-4" />
-          </button>
-          <button @click="toggleSidebar" class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-elevated transition-all duration-fast"
-            :title="t('app.collapseSidebar') || 'Collapse Sidebar'">
-            <PanelLeftClose class="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-      <div class="px-2 pt-2">
-        <div class="flex items-center gap-2 bg-bg-tertiary/60 rounded-lg p-1">
-          <button
-            class="flex-1 text-xs font-semibold uppercase tracking-wide rounded-md py-1 transition-colors"
-            :class="sidebarTab === 'connections' ? 'bg-bg-elevated text-text-primary' : 'text-text-muted hover:text-text-primary'"
-            @click="sidebarTab = 'connections'">
-            {{ t('app.connections') || 'Connections' }}
-          </button>
-          <button
-            class="flex-1 text-xs font-semibold uppercase tracking-wide rounded-md py-1 transition-colors"
-            :class="sidebarTab === 'tunnels' ? 'bg-bg-elevated text-text-primary' : 'text-text-muted hover:text-text-primary'"
-            @click="sidebarTab = 'tunnels'">
-            {{ t('app.tunnels') || 'Tunnels' }}
-          </button>
-        </div>
-      </div>
-      <div class="flex-1 overflow-y-auto p-2">
-        <ConnectionList v-if="sidebarTab === 'connections'" @edit="openEditConnectionModal" @tunnels="openTunnelModal" />
-        <TunnelPanel v-else @manage="openTunnelModal" />
-      </div>
-      <div class="p-4 border-t border-subtle bg-bg-tertiary/80">
-        <button @click="openNewConnectionModal"
-          class="w-full btn btn-primary">
-          {{ t("app.newConnection") }}
-        </button>
-      </div>
-    </aside>
-
-    <!-- Sidebar Resizer -->
-    <div v-show="shouldShowSidebar"
-      class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
-      @mousedown.prevent="startResize('sidebar')">
-    </div>
-
-    <!-- Main Content -->
-    <main class="flex-1 flex flex-col bg-bg-primary min-w-0 relative">
-      <!-- Tabs -->
-      <div class="h-10 bg-bg-secondary/95 backdrop-blur-sm border-b border-subtle flex flex-shrink-0">
-        <button v-if="!shouldShowSidebar" @click="toggleSidebar"
-          class="px-3 hover:bg-bg-tertiary border-r border-subtle flex items-center justify-center text-text-muted hover:text-primary transition-all duration-fast"
-          :title="t('app.expandSidebar') || 'Expand Sidebar'">
-          <PanelLeftOpen class="w-4 h-4" />
-        </button>
-        <div class="flex items-center gap-1 border-r border-subtle px-2">
-          <button
-            class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
-            :class="isTerminalFocusMode ? 'bg-bg-tertiary text-primary' : ''"
-            :title="'终端聚焦（Alt+1）'"
-            @click="setWorkspaceMode('terminalFocus')"
+  <div class="h-screen w-screen overflow-hidden bg-bg-primary text-text-primary">
+    <div ref="shellViewportRef" class="flex h-full w-full overflow-hidden">
+      <aside
+        class="flex h-full w-14 shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
+      >
+        <div class="flex h-14 items-center justify-center border-b border-border-primary">
+          <div
+            class="flex h-9 w-9 items-center justify-center rounded-xl border border-border-primary bg-bg-elevated text-sm font-semibold text-text-primary"
           >
-            <Focus class="w-4 h-4" />
+            SS
+          </div>
+        </div>
+
+        <div class="flex flex-1 flex-col items-center gap-2 px-2 py-3">
+          <button
+            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
+            :class="
+              activeActivity === 'connections'
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
+            "
+            :title="t('app.connections')"
+            @click="activateActivity('connections')"
+          >
+            <Monitor class="h-4.5 w-4.5" />
           </button>
           <button
-            class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
-            :class="isFullWorkbenchMode ? 'bg-bg-tertiary text-primary' : ''"
-            :title="'完整工作台（Alt+1 循环）'"
-            @click="setWorkspaceMode('fullWorkbench')"
+            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
+            :class="
+              activeActivity === 'tunnels'
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
+            "
+            :title="t('app.tunnels')"
+            @click="activateActivity('tunnels')"
           >
-            <Rows3 class="w-4 h-4" />
+            <Cable class="h-4.5 w-4.5" />
           </button>
           <button
-            class="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-tertiary transition-all duration-fast"
-            :class="shouldShowAuxiliaryPanel ? 'bg-bg-tertiary text-primary' : ''"
-            :title="'辅助面板显隐（Alt+2）'"
-            @click="toggleAuxiliaryPanel"
+            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
+            :class="
+              activeActivity === 'sessions'
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
+            "
+            :title="t('workbench.sessionsTitle')"
+            @click="activateActivity('sessions')"
           >
-            <component :is="shouldShowAuxiliaryPanel ? PanelRightClose : PanelRightOpen" class="w-4 h-4" />
+            <Rows3 class="h-4.5 w-4.5" />
           </button>
         </div>
-        <div class="px-3 text-xs text-text-muted border-r border-subtle flex items-center whitespace-nowrap">
-          {{ getWorkspaceModeLabel(workspaceMode) }}
+
+        <div class="flex flex-col items-center gap-2 border-t border-border-primary px-2 py-3">
+          <button
+            class="flex h-10 w-10 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary"
+            :title="t('app.settings')"
+            @click="showSettingsModal = true"
+          >
+            <Settings class="h-4.5 w-4.5" />
+          </button>
         </div>
-        <SessionTabs />
-      </div>
+      </aside>
 
-      <!-- Viewport -->
-      <div class="flex-1 relative overflow-hidden" v-if="sessionStore.sessions.length > 0" ref="containerRef">
-        <div v-for="(session, index) in sessionStore.sessions" :key="session.id"
-          v-show="activeSession && session.id === activeSession.id" class="flex-1 absolute inset-0 flex flex-col fade-in">
-          <div class="flex-1 flex overflow-hidden">
-            <!-- Left Column: Terminal & Files -->
-
-            <!-- LAYOUT: BOTTOM (Flex Column) -->
-            <div v-if="layoutMode === 'bottom'" class="flex flex-col h-full overflow-hidden"
-              :style="shouldShowAuxiliaryPanel ? { width: `calc(100% - ${aiWidth}%)` } : { width: '100%' }" :ref="(el: any) => { if (el) mainColumnRefs[index] = el }">
-              <!-- Terminal -->
-              <div class="overflow-hidden flex flex-col flex-1 border-r border-subtle"
-                :class="shouldShowFileManager ? '' : 'border-b-0'"
-                :style="terminalPaneStyle">
-                <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
-                  :sessionId="session.id" />
+      <div class="relative flex min-w-0 flex-1 overflow-hidden">
+        <aside
+          v-if="shouldShowInlineResourcePane"
+          class="flex h-full shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
+          :style="{ width: resourcePaneWidth + 'px' }"
+        >
+          <div
+            v-if="activeActivity !== 'sessions'"
+            class="flex h-14 items-center justify-between border-b border-border-primary px-4"
+          >
+            <div>
+              <div class="text-sm font-semibold text-text-primary">
+                {{ activeResourcePaneMeta.title }}
               </div>
-
-              <!-- Resizer (Horizontal) -->
-              <div
-                v-if="shouldShowFileManager"
-                class="h-1 bg-bg-tertiary hover:bg-primary cursor-row-resize flex-shrink-0 transition-all duration-normal"
-                @mousedown.prevent="startResize('file')">
+              <div class="mt-0.5 text-xs text-text-secondary">
+                {{ activeResourcePaneMeta.subtitle }}
               </div>
+            </div>
+            <button
+              class="rounded-md p-1.5 text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
+              :title="t('workbench.collapseResourcePane')"
+              @click="toggleResourcePane"
+            >
+              <PanelLeftClose class="h-4 w-4" />
+            </button>
+          </div>
 
-              <!-- Files -->
-              <div v-if="shouldShowFileManager" class="overflow-hidden flex flex-col border-r border-subtle bg-bg-secondary/30" :style="{ height: fileHeight + '%' }">
-                <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
-                  (filePath, fileName) =>
-                    openFileEditor(session.id, filePath, fileName)
-                " @switchToTerminalPath="switchTerminalToPath" @addAiContextPaths="addAiContextPaths" />
+          <div class="min-h-0 flex-1">
+            <ConnectionList
+              v-if="activeActivity === 'connections'"
+              @edit="openEditConnectionModal"
+              @tunnels="openTunnelModal"
+            />
+            <div
+              v-else-if="activeActivity === 'tunnels'"
+              class="h-full overflow-y-auto px-4 py-4"
+            >
+              <TunnelPanel @manage="openTunnelModal" />
+            </div>
+            <SessionsWorkbenchPanel
+              v-else
+              @new-connection="openNewConnectionModal"
+            />
+          </div>
+        </aside>
+
+        <div
+          v-if="shouldShowInlineResourcePane"
+          class="w-1 shrink-0 cursor-col-resize bg-bg-primary transition-colors hover:bg-accent"
+          @mousedown.prevent="startResize('resource')"
+        ></div>
+
+        <main class="flex min-w-0 flex-1 flex-col bg-bg-primary">
+          <div class="flex h-10 items-center justify-between border-b border-border-primary px-3">
+            <div class="flex items-center gap-2">
+              <button
+                class="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-bg-secondary hover:text-text-primary"
+                :title="
+                  shouldShowInlineResourcePane || shouldShowResourceDrawer
+                    ? t('workbench.collapseResourcePane')
+                    : t('workbench.expandResourcePane')
+                "
+                @click="toggleResourcePane"
+              >
+                <component
+                  :is="
+                    shouldShowInlineResourcePane || shouldShowResourceDrawer
+                      ? PanelLeftClose
+                      : PanelLeftOpen
+                  "
+                  class="h-4 w-4"
+                />
+              </button>
+              <button
+                class="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-bg-secondary hover:text-text-primary"
+                :class="isFocusMode ? 'bg-bg-secondary text-accent' : ''"
+                :title="t('workbench.focusMode')"
+                @click="toggleFocusMode"
+              >
+                <Focus class="h-4 w-4" />
+              </button>
+              <button
+                class="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-bg-secondary hover:text-text-primary"
+                :class="
+                  shouldShowInlineContextPane || shouldShowContextDrawer
+                    ? 'bg-bg-secondary text-accent'
+                    : ''
+                "
+                :title="
+                  shouldShowInlineContextPane || shouldShowContextDrawer
+                    ? t('workbench.hideContextPane')
+                    : t('workbench.showContextPane')
+                "
+                @click="toggleContextPane"
+              >
+                <component
+                  :is="
+                    shouldShowInlineContextPane || shouldShowContextDrawer
+                      ? PanelRightClose
+                      : PanelRightOpen
+                  "
+                  class="h-4 w-4"
+                />
+              </button>
+            </div>
+
+            <div class="min-w-0 flex-1 px-4 text-center">
+              <div class="truncate text-sm font-medium text-text-primary">
+                {{
+                  activeSession
+                    ? activeSession.connectionName
+                    : t("workbench.noActiveSession")
+                }}
               </div>
             </div>
 
-            <!-- LAYOUT: LEFT (Side by Side) -->
-            <template v-else>
-              <!-- Files (Left) -->
-              <div v-if="shouldShowFileManager" class="overflow-hidden flex flex-col bg-bg-secondary/30" :style="{ width: fileWidth + '%' }">
-                <FileManager :sessionId="session.id" :active="activeSession?.id === session.id" @openFileEditor="
-                  (filePath, fileName) =>
-                    openFileEditor(session.id, filePath, fileName)
-                " @switchToTerminalPath="switchTerminalToPath" @addAiContextPaths="addAiContextPaths" />
-              </div>
+            <div class="flex items-center gap-2">
+              <button
+                class="inline-flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg-elevated"
+                @click="openConnectionsWorkbench"
+              >
+                <Monitor class="h-3.5 w-3.5" />
+                <span>{{ t("workbench.openConnections") }}</span>
+              </button>
+              <button
+                class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-90"
+                @click="openNewConnectionModal"
+              >
+                <Plus class="h-3.5 w-3.5" />
+                <span>{{ t("app.newConnection") }}</span>
+              </button>
+            </div>
+          </div>
 
-              <!-- Resizer (Vertical) -->
-              <div v-if="shouldShowFileManager" class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
-                @mousedown.prevent="startResize('file')">
-              </div>
+          <div class="h-10 border-b border-border-primary bg-bg-secondary">
+            <SessionTabs />
+          </div>
 
-              <!-- Terminal (Center) -->
-              <div class="overflow-hidden flex flex-col flex-1 border-l border-r border-subtle"
-                :class="shouldShowFileManager ? '' : 'border-l-0'"
-                :style="terminalPaneStyle">
-                <TerminalTabArea :ref="(el: any) => { if (el) terminalTabAreaRefs[index] = el }"
-                  :sessionId="session.id" />
+          <div class="relative min-h-0 flex-1 overflow-hidden">
+            <template v-if="sessionStore.sessions.length > 0">
+              <div
+                v-for="(session, index) in sessionStore.sessions"
+                :key="session.id"
+                v-show="activeSession && session.id === activeSession.id"
+                class="absolute inset-0"
+              >
+                <TerminalTabArea
+                  :ref="
+                    (el: any) => {
+                      if (el) terminalTabAreaRefs[index] = el;
+                    }
+                  "
+                  :sessionId="session.id"
+                />
               </div>
             </template>
 
-            <!-- Resizer (Vertical separator) -->
-            <div v-if="shouldShowAuxiliaryPanel" class="w-1 bg-bg-tertiary hover:bg-primary cursor-col-resize flex-shrink-0 transition-all duration-normal"
-              @mousedown.prevent="startResize('ai')">
-            </div>
-
-            <!-- AI -->
-            <div v-if="shouldShowAuxiliaryPanel" class="overflow-hidden flex flex-col bg-bg-secondary/90 backdrop-blur-sm border border-border-primary" :style="{ width: aiWidth + '%' }">
-              <AIAssistant :ref="(el: any) => { if (el) aiAssistantRefs[index] = el }" :sessionId="session.id" :terminal-context="terminalContext"
-                @refresh-context="updateTerminalContext" />
-            </div>
-          </div>
-
-          <!-- Session Status Bar -->
-          <div class="h-8 bg-bg-secondary border-t border-subtle text-xs flex items-center justify-between px-3 backdrop-blur-sm">
-            <div class="text-text-primary">
-              {{ t("app.sessionDuration") }}:
-              {{ activeSessionDuration || "0s" }}
-            </div>
-            <div class="flex-1 flex justify-end items-center space-x-4 ml-4">
-              <template v-if="sessionStatus[session.id]">
-                <!-- Uptime -->
-                <div class="text-text-secondary truncate" :title="sessionStatus[session.id].uptime">
-                  {{ sessionStatus[session.id].uptime }}
+            <div v-else class="flex h-full items-center justify-center px-6">
+              <div class="w-full max-w-xl rounded-2xl border border-border-primary bg-bg-secondary px-8 py-10 text-center">
+                <div class="text-2xl font-semibold text-text-primary">
+                  SSH Assistant
                 </div>
-
-                <!-- Disk Usage -->
-                <div v-if="
-                  sessionStatus[session.id].mounts &&
-                  sessionStatus[session.id].mounts.length > 0
-                "
-                  class="group relative flex items-center cursor-help text-text-secondary hover:text-primary transition-colors duration-fast py-1 -my-1 px-2 -mx-2 rounded hover:bg-bg-tertiary/50">
-                  <div class="flex items-center space-x-1">
-                    <span>Disk:</span>
-                    <span
-                      :class="{ 'text-error': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) > 90, 'text-warning': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) > 80, 'status-online': sessionStatus[session.id].disk && parseInt(sessionStatus[session.id].disk!.percent) <= 80 }">
-                      {{ sessionStatus[session.id].disk?.percent || "N/A" }}
-                    </span>
-                  </div>
-                  <!-- Enhanced Tooltip with all mount points -->
-                  <div
-                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
-                    <div
-                      class="bg-bg-elevated rounded-lg shadow-md p-3 text-xs whitespace-nowrap max-w-[300px] max-h-[400px] overflow-y-auto border border-border-primary">
-                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
-                        Disk Mounts ({{
-                          sessionStatus[session.id].mounts.length
-                        }})
-                      </div>
-                      <div class="space-y-2">
-                        <div v-for="mount in sessionStatus[session.id].mounts" :key="mount.mount"
-                          class="border-b border-subtle/50 pb-2 last:border-b-0">
-                          <div class="flex items-center justify-between mb-1">
-                            <span class="text-primary font-mono text-xs truncate flex-1 mr-2" :title="mount.mount">
-                              {{ mount.mount }}
-                            </span>
-                            <span :class="{
-                              'text-error': parseInt(mount.percent) > 90,
-                              'text-warning': parseInt(mount.percent) > 80,
-                              'status-online': parseInt(mount.percent) <= 80,
-                            }" class="font-mono text-xs">
-                              {{ mount.percent }}
-                            </span>
-                          </div>
-                          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                            <div class="text-text-muted">FS:</div>
-                            <div class="text-text-primary font-mono truncate" :title="mount.filesystem">
-                              {{ mount.filesystem }}
-                            </div>
-                            <div class="text-text-muted">Size:</div>
-                            <div class="text-text-primary font-mono text-right">
-                              {{ mount.size }}
-                            </div>
-                            <div class="text-text-muted">Used:</div>
-                            <div class="text-text-primary font-mono text-right">
-                              {{ mount.used }}
-                            </div>
-                            <div class="text-text-muted">Avail:</div>
-                            <div class="text-text-primary font-mono text-right">
-                              {{ mount.avail }}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <!-- Tooltip arrow -->
-                      <div class="absolute top-full right-4 -mt-1">
-                        <div class="w-2 h-2 bg-bg-secondary border-r border-b border-subtle transform rotate-45"></div>
-                      </div>
-                    </div>
-                  </div>
+                <div class="mt-3 text-sm text-text-secondary">
+                  {{ t("app.selectConnectionToStart") }}
                 </div>
-                <div v-else class="text-text-muted">Disk: N/A</div>
-
-                <!-- CPU Usage -->
-                <div v-if="sessionStatus[session.id].cpu"
-                  class="group relative flex items-center cursor-help text-text-secondary hover:text-primary transition-colors duration-fast py-1 -my-1 px-2 -mx-2 rounded hover:bg-bg-tertiary/50">
-                  <div class="flex items-center space-x-1">
-                    <span>CPU:</span>
-                    <span :class="{
-                      'text-error': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 90,
-                      'text-warning': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) > 70,
-                      'status-online': sessionStatus[session.id].cpu && parseFloat(sessionStatus[session.id].cpu!.usage) <= 70
-                    }">
-                      {{ sessionStatus[session.id].cpu?.usage || "N/A" }}
-                    </span>
-                  </div>
-                  <!-- CPU Tooltip with top 5 processes -->
-                  <div
-                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
-                    <div
-                      class="bg-bg-elevated rounded-lg shadow-md p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
-                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
-                        Top 5 CPU Processes
-                      </div>
-                      <div class="space-y-2">
-                        <div v-for="process in sessionStatus[
-                          session.id
-                        ].cpu?.topProcesses.slice(0, 5)" :key="process.pid"
-                          class="border-b border-subtle/50 pb-2 last:border-b-0">
-                          <div class="flex items-center justify-between mb-1">
-                            <span class="text-primary font-mono text-xs truncate flex-1 mr-2" :title="process.command">
-                              {{ process.command }}
-                            </span>
-                            <span class="text-secondary font-mono text-xs">
-                              {{ process.cpu }}
-                            </span>
-                          </div>
-                          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                            <div class="text-text-muted">PID:</div>
-                            <div class="text-text-primary font-mono">
-                              {{ process.pid }}
-                            </div>
-                            <div class="text-text-muted">Memory:</div>
-                            <div class="text-text-primary font-mono text-right">
-                              {{ process.memory }}
-                            </div>
-                            <div class="text-text-muted">Mem Usage:</div>
-                            <div class="text-text-primary font-mono text-right">
-                              {{ process.memoryPercent }}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <!-- Tooltip arrow -->
-                      <div class="absolute top-full right-4 -mt-1">
-                        <div class="w-2 h-2 bg-bg-secondary border-r border-b border-subtle transform rotate-45"></div>
-                      </div>
-                    </div>
-                  </div>
+                <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-text-secondary">
+                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+1 {{ t("workbench.focusMode") }}</span>
+                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+2 {{ t("workbench.showContextPane") }}</span>
+                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+3 AI</span>
+                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+4 Files</span>
                 </div>
-                <div v-else class="text-text-muted">CPU: N/A</div>
-
-                <!-- Memory Usage -->
-                <div v-if="sessionStatus[session.id].memory"
-                  class="group relative flex items-center cursor-help text-text-secondary hover:text-primary transition-colors duration-fast py-1 -my-1 px-2 -mx-2 rounded hover:bg-bg-tertiary/50">
-                  <div class="flex items-center space-x-1">
-                    <span>Mem:</span>
-                    <span :class="{
-                      'text-error': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 90,
-                      'text-warning': sessionStatus[session.id].memory && sessionStatus[session.id].memory!.usage.includes('%') && parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') > 70,
-                      'status-online': sessionStatus[session.id].memory && (!sessionStatus[session.id].memory!.usage.includes('%') || parseFloat(sessionStatus[session.id].memory!.usage!.match(/[\d.]+/)?.[0] || '0') <= 70)
-                    }">
-                      {{ sessionStatus[session.id].memory?.usage || "N/A" }}
-                    </span>
-                  </div>
-                  <!-- Memory Tooltip with top 5 processes -->
-                  <div
-                    class="absolute bottom-full right-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-tooltip">
-                    <div
-                      class="bg-bg-elevated rounded-lg shadow-md p-3 text-xs whitespace-nowrap max-w-[350px] max-h-[400px] overflow-y-auto border border-border-primary">
-                      <div class="text-text-primary font-medium mb-2 pb-1 border-b border-subtle">
-                        Top 5 Memory Processes
-                      </div>
-                      <div class="space-y-2">
-                        <div v-for="process in sessionStatus[
-                          session.id
-                        ].memory?.topProcesses.slice(0, 5)" :key="process.pid"
-                          class="border-b border-subtle/50 pb-2 last:border-b-0">
-                          <div class="flex items-center justify-between mb-1">
-                            <span class="text-primary font-mono text-xs truncate flex-1 mr-2" :title="process.command">
-                              {{ process.command }}
-                            </span>
-                            <span class="text-accent font-mono text-xs">
-                              {{ process.memory }}
-                            </span>
-                          </div>
-                          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                            <div class="text-text-muted">PID:</div>
-                            <div class="text-text-primary font-mono">
-                              {{ process.pid }}
-                            </div>
-                            <div class="text-text-muted">CPU:</div>
-                            <div class="text-text-primary font-mono text-right">
-                              {{ process.cpu }}
-                            </div>
-                            <div class="text-text-muted">Mem Usage:</div>
-                            <div class="text-text-primary font-mono text-right">
-                              {{ process.memoryPercent }}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <!-- Tooltip arrow -->
-                      <div class="absolute top-full right-4 -mt-1">
-                        <div class="w-2 h-2 bg-bg-secondary border-r border-b border-subtle transform rotate-45"></div>
-                      </div>
-                    </div>
-                  </div>
+                <div class="mt-8 flex items-center justify-center gap-3">
+                  <button class="btn btn-primary" @click="openNewConnectionModal">
+                    {{ t("app.newConnection") }}
+                  </button>
+                  <button class="btn btn-secondary" @click="openConnectionsWorkbench">
+                    {{ t("workbench.openConnections") }}
+                  </button>
                 </div>
-                <div v-else class="text-text-muted">Mem: N/A</div>
-
-                <!-- IP -->
-                <div class="text-text-secondary truncate font-mono" :title="sessionStatus[session.id].ip">
-                  IP: {{ sessionStatus[session.id].ip }}
-                </div>
-              </template>
-              <div v-else class="text-text-muted italic">
-                {{ t("app.loadingStatus") }}
               </div>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="flex-1 flex items-center justify-center px-6" v-else>
-        <div class="max-w-md w-full rounded-2xl border border-subtle bg-bg-secondary/60 backdrop-blur-sm p-6 text-center space-y-3">
-          <div class="text-lg font-semibold text-text-primary">SSH Assistant</div>
-          <div class="text-sm text-text-muted">{{ t("app.selectConnectionToStart") }}</div>
-          <div class="flex items-center justify-center gap-2 text-xs text-text-muted">
-            <span>Alt+1 切换工作区</span>
-            <span>•</span>
-            <span>Alt+2 切换辅助面板</span>
-            <span>•</span>
-            <span>Alt+3 切换侧边栏</span>
-          </div>
-          <button @click="openNewConnectionModal" class="btn btn-primary w-full">
-            {{ t("app.newConnection") }}
-          </button>
-        </div>
-      </div>
-    </main>
 
-    <ConnectionModal :show="showConnectionModal" :connectionToEdit="editingConnection"
-      @close="showConnectionModal = false" @save="handleSaveConnection" />
-    <TunnelModal :show="showTunnelModal" :connection="tunnelConnection"
-      @close="showTunnelModal = false" />
+          <div class="flex h-8 items-center gap-2 overflow-hidden border-t border-border-primary bg-bg-secondary px-3 text-xs text-text-secondary">
+            <span
+              class="rounded-full border border-border-primary px-2 py-0.5 text-text-primary"
+            >
+              {{
+                activeSession
+                  ? activeSession.status
+                  : t("workbench.statusIdle")
+              }}
+            </span>
+            <span v-if="activeSession">
+              {{ t("app.sessionDuration") }} {{ activeSessionDuration }}
+            </span>
+            <span
+              v-if="activeSession?.currentPath"
+              class="truncate rounded-full border border-border-primary px-2 py-0.5"
+            >
+              {{ activeSession.currentPath }}
+            </span>
+            <span
+              v-if="activeSelection.count > 0"
+              class="truncate rounded-full border border-border-primary px-2 py-0.5"
+            >
+              {{
+                t("workbench.statusSelection", {
+                  count: activeSelection.count,
+                })
+              }}
+              <span v-if="activeSelection.targetLabel"> · {{ activeSelection.targetLabel }}</span>
+            </span>
+            <span class="rounded-full border border-border-primary px-2 py-0.5">
+              {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
+            </span>
+            <span
+              v-if="activeTransferSummary.total > 0"
+              class="rounded-full border border-border-primary px-2 py-0.5"
+            >
+              {{
+                t("workbench.statusTransfers", {
+                  total: activeTransferSummary.total,
+                  running: activeTransferSummary.running,
+                })
+              }}
+            </span>
+            <span
+              v-if="activeSession && sessionStatus[activeSession.id]?.uptime"
+              class="rounded-full border border-border-primary px-2 py-0.5"
+            >
+              {{ sessionStatus[activeSession.id].uptime }}
+            </span>
+            <span
+              v-if="activeSession && sessionStatus[activeSession.id]?.disk?.percent"
+              class="rounded-full border border-border-primary px-2 py-0.5"
+            >
+              Disk {{ sessionStatus[activeSession.id].disk?.percent }}
+            </span>
+            <span
+              v-if="activeSession && sessionStatus[activeSession.id]?.ip"
+              class="truncate rounded-full border border-border-primary px-2 py-0.5"
+            >
+              {{ sessionStatus[activeSession.id].ip }}
+            </span>
+          </div>
+        </main>
+
+        <div
+          v-if="shouldShowInlineContextPane"
+          class="w-1 shrink-0 cursor-col-resize bg-bg-primary transition-colors hover:bg-accent"
+          @mousedown.prevent="startResize('context')"
+        ></div>
+
+        <aside
+          v-if="shouldShowInlineContextPane"
+          class="flex h-full shrink-0 flex-col border-l border-border-primary bg-bg-secondary"
+          :style="{ width: contextPaneWidth + 'px' }"
+        >
+          <div class="border-b border-border-primary px-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="truncate text-sm font-semibold text-text-primary">
+                  {{
+                    activeSession
+                      ? activeSession.connectionName
+                      : t("workbench.contextTitle")
+                  }}
+                </div>
+                <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                  <span v-if="activeConnection">{{ activeConnection.username }}@{{ activeConnection.host }}</span>
+                  <span
+                    v-if="activeWorkspace"
+                    class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5"
+                  >
+                    {{ activeWorkspace.name }}
+                  </span>
+                  <span class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5">
+                    {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                class="rounded-md p-1.5 text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
+                :title="t('workbench.refreshContext')"
+                @click="updateTerminalContext"
+              >
+                <RefreshCw class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div class="flex h-11 items-center gap-2 border-b border-border-primary px-3">
+            <button
+              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              :class="
+                activeContextTab === 'ai'
+                  ? 'bg-bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+              "
+              :disabled="!activeSession"
+              @click="setContextTab('ai')"
+            >
+              <span class="inline-flex items-center gap-2">
+                <Bot class="h-4 w-4" />
+                <span>AI</span>
+              </span>
+            </button>
+            <button
+              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              :class="
+                activeContextTab === 'files'
+                  ? 'bg-bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+              "
+              :disabled="!activeSession"
+              @click="setContextTab('files')"
+            >
+              <span class="inline-flex items-center gap-2">
+                <FolderOpen class="h-4 w-4" />
+                <span>Files</span>
+              </span>
+            </button>
+          </div>
+
+          <div class="relative min-h-0 flex-1 overflow-hidden">
+            <template v-if="activeSession">
+              <div
+                v-for="(session, index) in sessionStore.sessions"
+                :key="`${session.id}-context`"
+                v-show="activeSession && session.id === activeSession.id"
+                class="absolute inset-0"
+              >
+                <div v-show="sessionContextTabs[session.id] === 'ai'" class="h-full">
+                  <AIAssistant
+                    :ref="
+                      (el: any) => {
+                        if (el) aiAssistantRefs[index] = el;
+                      }
+                    "
+                    :sessionId="session.id"
+                    :terminal-context="terminalContext"
+                    :show-header="false"
+                    @refresh-context="updateTerminalContext"
+                    @context-meta-change="handleContextMetaChange"
+                  />
+                </div>
+
+                <div v-show="sessionContextTabs[session.id] === 'files'" class="h-full">
+                  <FileManager
+                    :sessionId="session.id"
+                    :active="
+                      activeSession?.id === session.id &&
+                      sessionContextTabs[session.id] === 'files' &&
+                      (shouldShowInlineContextPane || shouldShowContextDrawer)
+                    "
+                    @openFileEditor="
+                      (filePath, fileName) =>
+                        openFileEditor(session.id, filePath, fileName)
+                    "
+                    @switchToTerminalPath="switchTerminalToPath"
+                    @addAiContextPaths="addAiContextPaths"
+                    @path-change="handleFilePathChange"
+                    @selection-change="handleFileSelectionChange"
+                  />
+                </div>
+              </div>
+            </template>
+
+            <div v-else class="flex h-full items-center justify-center px-6 text-center">
+              <div class="space-y-2">
+                <div class="text-sm font-medium text-text-primary">
+                  {{ t("workbench.contextEmptyTitle") }}
+                </div>
+                <div class="text-xs text-text-secondary">
+                  {{ t("workbench.contextEmptyDescription") }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <div
+          v-if="shouldShowAnyDrawer"
+          class="absolute inset-0 z-30 bg-black/30"
+          @click="closeDrawers"
+        ></div>
+
+        <aside
+          v-if="shouldShowResourceDrawer"
+          class="absolute inset-y-0 left-0 z-40 flex w-[320px] max-w-[calc(100%-56px)] flex-col border-r border-border-primary bg-bg-secondary shadow-xl"
+        >
+          <div
+            v-if="activeActivity !== 'sessions'"
+            class="flex h-14 items-center justify-between border-b border-border-primary px-4"
+          >
+            <div>
+              <div class="text-sm font-semibold text-text-primary">
+                {{ activeResourcePaneMeta.title }}
+              </div>
+              <div class="mt-0.5 text-xs text-text-secondary">
+                {{ activeResourcePaneMeta.subtitle }}
+              </div>
+            </div>
+            <button
+              class="rounded-md p-1.5 text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
+              :title="t('workbench.collapseResourcePane')"
+              @click="resourceDrawerOpen = false"
+            >
+              <PanelLeftClose class="h-4 w-4" />
+            </button>
+          </div>
+          <div class="min-h-0 flex-1">
+            <ConnectionList
+              v-if="activeActivity === 'connections'"
+              @edit="openEditConnectionModal"
+              @tunnels="openTunnelModal"
+            />
+            <div
+              v-else-if="activeActivity === 'tunnels'"
+              class="h-full overflow-y-auto px-4 py-4"
+            >
+              <TunnelPanel @manage="openTunnelModal" />
+            </div>
+            <SessionsWorkbenchPanel
+              v-else
+              @new-connection="openNewConnectionModal"
+            />
+          </div>
+        </aside>
+
+        <aside
+          v-if="shouldShowContextDrawer"
+          class="absolute inset-y-0 right-0 z-40 flex w-[min(420px,100%-56px)] flex-col border-l border-border-primary bg-bg-secondary shadow-xl"
+        >
+          <div class="border-b border-border-primary px-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="truncate text-sm font-semibold text-text-primary">
+                  {{
+                    activeSession
+                      ? activeSession.connectionName
+                      : t("workbench.contextTitle")
+                  }}
+                </div>
+                <div class="mt-1 text-xs text-text-secondary">
+                  {{
+                    activeConnection
+                      ? `${activeConnection.username}@${activeConnection.host}`
+                      : t("workbench.contextEmptyDescription")
+                  }}
+                </div>
+              </div>
+              <button
+                class="rounded-md p-1.5 text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
+                :title="t('workbench.hideContextPane')"
+                @click="contextDrawerOpen = false"
+              >
+                <PanelRightClose class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div class="flex h-11 items-center gap-2 border-b border-border-primary px-3">
+            <button
+              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              :class="
+                activeContextTab === 'ai'
+                  ? 'bg-bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+              "
+              :disabled="!activeSession"
+              @click="setContextTab('ai')"
+            >
+              AI
+            </button>
+            <button
+              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              :class="
+                activeContextTab === 'files'
+                  ? 'bg-bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+              "
+              :disabled="!activeSession"
+              @click="setContextTab('files')"
+            >
+              Files
+            </button>
+          </div>
+
+          <div class="relative min-h-0 flex-1 overflow-hidden">
+            <template v-if="activeSession">
+              <div
+                v-for="(session, index) in sessionStore.sessions"
+                :key="`${session.id}-drawer-context`"
+                v-show="activeSession && session.id === activeSession.id"
+                class="absolute inset-0"
+              >
+                <div v-show="sessionContextTabs[session.id] === 'ai'" class="h-full">
+                  <AIAssistant
+                    :ref="
+                      (el: any) => {
+                        if (el) aiAssistantRefs[index] = el;
+                      }
+                    "
+                    :sessionId="session.id"
+                    :terminal-context="terminalContext"
+                    :show-header="false"
+                    @refresh-context="updateTerminalContext"
+                    @context-meta-change="handleContextMetaChange"
+                  />
+                </div>
+
+                <div v-show="sessionContextTabs[session.id] === 'files'" class="h-full">
+                  <FileManager
+                    :sessionId="session.id"
+                    :active="
+                      activeSession?.id === session.id &&
+                      sessionContextTabs[session.id] === 'files' &&
+                      shouldShowContextDrawer
+                    "
+                    @openFileEditor="
+                      (filePath, fileName) =>
+                        openFileEditor(session.id, filePath, fileName)
+                    "
+                    @switchToTerminalPath="switchTerminalToPath"
+                    @addAiContextPaths="addAiContextPaths"
+                    @path-change="handleFilePathChange"
+                    @selection-change="handleFileSelectionChange"
+                  />
+                </div>
+              </div>
+            </template>
+
+            <div v-else class="flex h-full items-center justify-center px-6 text-center">
+              <div class="space-y-2">
+                <div class="text-sm font-medium text-text-primary">
+                  {{ t("workbench.contextEmptyTitle") }}
+                </div>
+                <div class="text-xs text-text-secondary">
+                  {{ t("workbench.contextEmptyDescription") }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <ConnectionModal
+      :show="showConnectionModal"
+      :connectionToEdit="editingConnection"
+      @close="showConnectionModal = false"
+      @save="handleSaveConnection"
+    />
+    <TunnelModal
+      :show="showTunnelModal"
+      :connection="tunnelConnection"
+      @close="showTunnelModal = false"
+    />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
 
-    <NotificationModal v-if="notificationStore.show" :show="notificationStore.show" :type="notificationStore.type"
-      :title="notificationStore.title" :message="notificationStore.message" :duration="notificationStore.duration"
-      @close="notificationStore.close()" />
+    <NotificationModal
+      v-if="notificationStore.show"
+      :show="notificationStore.show"
+      :type="notificationStore.type"
+      :title="notificationStore.title"
+      :message="notificationStore.message"
+      :duration="notificationStore.duration"
+      @close="notificationStore.close()"
+    />
   </div>
 </template>

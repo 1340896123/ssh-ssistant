@@ -16,7 +16,6 @@ import {
   Cable,
   Search,
   Plus,
-  Clock3,
   FolderTree,
   FileDown,
   Star,
@@ -323,15 +322,19 @@ const searchResults = computed<SearchResultItem[]>(() => {
 function matchesQuery(item: Connection | ConnectionGroup): boolean {
   if (!query.value) return true;
 
-  if ('children' in item) {
+  if ("host" in item && "username" in item) {
+    return [item.name, item.host, item.username]
+      .filter(Boolean)
+      .some((value) => value.toLowerCase().includes(query.value));
+  }
+
+  if ("children" in item) {
     const nameMatched = item.name.toLowerCase().includes(query.value);
     if (nameMatched) return true;
     return (item.children ?? []).some((child) => matchesQuery(child));
   }
 
-  return [item.name, item.host, item.username]
-    .filter(Boolean)
-    .some((value) => value.toLowerCase().includes(query.value));
+  return item.name.toLowerCase().includes(query.value);
 }
 
 const filteredTreeData = computed(() => query.value ? treeData.value.filter((item) => matchesQuery(item)) : treeData.value);
@@ -543,19 +546,16 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
           </button>
         </div>
 
-        <div v-if="hasConnections" class="grid grid-cols-3 gap-2 text-xs">
-          <div class="rounded border border-border-primary bg-bg-tertiary px-2.5 py-2">
-            <div class="text-text-secondary">{{ t('connections.summary.total') }}</div>
-            <div class="mt-1 text-sm font-semibold text-text-primary">{{ totalConnections }}</div>
-          </div>
-          <div class="rounded border border-border-primary bg-bg-tertiary px-2.5 py-2">
-            <div class="text-text-secondary">{{ t('connections.summary.groups') }}</div>
-            <div class="mt-1 text-sm font-semibold text-text-primary">{{ totalGroups }}</div>
-          </div>
-          <div class="rounded border border-border-primary bg-bg-tertiary px-2.5 py-2">
-            <div class="text-text-secondary">{{ t('connections.summary.active') }}</div>
-            <div class="mt-1 text-sm font-semibold text-text-primary">{{ activeConnections }}</div>
-          </div>
+        <div v-if="hasConnections" class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-text-secondary">
+            {{ t('connections.summary.total') }} {{ totalConnections }}
+          </span>
+          <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-text-secondary">
+            {{ t('connections.summary.groups') }} {{ totalGroups }}
+          </span>
+          <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-text-secondary">
+            {{ t('connections.summary.active') }} {{ activeConnections }}
+          </span>
         </div>
 
         <div v-if="favoriteConnections.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">

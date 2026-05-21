@@ -10,6 +10,57 @@
     "loadingStatus": "Loading status...",
     "collapseSidebar": "Collapse Sidebar"
   },
+  "workbench": {
+    "connectionsSubtitle": "Connections, favorites, and recent history",
+    "tunnelsSubtitle": "Port forwards and tunnel activity in one place",
+    "sessionsTitle": "Sessions",
+    "sessionsSubtitle": "Track the SSH sessions you are actively working in",
+    "collapseResourcePane": "Collapse resource pane",
+    "expandResourcePane": "Expand resource pane",
+    "showContextPane": "Show context pane",
+    "hideContextPane": "Hide context pane",
+    "focusMode": "Focus mode",
+    "noActiveSession": "No active session",
+    "openConnections": "Open connections",
+    "statusIdle": "Idle",
+    "statusSelection": "{count} selected",
+    "statusContext": "AI context {count}",
+    "statusTransfers": "Transfers {total} / running {running}",
+    "refreshContext": "Refresh context",
+    "contextTitle": "Shared context",
+    "contextEmptyTitle": "Waiting for a connection",
+    "contextEmptyDescription": "Once a session is connected, AI and file context will appear here.",
+    "sessionTabsLabel": "sessions"
+  },
+  "sessionsPane": {
+    "title": "Session workbench",
+    "subtitle": "Switch, reconnect, and organize live sessions",
+    "summary": {
+      "total": "Total",
+      "connected": "Connected",
+      "disconnected": "Disconnected"
+    },
+    "bulk": {
+      "title": "Bulk actions",
+      "hint": "Manage current sessions",
+      "disconnectConnected": "Disconnect connected sessions",
+      "reconnectDisconnected": "Reconnect disconnected sessions",
+      "closeDisconnected": "Close disconnected sessions",
+      "closeAll": "Close all sessions"
+    },
+    "files": "Files",
+    "ai": "AI",
+    "shell": "Shell",
+    "current": "Current",
+    "unknownOs": "Unknown OS",
+    "noPath": "No active path yet",
+    "closeOther": "Close other sessions",
+    "disconnect": "Disconnect",
+    "reconnect": "Reconnect",
+    "close": "Close session",
+    "empty": "No active sessions yet",
+    "emptyHint": "Connect to a server and your sessions will appear here."
+  },
   "connections": {
     "edit": "Edit",
     "delete": "Delete",

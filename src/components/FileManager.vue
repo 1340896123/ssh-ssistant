@@ -121,6 +121,8 @@ const emit = defineEmits<{
     (e: 'openFileEditor', filePath: string, fileName: string): void;
     (e: 'switchToTerminalPath', sessionId: string, path: string): void;
     (e: 'addAiContextPaths', sessionId: string, paths: { path: string; isDir: boolean }[]): void;
+    (e: 'path-change', sessionId: string, path: string): void;
+    (e: 'selection-change', sessionId: string, payload: { count: number; targetLabel: string }): void;
 }>();
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
@@ -226,6 +228,17 @@ const selectedTargetLabel = computed(() => {
     }
     return t('fileManager.hints.multipleTargets', { count: selectedCount.value });
 });
+
+watch(currentLocationLabel, (path) => {
+    emit('path-change', props.sessionId, path);
+}, { immediate: true });
+
+watch([selectedCount, selectedTargetLabel], ([count, targetLabel]) => {
+    emit('selection-change', props.sessionId, {
+        count,
+        targetLabel
+    });
+}, { immediate: true });
 
 function compareEntries(a: FileEntry, b: FileEntry, key: ColumnKey, direction: SortDirection) {
     if (a.name === '..' && b.name !== '..') return -1;

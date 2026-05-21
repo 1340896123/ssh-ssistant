@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, computed, onMounted, onUnmounted } from "vue";
+import { ref, nextTick, computed, onMounted, onUnmounted, watch } from "vue";
 import { useSettingsStore } from "../stores/settings";
 import { useSessionStore } from "../stores/sessions";
 import { invoke } from "@tauri-apps/api/core";
@@ -30,12 +30,18 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
-const props = defineProps({
-  sessionId: String,
-  terminalContext: String,
-});
+const props = withDefaults(
+  defineProps<{
+    sessionId: string;
+    terminalContext?: string;
+    showHeader?: boolean;
+  }>(),
+  {
+  showHeader: true,
+  }
+);
 
-const emit = defineEmits(["refresh-context"]);
+const emit = defineEmits(["refresh-context", "context-meta-change"]);
 
 const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
@@ -1022,6 +1028,16 @@ function addContextPaths(paths: ContextPath[]) {
   }
 }
 
+watch(
+  contextPaths,
+  (paths) => {
+    emit("context-meta-change", props.sessionId, {
+      count: paths.length,
+    });
+  },
+  { deep: true, immediate: true }
+);
+
 function removeContextPath(pathToRemove: string) {
   contextPaths.value = contextPaths.value.filter(
     (c) => c.path !== pathToRemove,
@@ -1063,7 +1079,7 @@ onUnmounted(() => {
 <template>
   <div class="flex flex-col h-full bg-bg-primary text-text-primary">
     <!-- Header -->
-    <div class="flex flex-col bg-bg-secondary border-b border-subtle">
+    <div v-if="props.showHeader" class="flex flex-col bg-bg-secondary border-b border-subtle">
       <div class="flex items-center justify-between px-4 py-2">
         <div class="flex items-center space-x-2">
           <Bot class="w-5 h-5 text-accent" />
