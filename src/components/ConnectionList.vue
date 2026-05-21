@@ -2,13 +2,9 @@
 import { useConnectionStore } from '../stores/connections';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
-import { onMounted, computed, ref, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
   FolderPlus,
-  ChevronRight,
-  ChevronDown,
-  FolderOpen,
-  Folder,
   Monitor,
   Pencil,
   Trash2,
@@ -20,8 +16,6 @@ import {
   FileDown,
   Star,
   History,
-  TriangleAlert,
-  CircleCheck,
   Filter,
   Network,
 } from 'lucide-vue-next';
@@ -39,6 +33,14 @@ type SearchResultItem =
   | { kind: 'connection'; item: Connection; source: ConnectionHistorySource | 'favorite'; matchText: string }
   | { kind: 'group'; item: ConnectionGroup; source: 'tree'; matchText: string };
 
+type SearchConnectionResult = Extract<SearchResultItem, { kind: 'connection' }>;
+type SearchGroupResult = Extract<SearchResultItem, { kind: 'group' }>;
+
+const FAVORITES_PREVIEW_COUNT = 4;
+const HISTORY_PREVIEW_COUNT = 3;
+const HISTORY_EXPANDED_COUNT = 6;
+const FAVORITES_TWO_COLUMN_MIN = 320;
+
 const connectionStore = useConnectionStore();
 const sessionStore = useSessionStore();
 const notificationStore = useNotificationStore();
@@ -50,16 +52,19 @@ const menuX = ref(0);
 const menuY = ref(0);
 const menuItems = ref<MenuItem[]>([]);
 const contextItem = ref<Connection | ConnectionGroup | null>(null);
-const isRootExpanded = ref(true);
-const isHistoryExpanded = ref(true);
-const isFavoritesExpanded = ref(true);
+const isHistoryExpanded = ref(false);
+const isFavoritesExpanded = ref(false);
 const containerRef = ref<HTMLElement | null>(null);
+const paneWidth = ref(300);
+let resizeObserver: ResizeObserver | null = null;
 let unlistenDrop: (() => void) | null = null;
 let unlistenDragEnter: (() => void) | null = null;
 let unlistenDragLeave: (() => void) | null = null;
-const isDragOver = ref(false);
+const isImportDragOver = ref(false);
+const isRootDropActive = ref(false);
 const searchQuery = ref('');
 const historyFilter = ref<HistoryFilter>('all');
+const draggedItem = ref<{ type: 'connection' | 'group'; id: number } | null>(null);
 
 function closeMenu() {
   menuVisible.value = false;
@@ -175,21 +180,36 @@ function handleItemContextMenu(event: MouseEvent, item: Connection | ConnectionG
 }
 
 onMounted(async () => {
-  connectionStore.loadConnections();
+  void connectionStore.loadConnections();
+
+  if (containerRef.value) {
+    paneWidth.value = Math.round(containerRef.value.clientWidth);
+
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (entry) {
+          paneWidth.value = Math.round(entry.contentRect.width);
+        }
+      });
+
+      resizeObserver.observe(containerRef.value);
+    }
+  }
 
   unlistenDragEnter = await listen('tauri://drag-enter', (event) => {
     const payload = event.payload as { paths: string[]; position: { x: number; y: number } };
     if (payload.paths && payload.paths.length > 0) {
-      isDragOver.value = true;
+      isImportDragOver.value = true;
     }
   });
 
   unlistenDragLeave = await listen('tauri://drag-leave', () => {
-    isDragOver.value = false;
+    isImportDragOver.value = false;
   });
 
   unlistenDrop = await listen('tauri://drag-drop', async (event) => {
-    isDragOver.value = false;
+    isImportDragOver.value = false;
     const payload = event.payload as { paths: string[]; position: { x: number; y: number } };
     if (!containerRef.value) return;
     const rect = containerRef.value.getBoundingClientRect();
@@ -226,14 +246,26 @@ onUnmounted(() => {
   if (unlistenDrop) unlistenDrop();
   if (unlistenDragEnter) unlistenDragEnter();
   if (unlistenDragLeave) unlistenDragLeave();
+  if (resizeObserver) resizeObserver.disconnect();
 });
 
 const treeData = computed(() => connectionStore.treeData);
 const totalConnections = computed(() => connectionStore.connections.length);
 const totalGroups = computed(() => connectionStore.groups.length);
 const activeConnections = computed(() => sessionStore.sessions.length);
+const hasConnections = computed(() => totalConnections.value > 0 || totalGroups.value > 0);
 const query = computed(() => searchQuery.value.trim().toLowerCase());
-const favoriteConnections = computed(() => connectionStore.favoriteConnections.slice(0, 6));
+const isSearchMode = computed(() => query.value.length > 0);
+const favoriteConnections = computed(() => connectionStore.favoriteConnections);
+const visibleFavoriteConnections = computed(() => (
+  isFavoritesExpanded.value
+    ? favoriteConnections.value
+    : favoriteConnections.value.slice(0, FAVORITES_PREVIEW_COUNT)
+));
+const canToggleFavorites = computed(() => favoriteConnections.value.length > FAVORITES_PREVIEW_COUNT);
+const favoritesGridClass = computed(() => (
+  paneWidth.value >= FAVORITES_TWO_COLUMN_MIN ? 'grid-cols-2' : 'grid-cols-1'
+));
 
 const historyConnectionMap = computed(() => {
   const map = new Map<number, Connection>();
@@ -245,21 +277,26 @@ const historyConnectionMap = computed(() => {
   return map;
 });
 
-const historyItems = computed(() => {
-  const filtered = connectionStore.historyEntries.filter((entry) => {
-    if (historyFilter.value === 'all') return true;
-    return entry.status === historyFilter.value;
-  });
-
-  return filtered
+const mappedHistoryEntries = computed(() => (
+  connectionStore.historyEntries
     .map((entry) => {
       const connection = historyConnectionMap.value.get(entry.connectionId);
       if (!connection) return null;
       return { entry, connection };
     })
     .filter((item): item is { entry: ConnectionHistoryEntry; connection: Connection } => item !== null)
-    .slice(0, 8);
-});
+));
+
+const historyItems = computed(() => mappedHistoryEntries.value.filter((item) => {
+  if (historyFilter.value === 'all') return true;
+  return item.entry.status === historyFilter.value;
+}));
+
+const visibleHistoryItems = computed(() => (
+  historyItems.value.slice(0, isHistoryExpanded.value ? HISTORY_EXPANDED_COUNT : HISTORY_PREVIEW_COUNT)
+));
+
+const canToggleHistory = computed(() => historyItems.value.length > HISTORY_PREVIEW_COUNT);
 
 function sourceLabel(source: ConnectionHistorySource | 'favorite') {
   switch (source) {
@@ -297,7 +334,7 @@ const searchResults = computed<SearchResultItem[]>(() => {
     }
   }
 
-  for (const { connection, entry } of historyItems.value) {
+  for (const { connection, entry } of mappedHistoryEntries.value) {
     if ([connection.name, connection.host, connection.username].some((value) => value?.toLowerCase().includes(query.value))) {
       pushConnection(connection, entry.source === 'tree' ? 'history' : entry.source);
     }
@@ -319,27 +356,17 @@ const searchResults = computed<SearchResultItem[]>(() => {
   return results;
 });
 
-function matchesQuery(item: Connection | ConnectionGroup): boolean {
-  if (!query.value) return true;
+const searchConnectionResults = computed<SearchConnectionResult[]>(() => (
+  searchResults.value.filter((result): result is SearchConnectionResult => result.kind === 'connection')
+));
 
-  if ("host" in item && "username" in item) {
-    return [item.name, item.host, item.username]
-      .filter(Boolean)
-      .some((value) => value.toLowerCase().includes(query.value));
-  }
+const searchGroupResults = computed<SearchGroupResult[]>(() => (
+  searchResults.value.filter((result): result is SearchGroupResult => result.kind === 'group')
+));
 
-  if ("children" in item) {
-    const nameMatched = item.name.toLowerCase().includes(query.value);
-    if (nameMatched) return true;
-    return (item.children ?? []).some((child) => matchesQuery(child));
-  }
-
-  return item.name.toLowerCase().includes(query.value);
-}
-
-const filteredTreeData = computed(() => query.value ? treeData.value.filter((item) => matchesQuery(item)) : treeData.value);
-const hasConnections = computed(() => totalConnections.value > 0 || totalGroups.value > 0);
-const hasFilteredResults = computed(() => filteredTreeData.value.length > 0 || searchResults.value.length > 0);
+const hasSearchResults = computed(() => (
+  searchConnectionResults.value.length > 0 || searchGroupResults.value.length > 0
+));
 
 function openNewConnection() {
   emit('edit', null);
@@ -362,27 +389,26 @@ function formatRecentTime(timestamp: number) {
   return `${days}d`;
 }
 
-const draggedItem = ref<{ type: 'connection' | 'group'; id: number } | null>(null);
-
 function onDragStart(event: DragEvent, item: Connection | ConnectionGroup) {
   if (event.dataTransfer) {
     const type = getItemType(item);
     draggedItem.value = { type, id: item.id! };
+    isRootDropActive.value = false;
     event.dataTransfer.effectAllowed = 'move';
     const data = JSON.stringify({ type, id: item.id });
     event.dataTransfer.setData('application/json', data);
   }
 }
 
-function onDragOver(event: DragEvent) {
-  event.preventDefault();
-  event.stopPropagation();
-  event.dataTransfer!.dropEffect = 'move';
+function onTreeDragEnd() {
+  draggedItem.value = null;
+  isRootDropActive.value = false;
 }
 
 async function onDrop(event: DragEvent, targetGroupId: number | null) {
   event.preventDefault();
   event.stopPropagation();
+  isRootDropActive.value = false;
   const data = event.dataTransfer?.getData('application/json');
   if (data) {
     try {
@@ -410,13 +436,31 @@ async function onDrop(event: DragEvent, targetGroupId: number | null) {
   draggedItem.value = null;
 }
 
-function connect(conn: Connection, source: ConnectionHistorySource = 'tree') {
-  if (conn.id !== undefined) {
-    if (source === 'quick') {
-      connectionStore.addSuccessfulConnection(conn.id, 'quick');
-    }
+function onRootDragOver(event: DragEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (!draggedItem.value) return;
+
+  event.dataTransfer!.dropEffect = 'move';
+  isRootDropActive.value = true;
+}
+
+function onRootDragLeave(event: DragEvent) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const { clientX, clientY } = event;
+
+  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+    isRootDropActive.value = false;
   }
-  sessionStore.createSession(conn);
+}
+
+async function onRootDrop(event: DragEvent) {
+  await onDrop(event, null);
+}
+
+function connect(conn: Connection, source: ConnectionHistorySource = 'tree') {
+  sessionStore.createSession(conn, source);
 }
 
 function handleEdit(conn: Connection) {
@@ -467,7 +511,11 @@ function getItemType(item: Connection | ConnectionGroup): 'connection' | 'group'
 }
 
 function getItemKey(item: Connection | ConnectionGroup) {
-  return getItemType(item) + '-' + item.id;
+  return `${getItemType(item)}-${item.id}`;
+}
+
+function getSearchResultKey(result: SearchResultItem) {
+  return `${result.kind}-${result.item.id}`;
 }
 
 function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
@@ -476,9 +524,9 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
 </script>
 
 <template>
-  <div ref="containerRef" class="flex h-full flex-col relative" @contextmenu.prevent="handleContextMenu">
+  <div ref="containerRef" class="relative flex h-full flex-col overflow-hidden" @contextmenu.prevent="handleContextMenu">
     <div
-      v-if="isDragOver"
+      v-if="isImportDragOver"
       class="absolute inset-0 z-50 flex items-center justify-center rounded border-2 border-accent bg-accent/10 pointer-events-none"
     >
       <div class="rounded border border-border-primary bg-bg-elevated px-4 py-2 font-medium text-text-primary shadow-md">
@@ -486,174 +534,114 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
       </div>
     </div>
 
-    <div
-      class="group flex items-center justify-between rounded p-2 shadow-interactive transition-all duration-200 hover:bg-bg-tertiary cursor-pointer select-none"
-      @click="isRootExpanded = !isRootExpanded"
-      @contextmenu.stop.prevent="handleContextMenu"
-    >
-      <div class="flex flex-1 items-center gap-2 overflow-hidden">
-        <button class="rounded p-0.5 text-text-secondary transition-all hover:bg-bg-elevated hover:text-text-primary">
-          <ChevronDown v-if="isRootExpanded" class="h-3 w-3" />
-          <ChevronRight v-else class="h-3 w-3" />
-        </button>
-        <FolderOpen v-if="isRootExpanded" class="h-4 w-4 text-text-secondary" />
-        <Folder v-else class="h-4 w-4 text-text-secondary" />
-        <span class="truncate text-sm font-bold text-text-primary">{{ t('connections.rootLabel') }}</span>
-      </div>
-
-      <div class="flex items-center opacity-0 transition-opacity group-hover:opacity-100">
-        <button
-          class="cursor-pointer p-1 text-text-secondary hover:text-success"
-          :title="t('connections.contextMenu.newGroup')"
-          @click.stop="handleCreateGroup()"
-        >
-          <FolderPlus class="h-3 w-3" />
-        </button>
-      </div>
-    </div>
-
-    <div
-      v-if="isRootExpanded"
-      class="flex-1 overflow-y-auto"
-      @dragover="onDragOver"
-      @drop="onDrop($event, null)"
-      @contextmenu="handleContextMenu"
-    >
-      <div
-        v-if="isDragOver"
-        class="mx-2 mb-2 rounded border-2 border-dashed border-accent bg-bg-secondary p-3 text-center text-sm text-text-primary shadow-interactive"
-      >
-        {{ t('connections.dropToRoot') }}
-      </div>
-
-      <div class="space-y-3 border-b border-border-primary bg-bg-secondary/60 px-2 pb-3 pt-2">
-        <div class="flex items-center gap-2">
-          <div class="relative flex-1">
-            <Search class="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-secondary" />
-            <input
-              v-model="searchQuery"
-              type="text"
-              :placeholder="t('connections.searchPlaceholder')"
-              class="h-9 w-full rounded border border-border-primary bg-bg-tertiary pl-8 pr-3 text-sm text-text-primary outline-none focus:border-accent"
-            />
+    <div class="shrink-0 border-b border-border-primary bg-bg-secondary/95 px-3 py-3 backdrop-blur">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-sm font-semibold text-text-primary">{{ t('connections.overviewTitle') }}</div>
+          <div class="mt-1 truncate text-xs text-text-secondary">
+            {{ isSearchMode ? t('connections.searchResultsTitle') : t('connections.treeHint') }}
           </div>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <button
+            class="flex h-9 w-9 items-center justify-center rounded border border-border-primary bg-bg-tertiary text-text-primary transition-all hover:bg-bg-elevated"
+            :title="t('connections.contextMenu.newGroup')"
+            @click.stop="handleCreateGroup()"
+          >
+            <FolderPlus class="h-4 w-4" />
+          </button>
           <button
             class="flex h-9 items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-all hover:bg-bg-elevated"
             @click.stop="openNewConnection"
           >
             <Plus class="h-3.5 w-3.5" />
-            <span>{{ t('connections.new') }}</span>
+            <span class="whitespace-nowrap">{{ t('connections.new') }}</span>
           </button>
         </div>
+      </div>
 
-        <div v-if="hasConnections" class="flex flex-wrap items-center gap-2 text-xs">
-          <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-text-secondary">
-            {{ t('connections.summary.total') }} {{ totalConnections }}
-          </span>
-          <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-text-secondary">
-            {{ t('connections.summary.groups') }} {{ totalGroups }}
-          </span>
-          <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-text-secondary">
-            {{ t('connections.summary.active') }} {{ activeConnections }}
-          </span>
+      <div class="mt-3 flex items-center gap-2">
+        <div class="relative min-w-0 flex-1">
+          <Search class="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-secondary" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="t('connections.searchPlaceholder')"
+            class="h-9 w-full rounded border border-border-primary bg-bg-tertiary pl-8 pr-3 text-sm text-text-primary outline-none focus:border-accent"
+          />
+        </div>
+      </div>
+
+      <div v-if="hasConnections" class="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+          {{ t('connections.summary.total') }} {{ totalConnections }}
+        </span>
+        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+          {{ t('connections.summary.groups') }} {{ totalGroups }}
+        </span>
+        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+          {{ t('connections.summary.active') }} {{ activeConnections }}
+        </span>
+      </div>
+    </div>
+
+    <div class="min-h-0 flex-1">
+      <div v-if="!hasConnections" class="h-full overflow-y-auto px-3 py-3">
+        <div class="rounded-xl border border-dashed border-border-primary bg-bg-secondary/70 p-5 text-center">
+          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-bg-tertiary text-accent">
+            <FolderTree class="h-6 w-6" />
+          </div>
+          <div class="text-sm font-medium text-text-primary">{{ t('connections.empty.title') }}</div>
+          <div class="mt-1 text-xs leading-5 text-text-secondary">{{ t('connections.empty.description') }}</div>
+          <div class="mt-4 flex items-center justify-center gap-2">
+            <button class="h-9 rounded border border-border-primary bg-accent px-3 text-sm text-white transition-all hover:opacity-90" @click.stop="openNewConnection">
+              {{ t('connections.empty.createConnection') }}
+            </button>
+            <button class="flex h-9 items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-all hover:bg-bg-elevated" @click.stop="handleCreateGroup()">
+              <FolderPlus class="h-3.5 w-3.5" />
+              <span>{{ t('connections.empty.createGroup') }}</span>
+            </button>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-2 text-left text-xs text-text-secondary">
+            <div class="rounded border border-border-primary bg-bg-tertiary/80 px-3 py-2">
+              <div class="flex items-center gap-1.5 text-text-primary">
+                <Monitor class="h-3.5 w-3.5" />
+                <span>{{ t('connections.empty.tipConnect') }}</span>
+              </div>
+            </div>
+            <div class="rounded border border-border-primary bg-bg-tertiary/80 px-3 py-2">
+              <div class="flex items-center gap-1.5 text-text-primary">
+                <FileDown class="h-3.5 w-3.5" />
+                <span>{{ t('connections.empty.tipImport') }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="isSearchMode" class="h-full overflow-y-auto px-3 py-3">
+        <div v-if="!hasSearchResults" class="rounded-xl border border-dashed border-border-primary bg-bg-secondary/70 p-5 text-center">
+          <div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg-tertiary text-text-secondary">
+            <Search class="h-5 w-5" />
+          </div>
+          <div class="text-sm font-medium text-text-primary">{{ t('connections.searchEmpty.title') }}</div>
+          <div class="mt-1 text-xs text-text-secondary">{{ t('connections.searchEmpty.description') }}</div>
         </div>
 
-        <div v-if="favoriteConnections.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
-          <button class="flex w-full items-center justify-between" @click="isFavoritesExpanded = !isFavoritesExpanded">
+        <div v-else class="space-y-3">
+          <div v-if="searchConnectionResults.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-secondary/60 p-3">
             <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
-              <Star class="h-3.5 w-3.5" />
-              <span>{{ t('connections.quickAccessTitle') }}</span>
+              <Search class="h-3.5 w-3.5" />
+              <span>{{ t('connections.searchConnectionsTitle') }}</span>
             </div>
-            <ChevronDown v-if="isFavoritesExpanded" class="h-3.5 w-3.5 text-text-secondary" />
-            <ChevronRight v-else class="h-3.5 w-3.5 text-text-secondary" />
-          </button>
-
-          <div v-if="isFavoritesExpanded" class="grid gap-2">
-            <button
-              v-for="conn in favoriteConnections"
-              :key="`favorite-${conn.id}`"
-              class="w-full rounded-lg border border-border-primary bg-bg-secondary px-3 py-2 text-left transition-all hover:bg-bg-elevated"
-              @click="connect(conn, 'quick')"
-            >
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="truncate text-sm text-text-primary">{{ conn.name }}</span>
-                    <span class="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent">{{ t('connections.sources.favorite') }}</span>
-                  </div>
-                  <div class="mt-1 truncate text-xs text-text-secondary">{{ conn.username }}@{{ conn.host }}</div>
-                </div>
-                <button
-                  class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-warning"
-                  @click.stop="toggleFavorite(conn.id)"
-                >
-                  <Star class="h-3.5 w-3.5 fill-current" />
-                </button>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="hasConnections" class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
-          <div class="flex items-center justify-between gap-2">
-            <button class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary" @click="isHistoryExpanded = !isHistoryExpanded">
-              <History class="h-3.5 w-3.5" />
-              <span>{{ t('connections.history.title') }}</span>
-            </button>
-            <div class="flex items-center gap-1 rounded-full bg-bg-secondary p-1 text-[11px]">
-              <Filter class="h-3 w-3 text-text-secondary" />
-              <button class="rounded-full px-2 py-1" :class="historyFilter === 'all' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'all'">{{ t('connections.history.filters.all') }}</button>
-              <button class="rounded-full px-2 py-1" :class="historyFilter === 'success' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'success'">{{ t('connections.history.filters.success') }}</button>
-              <button class="rounded-full px-2 py-1" :class="historyFilter === 'failed' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'failed'">{{ t('connections.history.filters.failed') }}</button>
-            </div>
-          </div>
-
-          <div v-if="isHistoryExpanded" class="space-y-2">
-            <div v-if="historyItems.length === 0" class="rounded-lg border border-dashed border-border-primary bg-bg-secondary px-3 py-4 text-center text-xs text-text-secondary">
-              {{ t('connections.history.empty') }}
-            </div>
-
-            <div v-for="item in historyItems" :key="`${item.connection.id}-${item.entry.connectedAt}`" class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-2">
-              <div class="flex items-start justify-between gap-3">
-                <button class="min-w-0 flex-1 text-left" @click="connect(item.connection, 'history')">
-                  <div class="flex items-center gap-2">
-                    <span class="truncate text-sm text-text-primary">{{ item.connection.name }}</span>
-                    <span class="rounded-full px-2 py-0.5 text-[11px]" :class="item.entry.status === 'success' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'">
-                      {{ historyStatusLabel(item.entry.status) }}
-                    </span>
-                    <span class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary">{{ sourceLabel(item.entry.source) }}</span>
-                  </div>
-                  <div class="mt-1 truncate text-xs text-text-secondary">{{ item.connection.username }}@{{ item.connection.host }}</div>
-                  <div class="mt-1 flex items-center gap-2 text-[11px] text-text-secondary">
-                    <CircleCheck v-if="item.entry.status === 'success'" class="h-3.5 w-3.5 text-success" />
-                    <TriangleAlert v-else class="h-3.5 w-3.5 text-error" />
-                    <span>{{ formatRecentTime(item.entry.connectedAt) }}</span>
-                    <span v-if="item.entry.reason" class="truncate">{{ item.entry.reason }}</span>
-                  </div>
-                </button>
-                <div class="flex items-center gap-1">
-                  <button class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-warning" @click.stop="toggleFavorite(item.connection.id)">
-                    <Star class="h-3.5 w-3.5" :class="isFavorite(item.connection.id) ? 'fill-current text-warning' : ''" />
-                  </button>
-                  <button class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary" @click.stop="handleEdit(item.connection)">
-                    <Pencil class="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="query && searchResults.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
-          <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
-            <Search class="h-3.5 w-3.5" />
-            <span>{{ t('connections.searchResultsTitle') }}</span>
-          </div>
-          <div class="grid gap-2">
-            <div v-for="result in searchResults" :key="`${result.kind}-${result.item.id}`" class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-2">
-              <template v-if="result.kind === 'connection'">
+            <div class="grid gap-2">
+              <div
+                v-for="result in searchConnectionResults"
+                :key="getSearchResultKey(result)"
+                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+              >
                 <div class="flex items-start justify-between gap-3">
-                  <button class="min-w-0 flex-1 text-left" @click="connect(result.item, result.source === 'favorite' ? 'quick' : result.source)">
+                  <button class="min-w-0 flex-1 text-left" @click="connect(result.item, 'search')">
                     <div class="flex items-center gap-2">
                       <span class="truncate text-sm text-text-primary">{{ result.item.name }}</span>
                       <span class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary">{{ sourceLabel(result.source) }}</span>
@@ -664,8 +652,21 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
                     <Star class="h-3.5 w-3.5" :class="isFavorite(result.item.id) ? 'fill-current text-warning' : ''" />
                   </button>
                 </div>
-              </template>
-              <template v-else>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="searchGroupResults.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-secondary/60 p-3">
+            <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
+              <FolderTree class="h-3.5 w-3.5" />
+              <span>{{ t('connections.searchGroupsTitle') }}</span>
+            </div>
+            <div class="grid gap-2">
+              <div
+                v-for="result in searchGroupResults"
+                :key="getSearchResultKey(result)"
+                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+              >
                 <div class="flex items-center justify-between gap-3">
                   <div class="min-w-0">
                     <div class="truncate text-sm text-text-primary">{{ result.item.name }}</div>
@@ -675,75 +676,154 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
                     </div>
                   </div>
                 </div>
-              </template>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div v-if="!hasConnections" class="mx-2 my-3 flex-1 rounded-xl border border-dashed border-border-primary bg-bg-secondary/70 p-5 text-center">
-        <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-bg-tertiary text-accent">
-          <FolderTree class="h-6 w-6" />
-        </div>
-        <div class="text-sm font-medium text-text-primary">{{ t('connections.empty.title') }}</div>
-        <div class="mt-1 text-xs leading-5 text-text-secondary">{{ t('connections.empty.description') }}</div>
-        <div class="mt-4 flex items-center justify-center gap-2">
-          <button class="h-9 rounded border border-border-primary bg-accent px-3 text-sm text-white transition-all hover:opacity-90" @click.stop="openNewConnection">
-            {{ t('connections.empty.createConnection') }}
-          </button>
-          <button class="flex h-9 items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-all hover:bg-bg-elevated" @click.stop="handleCreateGroup()">
-            <FolderPlus class="h-3.5 w-3.5" />
-            <span>{{ t('connections.empty.createGroup') }}</span>
-          </button>
-        </div>
-        <div class="mt-4 grid grid-cols-2 gap-2 text-left text-xs text-text-secondary">
-          <div class="rounded border border-border-primary bg-bg-tertiary/80 px-3 py-2">
-            <div class="flex items-center gap-1.5 text-text-primary">
-              <Monitor class="h-3.5 w-3.5" />
-              <span>{{ t('connections.empty.tipConnect') }}</span>
+      <div v-else class="flex h-full min-h-0 flex-col">
+        <div class="shrink-0 space-y-3 border-b border-border-primary bg-bg-secondary/35 px-3 py-3">
+          <div v-if="favoriteConnections.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
+                <Star class="h-3.5 w-3.5" />
+                <span>{{ t('connections.quickAccessTitle') }}</span>
+              </div>
+              <button
+                v-if="canToggleFavorites"
+                class="text-xs text-accent transition-colors hover:text-accent/80"
+                @click="isFavoritesExpanded = !isFavoritesExpanded"
+              >
+                {{ t(isFavoritesExpanded ? 'connections.showLess' : 'connections.showMore') }}
+              </button>
+            </div>
+
+            <div class="grid gap-2" :class="favoritesGridClass">
+              <div
+                v-for="conn in visibleFavoriteConnections"
+                :key="`favorite-${conn.id}`"
+                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <button class="min-w-0 flex-1 text-left" @click="connect(conn, 'quick')">
+                    <div class="truncate text-sm text-text-primary">{{ conn.name }}</div>
+                    <div class="mt-1 truncate text-xs text-text-secondary">{{ conn.username }}@{{ conn.host }}</div>
+                  </button>
+                  <button
+                    class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-warning"
+                    @click.stop="toggleFavorite(conn.id)"
+                  >
+                    <Star class="h-3.5 w-3.5 fill-current text-warning" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="rounded border border-border-primary bg-bg-tertiary/80 px-3 py-2">
-            <div class="flex items-center gap-1.5 text-text-primary">
-              <FileDown class="h-3.5 w-3.5" />
-              <span>{{ t('connections.empty.tipImport') }}</span>
+
+          <div class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
+                <History class="h-3.5 w-3.5" />
+                <span>{{ t('connections.history.title') }}</span>
+              </div>
+              <button
+                v-if="canToggleHistory"
+                class="text-xs text-accent transition-colors hover:text-accent/80"
+                @click="isHistoryExpanded = !isHistoryExpanded"
+              >
+                {{ t(isHistoryExpanded ? 'connections.showLess' : 'connections.showMore') }}
+              </button>
+            </div>
+
+            <div v-if="isHistoryExpanded && mappedHistoryEntries.length > 0" class="flex items-center gap-1 rounded-full bg-bg-primary p-1 text-[11px]">
+              <Filter class="ml-1 h-3 w-3 text-text-secondary" />
+              <button class="rounded-full px-2 py-1" :class="historyFilter === 'all' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'all'">{{ t('connections.history.filters.all') }}</button>
+              <button class="rounded-full px-2 py-1" :class="historyFilter === 'success' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'success'">{{ t('connections.history.filters.success') }}</button>
+              <button class="rounded-full px-2 py-1" :class="historyFilter === 'failed' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'failed'">{{ t('connections.history.filters.failed') }}</button>
+            </div>
+
+            <div v-if="visibleHistoryItems.length === 0" class="rounded-lg border border-dashed border-border-primary bg-bg-primary px-3 py-4 text-center text-xs text-text-secondary">
+              {{ t('connections.history.empty') }}
+            </div>
+
+            <div v-else class="space-y-2" :class="isHistoryExpanded ? 'max-h-64 overflow-y-auto pr-1' : ''">
+              <div
+                v-for="item in visibleHistoryItems"
+                :key="`${item.connection.id}-${item.entry.connectedAt}`"
+                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <button class="min-w-0 flex-1 text-left" @click="connect(item.connection, 'history')">
+                    <div class="flex items-center gap-2">
+                      <span class="min-w-0 flex-1 truncate text-sm text-text-primary">{{ item.connection.name }}</span>
+                      <span class="rounded-full px-2 py-0.5 text-[11px]" :class="item.entry.status === 'success' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'">
+                        {{ historyStatusLabel(item.entry.status) }}
+                      </span>
+                      <span class="shrink-0 text-[11px] text-text-secondary">{{ formatRecentTime(item.entry.connectedAt) }}</span>
+                    </div>
+                    <div class="mt-1 truncate text-xs text-text-secondary">{{ item.connection.username }}@{{ item.connection.host }}</div>
+                    <div v-if="item.entry.status === 'failed' && item.entry.reason" class="mt-1 truncate text-[11px] text-error">
+                      {{ item.entry.reason }}
+                    </div>
+                  </button>
+                  <div class="flex items-center gap-1">
+                    <button class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-warning" @click.stop="toggleFavorite(item.connection.id)">
+                      <Star class="h-3.5 w-3.5" :class="isFavorite(item.connection.id) ? 'fill-current text-warning' : ''" />
+                    </button>
+                    <button class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary" @click.stop="handleEdit(item.connection)">
+                      <Pencil class="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div v-else-if="query && !hasFilteredResults" class="mx-2 my-3 rounded-xl border border-dashed border-border-primary bg-bg-secondary/70 p-5 text-center">
-        <div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg-tertiary text-text-secondary">
-          <Search class="h-5 w-5" />
-        </div>
-        <div class="text-sm font-medium text-text-primary">{{ t('connections.searchEmpty.title') }}</div>
-        <div class="mt-1 text-xs text-text-secondary">{{ t('connections.searchEmpty.description') }}</div>
-      </div>
+        <div class="min-h-0 flex-1 px-3 py-3">
+          <div class="flex h-full min-h-0 flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
+            <div class="flex items-center justify-between gap-3 border-b border-border-primary px-3 py-2.5 text-xs">
+              <div class="flex items-center gap-1.5 font-medium uppercase tracking-wide text-text-secondary">
+                <FolderTree class="h-3.5 w-3.5" />
+                <span>{{ t('connections.treeTitle') }}</span>
+              </div>
+              <span class="text-text-secondary">{{ t('connections.treeHint') }}</span>
+            </div>
 
-      <div v-else class="space-y-2 px-2 py-3">
-        <div class="flex items-center justify-between px-1 text-xs font-medium uppercase tracking-wide text-text-secondary">
-          <div class="flex items-center gap-1.5">
-            <FolderTree class="h-3.5 w-3.5" />
-            <span>{{ t('connections.treeTitle') }}</span>
+            <div
+              class="min-h-0 flex-1 px-2 py-2"
+              @dragover="onRootDragOver"
+              @dragleave="onRootDragLeave"
+              @drop="onRootDrop"
+              @contextmenu="handleContextMenu"
+            >
+              <div v-if="isRootDropActive" class="mx-1 mb-2 rounded-lg border-2 border-dashed border-accent bg-accent/10 px-3 py-2 text-center text-sm text-text-primary">
+                {{ t('connections.dropToRoot') }}
+              </div>
+
+              <div class="h-full overflow-y-auto pr-1">
+                <div class="min-h-[50px] space-y-0.5">
+                  <ConnectionTreeItem
+                    v-for="item in treeData"
+                    :key="getItemKey(item)"
+                    :item="item"
+                    :level="1"
+                    @connect="connect"
+                    @edit="handleEdit"
+                    @delete="handleDelete"
+                    @create-group="handleCreateGroup"
+                    @edit-group="handleEditGroup"
+                    @delete-group="handleDeleteGroup"
+                    @drag-start="onDragStart"
+                    @drag-end="onTreeDragEnd"
+                    @drop-item="onDrop"
+                    @context-menu="handleItemContextMenu"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
-          <span>{{ t('connections.treeHint') }}</span>
-        </div>
-        <div class="min-h-[50px] space-y-0.5">
-          <ConnectionTreeItem
-            v-for="item in filteredTreeData"
-            :key="getItemKey(item)"
-            :item="item"
-            :level="1"
-            @connect="connect"
-            @edit="handleEdit"
-            @delete="handleDelete"
-            @create-group="handleCreateGroup"
-            @edit-group="handleEditGroup"
-            @delete-group="handleDeleteGroup"
-            @drag-start="onDragStart"
-            @drop-item="onDrop"
-            @context-menu="handleItemContextMenu"
-          />
         </div>
       </div>
     </div>
@@ -751,16 +831,3 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
     <ContextMenu v-if="menuVisible" :x="menuX" :y="menuY" :items="menuItems" @close="closeMenu" @action="handleMenuAction" />
   </div>
 </template>
-
-<style scoped>
-.ghost {
-  opacity: 0.5;
-  background: var(--bg-tertiary);
-  border: 1px dashed var(--border-subtle);
-}
-
-.drag {
-  opacity: 1;
-  background: var(--bg-elevated);
-}
-</style>

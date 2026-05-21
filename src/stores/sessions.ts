@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useNotificationStore } from './notifications';
-import type { Session, Connection, ConnectionStatusEvent, ReconnectEvent } from '../types';
+import type { Session, Connection, ConnectionHistorySource, ConnectionStatusEvent, ReconnectEvent } from '../types';
 
 export const useSessionStore = defineStore('sessions', {
   state: () => ({
@@ -105,7 +105,7 @@ export const useSessionStore = defineStore('sessions', {
       }
     },
 
-    async createSession(conn: Connection) {
+    async createSession(conn: Connection, source: ConnectionHistorySource = 'tree') {
       const { useConnectionStore } = await import('./connections');
       const connectionStore = useConnectionStore();
 
@@ -133,12 +133,12 @@ export const useSessionStore = defineStore('sessions', {
         this.sessions.push(session);
         this.activeSessionId = id;
         if (conn.id !== undefined) {
-          connectionStore.addSuccessfulConnection(conn.id);
+          connectionStore.addSuccessfulConnection(conn.id, source);
         }
       } catch (e) {
         console.error('Failed to connect', e);
         if (conn.id !== undefined) {
-          connectionStore.addFailedConnection(conn.id, String(e));
+          connectionStore.addFailedConnection(conn.id, String(e), source);
         }
         useNotificationStore().error('Failed to connect: ' + e);
       }

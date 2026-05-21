@@ -13,6 +13,7 @@ export interface I18nMessages {
     edit: string
     delete: string
     new: string
+    overviewTitle: string
     editTitle: string
     name: string
     host: string
@@ -31,9 +32,13 @@ export interface I18nMessages {
     recentTitle: string
     recentHint: string
     quickAccessTitle: string
+    showMore: string
+    showLess: string
     treeTitle: string
     treeHint: string
     searchResultsTitle: string
+    searchConnectionsTitle: string
+    searchGroupsTitle: string
     imported: string
     importDropTitle: string
     dropToRoot: string

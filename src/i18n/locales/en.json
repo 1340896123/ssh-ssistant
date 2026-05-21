@@ -11,7 +11,7 @@
     "collapseSidebar": "Collapse Sidebar"
   },
   "workbench": {
-    "connectionsSubtitle": "Connections, favorites, and recent history",
+    "connectionsSubtitle": "Manage connection directories, favorites, and recent history",
     "tunnelsSubtitle": "Port forwards and tunnel activity in one place",
     "sessionsTitle": "Sessions",
     "sessionsSubtitle": "Track the SSH sessions you are actively working in",
@@ -65,6 +65,7 @@
     "edit": "Edit",
     "delete": "Delete",
     "new": "New Connection",
+    "overviewTitle": "Connection Overview",
     "editTitle": "Edit Connection",
     "name": "Name",
     "host": "Host",
@@ -108,10 +109,14 @@
     "searchPlaceholder": "Search by name / host / username",
     "recentTitle": "Recent",
     "recentHint": "Click to reconnect quickly",
-    "quickAccessTitle": "Quick Access",
-    "treeTitle": "Connection Tree",
+    "quickAccessTitle": "Favorites",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "treeTitle": "Connection Directory",
     "treeHint": "Drag and drop to reorganize groups",
     "searchResultsTitle": "Search Results",
+    "searchConnectionsTitle": "Matching Connections",
+    "searchGroupsTitle": "Matching Groups",
     "sources": {
       "favorite": "Favorite",
       "history": "History",

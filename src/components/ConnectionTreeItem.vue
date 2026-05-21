@@ -11,7 +11,7 @@ const props = defineProps<{
     level: number;
 }>();
 
-const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group', 'drag-start', 'drop-item', 'context-menu']);
+const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group', 'drag-start', 'drag-end', 'drop-item', 'context-menu']);
 
 const { t } = useI18n();
 const connectionStore = useConnectionStore();
@@ -92,6 +92,7 @@ function onDragStart(event: DragEvent) {
 
 function onDragEnd() {
     isDragging.value = false;
+    emit('drag-end');
 }
 
 function onDragOver(event: DragEvent) {
@@ -199,7 +200,7 @@ function toggleFavorite() {
                     :level="level + 1" @connect="$emit('connect', $event)" @edit="$emit('edit', $event)"
                     @delete="$emit('delete', $event)" @create-group="$emit('create-group', $event)"
                     @edit-group="$emit('edit-group', $event)" @delete-group="$emit('delete-group', $event)"
-                    @drag-start="(e, i) => $emit('drag-start', e, i)" @drop-item="(e, id) => $emit('drop-item', e, id)"
+                    @drag-start="(e, i) => $emit('drag-start', e, i)" @drag-end="$emit('drag-end')" @drop-item="(e, id) => $emit('drop-item', e, id)"
                     @context-menu="(e, i) => $emit('context-menu', e, i)" />
             </div>
             <div v-if="!(item as ConnectionGroup).children?.length" class="text-xs text-text-muted py-1"
