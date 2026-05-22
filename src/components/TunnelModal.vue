@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { Play, Square, Trash2, Pencil } from 'lucide-vue-next';
-import type { Connection, Tunnel } from '../types';
+import type { HostAsset, Tunnel } from '../types';
 import { useTunnelStore } from '../stores/tunnels';
 import { useNotificationStore } from '../stores/notifications';
 import { useI18n } from '../composables/useI18n';
 
-const props = defineProps<{ show: boolean; connection: Connection | null }>();
+const props = defineProps<{ show: boolean; asset: HostAsset | null }>();
 const emit = defineEmits(['close']);
 const tunnelStore = useTunnelStore();
 const notificationStore = useNotificationStore();
@@ -16,7 +16,7 @@ const editingId = ref<number | null>(null);
 
 const defaultForm = (): Tunnel => ({
   name: '',
-  connectionId: props.connection?.id ?? 0,
+  connectionId: props.asset?.id ?? 0,
   tunnelType: 'local',
   localHost: '127.0.0.1',
   localPort: undefined,
@@ -37,8 +37,8 @@ const isDynamic = computed(() => form.value.tunnelType === 'dynamic');
 watch(
   () => props.show,
   async (val) => {
-    if (val && props.connection?.id) {
-      await tunnelStore.loadTunnels(props.connection.id);
+    if (val && props.asset?.id) {
+      await tunnelStore.loadTunnels(props.asset.id);
       await tunnelStore.refreshActive();
       resetForm();
     }
@@ -80,7 +80,7 @@ function validateForm(): string | null {
 }
 
 async function saveTunnel() {
-  if (!props.connection?.id) return;
+  if (!props.asset?.id) return;
   const missing = validateForm();
   if (missing) {
     notificationStore.error(`${missing} ${t('tunnels.required') ?? ''}`.trim());
@@ -89,7 +89,7 @@ async function saveTunnel() {
 
   const payload: Tunnel = {
     ...form.value,
-    connectionId: props.connection.id,
+    connectionId: props.asset.id,
     localPort: form.value.localPort ? Number(form.value.localPort) : undefined,
     remotePort: form.value.remotePort ? Number(form.value.remotePort) : undefined,
   };
@@ -118,10 +118,10 @@ function editTunnel(tunnel: Tunnel) {
 }
 
 async function deleteTunnel(tunnel: Tunnel) {
-  if (!props.connection?.id || !tunnel.id) return;
+  if (!props.asset?.id || !tunnel.id) return;
   if (!window.confirm(t('tunnels.deleteConfirm', { name: tunnel.name }))) return;
   try {
-    await tunnelStore.deleteTunnel(tunnel.id, props.connection.id);
+    await tunnelStore.deleteTunnel(tunnel.id, props.asset.id);
   } catch (e: any) {
     notificationStore.error(e?.toString() || 'Failed to delete tunnel');
   }
@@ -156,7 +156,7 @@ async function stopTunnel(tunnel: Tunnel) {
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-bold text-text-primary">
           {{ t('tunnels.title') }}
-          <span class="text-xs text-text-muted ml-2" v-if="connection">{{ connection.name }}</span>
+          <span class="text-xs text-text-muted ml-2" v-if="asset">{{ asset.name }}</span>
         </h2>
         <button @click="$emit('close')" class="text-text-muted hover:text-text-primary">✕</button>
       </div>

@@ -21,12 +21,12 @@ import AIAssistant from "./components/AIAssistant.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import NotificationModal from "./components/NotificationModal.vue";
 import { useSessionStore } from "./stores/sessions";
-import { useConnectionStore } from "./stores/connections";
+import { useAssetStore } from "./stores/assets";
 import { useSettingsStore } from "./stores/settings";
 import { useNotificationStore } from "./stores/notifications";
 import { useTransferStore } from "./stores/transfers";
 import { useI18n } from "./composables/useI18n";
-import type { Connection } from "./types";
+import type { AccessEndpoint, CredentialRef, HostAsset } from "./types";
 import {
   Bot,
   Cable,
@@ -100,7 +100,7 @@ interface SessionStats {
 }
 
 const sessionStore = useSessionStore();
-const connectionStore = useConnectionStore();
+const assetStore = useAssetStore();
 const settingsStore = useSettingsStore();
 const notificationStore = useNotificationStore();
 const transferStore = useTransferStore();
@@ -119,9 +119,11 @@ const DEFAULT_WINDOW_WIDTH = 1440;
 
 const showConnectionModal = ref(false);
 const showSettingsModal = ref(false);
-const editingConnection = ref<Connection | null>(null);
+const editingAsset = ref<HostAsset | null>(null);
+const editingAccessEndpoint = ref<AccessEndpoint | null>(null);
+const editingCredentialRef = ref<CredentialRef | null>(null);
 const showTunnelModal = ref(false);
-const tunnelConnection = ref<Connection | null>(null);
+const tunnelAsset = ref<HostAsset | null>(null);
 const clockTimer = ref<number | null>(null);
 const statusTimer = ref<number | null>(null);
 
@@ -239,16 +241,14 @@ const isContextPaneCollapsed = ref(initialLayoutState.isContextPaneCollapsed);
 const isFocusMode = ref(initialLayoutState.isFocusMode);
 
 const activeSession = computed(() => sessionStore.activeSession);
-const activeConnection = computed(() =>
-  connectionStore.connections.find(
-    (connection) => connection.id === activeSession.value?.connectionId
-  )
+const activeAsset = computed(() =>
+  assetStore.assets.find((asset) => asset.id === activeSession.value?.assetId)
 );
 const activeAssetRisk = computed(
-  () => activeSession.value?.riskLevel ?? activeConnection.value?.criticality ?? null
+  () => activeSession.value?.riskLevel ?? activeAsset.value?.criticality ?? null
 );
 const activeAssetHealth = computed(
-  () => activeSession.value?.healthSummary ?? activeConnection.value?.healthSummary ?? null
+  () => activeSession.value?.healthSummary ?? activeAsset.value?.healthSummary ?? null
 );
 const activeWorkspace = computed(() => activeSession.value?.activeWorkspace);
 const activeSelection = computed(() =>
@@ -463,33 +463,55 @@ function setWindowWidth() {
     typeof window === "undefined" ? DEFAULT_WINDOW_WIDTH : window.innerWidth;
 }
 
-function handleSaveConnection(connection: Connection) {
-  const action = connection.id
-    ? connectionStore.updateConnection(connection)
-    : connectionStore.addConnection(connection);
-
-  action.then((success) => {
-    if (success) {
-      showConnectionModal.value = false;
-      editingConnection.value = null;
+async function handleSaveConnection(payload: {
+  asset: HostAsset;
+  endpoint: AccessEndpoint;
+  credentialRef?: CredentialRef | null;
+}) {
+  try {
+    if (payload.asset.id) {
+      await assetStore.updateAsset(
+        payload.asset,
+        payload.endpoint,
+        payload.credentialRef ?? null,
+      );
     } else {
-      notificationStore.error("Failed to save connection. Please check the logs.");
+      await assetStore.addAsset(
+        payload.asset,
+        payload.endpoint,
+        payload.credentialRef ?? null,
+      );
     }
-  });
+    showConnectionModal.value = false;
+    editingAsset.value = null;
+    editingAccessEndpoint.value = null;
+    editingCredentialRef.value = null;
+  } catch (error) {
+    console.error("Failed to save asset", error);
+    notificationStore.error("Failed to save asset. Please check the logs.");
+  }
 }
 
 function openNewConnectionModal() {
-  editingConnection.value = null;
+  editingAsset.value = null;
+  editingAccessEndpoint.value = null;
+  editingCredentialRef.value = null;
   showConnectionModal.value = true;
 }
 
-function openEditConnectionModal(connection: Connection | null) {
-  editingConnection.value = connection;
+function openEditConnectionModal(asset: HostAsset | null) {
+  editingAsset.value = asset;
+  editingAccessEndpoint.value = asset?.id
+    ? assetStore.defaultAccessEndpointForAsset(asset.id)
+    : null;
+  editingCredentialRef.value = editingAccessEndpoint.value
+    ? assetStore.credentialRefById(editingAccessEndpoint.value.credentialRefId)
+    : null;
   showConnectionModal.value = true;
 }
 
-function openTunnelModal(connection: Connection) {
-  tunnelConnection.value = connection;
+function openTunnelModal(asset: HostAsset) {
+  tunnelAsset.value = asset;
   showTunnelModal.value = true;
 }
 
@@ -734,7 +756,7 @@ onMounted(async () => {
   };
 
   await settingsStore.loadSettings();
-  await connectionStore.loadConnections();
+  await assetStore.loadAssets();
   await sessionStore.setupEventListeners();
   await transferStore.initListeners();
 
@@ -946,7 +968,7 @@ onUnmounted(() => {
               <div class="truncate text-sm font-medium text-text-primary">
                 {{
                   activeSession
-                    ? activeSession.connectionName
+                    ? activeSession.assetName
                     : t("workbench.noActiveSession")
                 }}
               </div>
@@ -1120,12 +1142,19 @@ onUnmounted(() => {
                 <div class="truncate text-sm font-semibold text-text-primary">
                   {{
                     activeSession
-                      ? activeSession.connectionName
+                      ? activeSession.assetName
                       : t("workbench.contextTitle")
                   }}
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-                  <span v-if="activeConnection">{{ activeConnection.username }}@{{ activeConnection.host }}</span>
+                  <span v-if="activeAsset && activeSession?.accessEndpointId">
+                    {{
+                      (() => {
+                        const endpoint = assetStore.defaultAccessEndpointForAsset(activeAsset.id);
+                        return endpoint ? `${endpoint.username}@${endpoint.host}` : `${activeAsset.host}`;
+                      })()
+                    }}
+                  </span>
                   <span
                     v-if="activeAssetRisk"
                     class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5"
@@ -1303,14 +1332,21 @@ onUnmounted(() => {
                 <div class="truncate text-sm font-semibold text-text-primary">
                   {{
                     activeSession
-                      ? activeSession.connectionName
+                      ? activeSession.assetName
                       : t("workbench.contextTitle")
                   }}
                 </div>
                 <div class="mt-1 text-xs text-text-secondary">
                   {{
-                    activeConnection
-                      ? `${activeConnection.username}@${activeConnection.host}`
+                    activeAsset
+                      ? (() => {
+                          const endpoint = activeAsset.id
+                            ? assetStore.defaultAccessEndpointForAsset(activeAsset.id)
+                            : null;
+                          return endpoint
+                            ? `${endpoint.username}@${endpoint.host}`
+                            : activeAsset.host;
+                        })()
                       : t("workbench.contextEmptyDescription")
                   }}
                 </div>
@@ -1420,13 +1456,15 @@ onUnmounted(() => {
 
     <ConnectionModal
       :show="showConnectionModal"
-      :connectionToEdit="editingConnection"
+      :assetToEdit="editingAsset"
+      :endpointToEdit="editingAccessEndpoint"
+      :credentialRefToEdit="editingCredentialRef"
       @close="showConnectionModal = false"
       @save="handleSaveConnection"
     />
     <TunnelModal
       :show="showTunnelModal"
-      :connection="tunnelConnection"
+      :asset="tunnelAsset"
       @close="showTunnelModal = false"
     />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />

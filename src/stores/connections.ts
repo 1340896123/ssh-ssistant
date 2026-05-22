@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
-import { invoke } from '@tauri-apps/api/core';
-import type { Connection, ConnectionGroup, ConnectionHistoryEntry, ConnectionHistorySource, ConnectionHistoryStatus } from '../types';
+import type { Connection, ConnectionGroup, ConnectionHistoryEntry, ConnectionHistorySource } from '../types';
 import { useAssetStore } from './assets';
+import { sessionService } from '../services';
 
 const FAVORITES_STORAGE_KEY = 'connection-favorites';
 const HISTORY_STORAGE_KEY = 'connection-history';
@@ -97,9 +97,34 @@ export const useConnectionStore = defineStore('connections', {
       try {
         await assetStore.loadAssets();
         this.connections = assetStore.assets.map((asset) => ({
-          ...asset,
+          id: asset.id,
+          name: asset.name,
+          host: asset.host,
+          port: asset.port,
+          username: asset.owner ?? 'root',
+          password: undefined,
+          authType: 'password',
+          sshKeyId: null,
+          jumpHost: undefined,
+          jumpPort: undefined,
+          jumpUsername: undefined,
+          jumpPassword: undefined,
           groupId: asset.folderId ?? asset.groupId ?? null,
-          osType: asset.osType ?? asset.platform ?? 'Linux',
+          osType: asset.platform ?? 'Linux',
+          keyContent: null,
+          keyPassphrase: null,
+          platform: asset.platform ?? 'Linux',
+          folderId: asset.folderId ?? asset.groupId ?? null,
+          envId: asset.envId ?? null,
+          labels: asset.labels ?? [],
+          owner: asset.owner,
+          criticality: asset.criticality,
+          defaultWorkspacePath: asset.defaultWorkspacePath,
+          accessEndpointId: asset.accessEndpointId ?? null,
+          bastionChainId: asset.bastionChainId ?? null,
+          healthSummary: asset.healthSummary ?? null,
+          lastAccessedAt: asset.lastAccessedAt ?? null,
+          isFavorite: asset.isFavorite ?? false,
         }));
         this.groups = assetStore.folders.map((folder) => ({
           ...folder,
@@ -119,12 +144,23 @@ export const useConnectionStore = defineStore('connections', {
       try {
         const assetStore = useAssetStore();
         await assetStore.addAsset({
-          ...conn,
+          id: conn.id,
+          name: conn.name,
+          host: conn.host,
+          port: conn.port,
           folderId: conn.groupId ?? conn.folderId ?? null,
+          groupId: conn.groupId ?? conn.folderId ?? null,
           platform: conn.platform ?? conn.osType ?? 'Linux',
-          osType: conn.osType ?? conn.platform ?? 'Linux',
+          envId: conn.envId ?? null,
           labels: conn.labels ?? [],
+          owner: conn.owner ?? conn.username,
           criticality: conn.criticality ?? 'medium',
+          defaultWorkspacePath: conn.defaultWorkspacePath,
+          accessEndpointId: conn.accessEndpointId ?? null,
+          bastionChainId: conn.bastionChainId ?? null,
+          healthSummary: conn.healthSummary ?? null,
+          lastAccessedAt: conn.lastAccessedAt ?? null,
+          isFavorite: conn.isFavorite ?? false,
         });
         await this.loadConnections();
         return true;
@@ -138,12 +174,23 @@ export const useConnectionStore = defineStore('connections', {
       try {
         const assetStore = useAssetStore();
         await assetStore.updateAsset({
-          ...conn,
+          id: conn.id,
+          name: conn.name,
+          host: conn.host,
+          port: conn.port,
           folderId: conn.groupId ?? conn.folderId ?? null,
+          groupId: conn.groupId ?? conn.folderId ?? null,
           platform: conn.platform ?? conn.osType ?? 'Linux',
-          osType: conn.osType ?? conn.platform ?? 'Linux',
+          envId: conn.envId ?? null,
           labels: conn.labels ?? [],
+          owner: conn.owner ?? conn.username,
           criticality: conn.criticality ?? 'medium',
+          defaultWorkspacePath: conn.defaultWorkspacePath,
+          accessEndpointId: conn.accessEndpointId ?? null,
+          bastionChainId: conn.bastionChainId ?? null,
+          healthSummary: conn.healthSummary ?? null,
+          lastAccessedAt: conn.lastAccessedAt ?? null,
+          isFavorite: conn.isFavorite ?? false,
         });
         await this.loadConnections();
         return true;
@@ -217,7 +264,7 @@ export const useConnectionStore = defineStore('connections', {
     },
     async testConnection(conn: Connection): Promise<boolean> {
       try {
-        await invoke('test_connection', { config: conn });
+        await sessionService.testConnection(conn);
         return true;
       } catch (e) {
         console.error('Connection test failed:', e);
@@ -235,7 +282,7 @@ export const useConnectionStore = defineStore('connections', {
       writeFavorites(this.favorites);
     },
     isFavorite(connectionId: number) {
-      return this.favorites.includes(connectionId);
+      return useAssetStore().isFavorite(connectionId);
     },
     recordHistory(entry: ConnectionHistoryEntry) {
       this.history = [entry, ...this.history]
@@ -245,21 +292,10 @@ export const useConnectionStore = defineStore('connections', {
       writeHistory(this.history);
     },
     addSuccessfulConnection(connectionId: number, source: ConnectionHistorySource = 'tree') {
-      this.recordHistory({
-        connectionId,
-        connectedAt: Date.now(),
-        status: 'success',
-        source,
-      });
+      useAssetStore().addSuccessfulConnection(connectionId, source);
     },
     addFailedConnection(connectionId: number, reason?: string, source: ConnectionHistorySource = 'tree') {
-      this.recordHistory({
-        connectionId,
-        connectedAt: Date.now(),
-        status: 'failed' as ConnectionHistoryStatus,
-        reason,
-        source,
-      });
+      useAssetStore().addFailedConnection(connectionId, reason, source);
     }
   }
 });

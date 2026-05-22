@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AssetUpsertPayload,
   AssetFolder,
   AssetTag,
   Environment,
@@ -11,10 +12,10 @@ export const assetService = {
   list: () => invoke<HostAsset[]>("asset_get_host_assets"),
   search: (query: string) =>
     invoke<HostAsset[]>("asset_search_host_assets", { query }),
-  create: (asset: HostAsset) =>
-    invoke<HostAsset>("asset_create_host_asset", { asset }),
-  update: (asset: HostAsset) =>
-    invoke<HostAsset>("asset_update_host_asset", { asset }),
+  create: (payload: AssetUpsertPayload) =>
+    invoke<HostAsset>("asset_create_host_asset", { payload }),
+  update: (payload: AssetUpsertPayload) =>
+    invoke<HostAsset>("asset_update_host_asset", { payload }),
   remove: (id: number) => invoke("asset_delete_host_asset", { id }),
   touch: (id: number) => invoke("asset_touch_host_asset", { id }),
   toggleFavorite: (id: number, isFavorite: boolean) =>

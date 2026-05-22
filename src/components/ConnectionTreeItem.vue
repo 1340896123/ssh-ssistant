@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2, Plus, Terminal, Star } from 'lucide-vue-next';
 import type { Connection, ConnectionGroup } from '../types';
 import { useI18n } from '../composables/useI18n';
-import { useConnectionStore } from '../stores/connections';
+import { useAssetStore } from '../stores/assets';
 // import draggable from 'vuedraggable'; // Removed
 
 const props = defineProps<{
@@ -14,7 +14,7 @@ const props = defineProps<{
 const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-group', 'delete-group', 'drag-start', 'drag-end', 'drop-item', 'context-menu']);
 
 const { t } = useI18n();
-const connectionStore = useConnectionStore();
+const assetStore = useAssetStore();
 const isExpanded = ref(false);
 
 const isGroup = computed(() => 'children' in props.item || 'parentId' in props.item);
@@ -135,14 +135,14 @@ const isWsl = computed(() => {
 const isFavorite = computed(() => {
     if (isGroup.value) return false;
     const connectionId = (props.item as Connection).id;
-    return connectionId !== undefined && connectionStore.isFavorite(connectionId);
+    return connectionId !== undefined && assetStore.isFavorite(connectionId);
 });
 
 function toggleFavorite() {
     if (isGroup.value) return;
     const connectionId = (props.item as Connection).id;
     if (connectionId !== undefined) {
-        connectionStore.toggleFavorite(connectionId);
+        void assetStore.toggleFavorite(connectionId);
     }
 }
 

@@ -17,14 +17,6 @@ pub struct HostAsset {
     pub name: String,
     pub host: String,
     pub port: u16,
-    pub username: String,
-    pub password: Option<String>,
-    pub auth_type: Option<String>,
-    pub ssh_key_id: Option<i64>,
-    pub jump_host: Option<String>,
-    pub jump_port: Option<u16>,
-    pub jump_username: Option<String>,
-    pub jump_password: Option<String>,
     pub platform: String,
     pub folder_id: Option<i64>,
     pub env_id: Option<i64>,
@@ -38,10 +30,7 @@ pub struct HostAsset {
     pub health_summary: Option<String>,
     pub last_accessed_at: Option<i64>,
     pub is_favorite: Option<bool>,
-    pub os_type: Option<String>,
     pub group_id: Option<i64>,
-    pub key_content: Option<String>,
-    pub key_passphrase: Option<String>,
 }
 
 impl Default for HostAsset {
@@ -51,14 +40,6 @@ impl Default for HostAsset {
             name: String::new(),
             host: String::new(),
             port: 22,
-            username: String::new(),
-            password: None,
-            auth_type: Some("password".to_string()),
-            ssh_key_id: None,
-            jump_host: None,
-            jump_port: Some(22),
-            jump_username: None,
-            jump_password: None,
             platform: "Linux".to_string(),
             folder_id: None,
             env_id: None,
@@ -71,10 +52,7 @@ impl Default for HostAsset {
             health_summary: None,
             last_accessed_at: None,
             is_favorite: Some(false),
-            os_type: Some("Linux".to_string()),
             group_id: None,
-            key_content: None,
-            key_passphrase: None,
         }
     }
 }
@@ -107,18 +85,18 @@ impl From<HostAsset> for Connection {
             name: value.name,
             host: value.host,
             port: value.port,
-            username: value.username,
-            password: value.password,
-            auth_type: value.auth_type,
-            ssh_key_id: value.ssh_key_id,
-            jump_host: value.jump_host,
-            jump_port: value.jump_port,
-            jump_username: value.jump_username,
-            jump_password: value.jump_password,
+            username: value.owner.unwrap_or_default(),
+            password: None,
+            auth_type: None,
+            ssh_key_id: None,
+            jump_host: None,
+            jump_port: None,
+            jump_username: None,
+            jump_password: None,
             group_id: value.folder_id.or(value.group_id),
             os_type: Some(value.platform),
-            key_content: value.key_content,
-            key_passphrase: value.key_passphrase,
+            key_content: None,
+            key_passphrase: None,
         }
     }
 }
@@ -130,14 +108,6 @@ impl From<Connection> for HostAsset {
             name: value.name,
             host: value.host,
             port: value.port,
-            username: value.username.clone(),
-            password: value.password,
-            auth_type: value.auth_type,
-            ssh_key_id: value.ssh_key_id,
-            jump_host: value.jump_host,
-            jump_port: value.jump_port,
-            jump_username: value.jump_username,
-            jump_password: value.jump_password,
             platform: value.os_type.clone().unwrap_or_else(|| "Linux".to_string()),
             folder_id: value.group_id,
             env_id: None,
@@ -150,10 +120,7 @@ impl From<Connection> for HostAsset {
             health_summary: None,
             last_accessed_at: None,
             is_favorite: Some(false),
-            os_type: value.os_type,
             group_id: value.group_id,
-            key_content: value.key_content,
-            key_passphrase: value.key_passphrase,
         }
     }
 }
@@ -244,6 +211,29 @@ pub struct CredentialRef {
     pub asset_id: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetUpsertPayload {
+    pub asset: HostAsset,
+    pub default_access_endpoint: AccessEndpoint,
+    pub default_credential_ref: Option<CredentialRef>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetSessionConnectResult {
+    pub session_id: String,
+    pub asset_id: i64,
+    pub asset_name: String,
+    pub env_id: Option<i64>,
+    pub access_endpoint_id: Option<i64>,
+    pub credential_ref_id: Option<i64>,
+    pub bastion_chain_id: Option<String>,
+    pub risk_level: String,
+    pub health_summary: Option<String>,
+    pub os_info: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

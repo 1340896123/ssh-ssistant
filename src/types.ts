@@ -8,20 +8,14 @@ export interface SshKey {
 
 export type HostPlatform = "Linux" | "Windows" | "macOS";
 export type AssetCriticality = "low" | "medium" | "high" | "critical";
+export type AccessAuthType = "password" | "key";
+export type CredentialKind = "password" | "sshKey" | "token";
 
 export interface HostAsset {
   id?: number;
   name: string;
   host: string;
   port: number;
-  username: string;
-  password?: string;
-  authType?: "password" | "key";
-  sshKeyId?: number | null;
-  jumpHost?: string;
-  jumpPort?: number;
-  jumpUsername?: string;
-  jumpPassword?: string;
   platform?: HostPlatform;
   folderId?: number | null;
   envId?: number | null;
@@ -34,11 +28,39 @@ export interface HostAsset {
   healthSummary?: string | null;
   lastAccessedAt?: number | null;
   isFavorite?: boolean;
-  osType?: HostPlatform;
   groupId?: number | null;
 }
 
-export type Connection = HostAsset;
+export interface Connection {
+  id?: number;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  authType?: AccessAuthType;
+  sshKeyId?: number | null;
+  jumpHost?: string;
+  jumpPort?: number;
+  jumpUsername?: string;
+  jumpPassword?: string;
+  groupId?: number | null;
+  osType?: HostPlatform;
+  keyContent?: string | null;
+  keyPassphrase?: string | null;
+  platform?: HostPlatform;
+  folderId?: number | null;
+  envId?: number | null;
+  labels?: string[];
+  owner?: string;
+  criticality?: AssetCriticality;
+  defaultWorkspacePath?: string;
+  accessEndpointId?: number | null;
+  bastionChainId?: string | null;
+  healthSummary?: string | null;
+  lastAccessedAt?: number | null;
+  isFavorite?: boolean;
+}
 
 export type ConnectionHistoryStatus = "success" | "failed";
 
@@ -83,7 +105,7 @@ export interface AccessEndpoint {
   host: string;
   port: number;
   username: string;
-  authType?: "password" | "key";
+  authType?: AccessAuthType;
   credentialRefId?: number | null;
   sshKeyId?: number | null;
   jumpHost?: string | null;
@@ -95,13 +117,32 @@ export interface AccessEndpoint {
 export interface CredentialRef {
   id?: number;
   name: string;
-  credentialKind: "password" | "sshKey" | "token";
+  credentialKind: CredentialKind;
   username?: string | null;
   secret?: string | null;
   sshKeyId?: number | null;
   assetId?: number | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface AssetUpsertPayload {
+  asset: HostAsset;
+  defaultAccessEndpoint: AccessEndpoint;
+  defaultCredentialRef?: CredentialRef | null;
+}
+
+export interface AssetSessionConnectResult {
+  sessionId: string;
+  assetId: number;
+  assetName: string;
+  envId?: number | null;
+  accessEndpointId?: number | null;
+  credentialRefId?: number | null;
+  bastionChainId?: string | null;
+  riskLevel: AssetCriticality;
+  healthSummary?: string | null;
+  osInfo: string;
 }
 
 export interface SavedAssetView {
@@ -317,8 +358,8 @@ export interface Workspace {
 
 export interface Session {
   id: string;
-  connectionId: number;
-  connectionName: string;
+  assetId: number;
+  assetName: string;
   status: "connected" | "disconnected" | "connecting";
   activeTab: "terminal" | "files" | "ai";
   currentPath: string;
@@ -326,7 +367,7 @@ export interface Session {
   connectedAt: number;
   activeWorkspace?: Workspace;
   os?: string;
-  assetId?: number;
+  envId?: number | null;
   riskLevel?: AssetCriticality;
   healthSummary?: string | null;
   accessEndpointId?: number | null;

@@ -1,462 +1,604 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import type { Connection } from '../types';
-import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-vue-next';
-import { useConnectionStore } from '../stores/connections';
-import { useSshKeyStore } from '../stores/sshKeys';
-import { useAssetStore } from '../stores/assets';
+import { ref, watch } from "vue";
+import type {
+  AccessEndpoint,
+  CredentialRef,
+  CredentialKind,
+  HostAsset,
+} from "../types";
+import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from "lucide-vue-next";
+import { useAssetStore } from "../stores/assets";
+import { useSshKeyStore } from "../stores/sshKeys";
+import { sessionService } from "../services";
 
-const props = defineProps<{ show: boolean, connectionToEdit?: Connection | null }>();
-const emit = defineEmits(['close', 'save']);
-const connectionStore = useConnectionStore();
-const sshKeyStore = useSshKeyStore();
+const props = defineProps<{
+  show: boolean;
+  assetToEdit?: HostAsset | null;
+  endpointToEdit?: AccessEndpoint | null;
+  credentialRefToEdit?: CredentialRef | null;
+}>();
+
+const emit = defineEmits<{
+  (e: "close"): void;
+  (
+    e: "save",
+    payload: {
+      asset: HostAsset;
+      endpoint: AccessEndpoint;
+      credentialRef?: CredentialRef | null;
+    },
+  ): void;
+}>();
+
 const assetStore = useAssetStore();
+const sshKeyStore = useSshKeyStore();
 
-const form = ref<Connection>({
-  name: '',
-  host: '',
+const formAsset = ref<HostAsset>({
+  name: "",
+  host: "",
   port: 22,
-  username: '',
-  password: '',
-  authType: 'password',
-  sshKeyId: null,
-  jumpHost: '',
-  jumpPort: 22,
-  jumpUsername: '',
-  jumpPassword: '',
-  osType: 'Linux',
-  platform: 'Linux',
+  platform: "Linux",
   folderId: null,
   envId: null,
   labels: [],
-  owner: '',
-  criticality: 'medium',
-  defaultWorkspacePath: '',
-  bastionChainId: ''
+  owner: "",
+  criticality: "medium",
+  defaultWorkspacePath: "",
+  bastionChainId: "",
+  accessEndpointId: null,
+  healthSummary: "",
+  isFavorite: false,
 });
-const labelsInput = ref('');
 
+const formEndpoint = ref<AccessEndpoint>({
+  assetId: 0,
+  name: "",
+  host: "",
+  port: 22,
+  username: "root",
+  authType: "password",
+  credentialRefId: null,
+  sshKeyId: null,
+  jumpHost: null,
+  jumpPort: null,
+  jumpUsername: null,
+  jumpPassword: null,
+});
+
+const formCredentialRef = ref<CredentialRef | null>({
+  id: undefined,
+  name: "",
+  credentialKind: "password",
+  username: "root",
+  secret: "",
+  sshKeyId: null,
+  assetId: null,
+  createdAt: 0,
+  updatedAt: 0,
+});
+
+const labelsInput = ref("");
 const showPassword = ref(false);
-const showJumpPassword = ref(false);
 const isTesting = ref(false);
 const testResult = ref<{ success: boolean; message: string } | null>(null);
 
-// Install Key State
-const showInstallKeyModal = ref(false);
-const isInstallingKey = ref(false);
-const keyToInstall = ref<number | null>(null);
-const installKeyResult = ref<{ success: boolean; message: string } | null>(null);
+function resetForms() {
+  formAsset.value = {
+    id: props.assetToEdit?.id,
+    name: props.assetToEdit?.name ?? "",
+    host: props.assetToEdit?.host ?? "",
+    port: props.assetToEdit?.port ?? 22,
+    platform: props.assetToEdit?.platform ?? "Linux",
+    folderId: props.assetToEdit?.folderId ?? props.assetToEdit?.groupId ?? null,
+    envId: props.assetToEdit?.envId ?? null,
+    labels: props.assetToEdit?.labels ?? [],
+    owner: props.assetToEdit?.owner ?? "",
+    criticality: props.assetToEdit?.criticality ?? "medium",
+    defaultWorkspacePath: props.assetToEdit?.defaultWorkspacePath ?? "",
+    bastionChainId: props.assetToEdit?.bastionChainId ?? "",
+    accessEndpointId: props.assetToEdit?.accessEndpointId ?? null,
+    healthSummary: props.assetToEdit?.healthSummary ?? "",
+    isFavorite: props.assetToEdit?.isFavorite ?? false,
+  };
 
-watch(() => props.show, (newVal) => {
-  if (newVal) {
-    showPassword.value = false;
-    showJumpPassword.value = false;
-    isTesting.value = false;
-    testResult.value = null;
-    sshKeyStore.loadKeys(); // Load keys when modal opens
-    void assetStore.loadAssets();
-    if (props.connectionToEdit) {
-      form.value = { ...props.connectionToEdit };
-      // Ensure optional fields are handled if undefined
-      if (!form.value.jumpPort) form.value.jumpPort = 22;
-      if (!form.value.osType) form.value.osType = 'Linux';
-      if (!form.value.platform) form.value.platform = form.value.osType ?? 'Linux';
-      if (!form.value.authType) form.value.authType = 'password';
-      form.value.folderId = form.value.folderId ?? form.value.groupId ?? null;
-      form.value.labels = form.value.labels ?? [];
-      form.value.criticality = form.value.criticality ?? 'medium';
-      labelsInput.value = (form.value.labels ?? []).join(', ');
+  formEndpoint.value = {
+    id: props.endpointToEdit?.id,
+    assetId: props.endpointToEdit?.assetId ?? props.assetToEdit?.id ?? 0,
+    name:
+      props.endpointToEdit?.name ??
+      (props.assetToEdit?.name
+        ? `${props.assetToEdit.name} default endpoint`
+        : "Default endpoint"),
+    host: props.endpointToEdit?.host ?? props.assetToEdit?.host ?? "",
+    port: props.endpointToEdit?.port ?? props.assetToEdit?.port ?? 22,
+    username:
+      props.endpointToEdit?.username ??
+      props.credentialRefToEdit?.username ??
+      props.assetToEdit?.owner ??
+      "root",
+    authType:
+      props.endpointToEdit?.authType ??
+      (props.credentialRefToEdit?.credentialKind === "sshKey" ? "key" : "password"),
+    credentialRefId: props.endpointToEdit?.credentialRefId ?? props.credentialRefToEdit?.id ?? null,
+    sshKeyId: props.endpointToEdit?.sshKeyId ?? props.credentialRefToEdit?.sshKeyId ?? null,
+    jumpHost: props.endpointToEdit?.jumpHost ?? null,
+    jumpPort: props.endpointToEdit?.jumpPort ?? 22,
+    jumpUsername: props.endpointToEdit?.jumpUsername ?? null,
+    jumpPassword: null,
+  };
+
+  formCredentialRef.value = {
+    id: props.credentialRefToEdit?.id,
+    name:
+      props.credentialRefToEdit?.name ??
+      (props.assetToEdit?.name
+        ? `${props.assetToEdit.name} credential`
+        : "Default credential"),
+    credentialKind:
+      props.credentialRefToEdit?.credentialKind ??
+      (formEndpoint.value.authType === "key" ? "sshKey" : "password"),
+    username:
+      props.credentialRefToEdit?.username ??
+      formEndpoint.value.username,
+    secret:
+      props.credentialRefToEdit?.credentialKind === "password"
+        ? props.credentialRefToEdit?.secret ?? ""
+        : "",
+    sshKeyId:
+      props.credentialRefToEdit?.sshKeyId ??
+      formEndpoint.value.sshKeyId ??
+      null,
+    assetId: props.assetToEdit?.id ?? null,
+    createdAt: props.credentialRefToEdit?.createdAt ?? 0,
+    updatedAt: props.credentialRefToEdit?.updatedAt ?? 0,
+  };
+
+  labelsInput.value = (formAsset.value.labels ?? []).join(", ");
+  showPassword.value = false;
+  isTesting.value = false;
+  testResult.value = null;
+}
+
+watch(
+  () => props.show,
+  async (show) => {
+    if (!show) return;
+    await Promise.all([assetStore.loadAssets(), sshKeyStore.loadKeys()]);
+    resetForms();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => formEndpoint.value.authType,
+  (authType) => {
+    if (!formCredentialRef.value) return;
+    formCredentialRef.value.credentialKind = authType === "key" ? "sshKey" : "password";
+    if (authType === "password") {
+      formEndpoint.value.sshKeyId = null;
+      formCredentialRef.value.sshKeyId = null;
     } else {
-      form.value = {
-        name: '',
-        host: '',
-        port: 22,
-        username: '',
-        password: '',
-        authType: 'password',
-        sshKeyId: null,
-        jumpHost: '',
-        jumpPort: 22,
-        jumpUsername: '',
-        jumpPassword: '',
-        groupId: null,
-        osType: 'Linux',
-        platform: 'Linux',
-        folderId: null,
-        envId: null,
-        labels: [],
-        owner: '',
-        criticality: 'medium',
-        defaultWorkspacePath: '',
-        bastionChainId: ''
-      };
-      labelsInput.value = '';
+      formCredentialRef.value.secret = null;
     }
-  }
-});
+  },
+);
+
+function buildPayload() {
+  const asset: HostAsset = {
+    ...formAsset.value,
+    folderId: formAsset.value.folderId ?? null,
+    groupId: formAsset.value.folderId ?? null,
+    labels: labelsInput.value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+    criticality: formAsset.value.criticality ?? "medium",
+    platform: formAsset.value.platform ?? "Linux",
+    owner: formAsset.value.owner?.trim() || "",
+    defaultWorkspacePath: formAsset.value.defaultWorkspacePath?.trim() || "",
+    bastionChainId: formAsset.value.bastionChainId?.trim() || "",
+    healthSummary: formAsset.value.healthSummary?.trim() || "",
+  };
+
+  const endpoint: AccessEndpoint = {
+    ...formEndpoint.value,
+    assetId: asset.id ?? 0,
+    host: formEndpoint.value.host.trim() || asset.host,
+    port: Number(formEndpoint.value.port || asset.port || 22),
+    username: formEndpoint.value.username.trim(),
+    name:
+      formEndpoint.value.name.trim() ||
+      `${asset.name || "Asset"} default endpoint`,
+    authType: formEndpoint.value.authType ?? "password",
+    jumpHost: formEndpoint.value.jumpHost?.trim() || null,
+    jumpPort: formEndpoint.value.jumpHost ? Number(formEndpoint.value.jumpPort || 22) : null,
+    jumpUsername: formEndpoint.value.jumpUsername?.trim() || null,
+    jumpPassword: null,
+  };
+
+  const credentialRef =
+    formCredentialRef.value && endpoint.authType
+      ? {
+          ...formCredentialRef.value,
+          name:
+            formCredentialRef.value.name.trim() ||
+            `${asset.name || "Asset"} credential`,
+          credentialKind: (endpoint.authType === "key" ? "sshKey" : "password") as CredentialKind,
+          username: endpoint.username,
+          secret:
+            endpoint.authType === "password"
+              ? formCredentialRef.value.secret?.trim() || ""
+              : null,
+          sshKeyId:
+            endpoint.authType === "key"
+              ? formCredentialRef.value.sshKeyId ?? endpoint.sshKeyId ?? null
+              : null,
+          assetId: asset.id ?? null,
+          createdAt: formCredentialRef.value.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        }
+      : null;
+
+  endpoint.credentialRefId = credentialRef?.id ?? endpoint.credentialRefId ?? null;
+  endpoint.sshKeyId =
+    endpoint.authType === "key"
+      ? credentialRef?.sshKeyId ?? endpoint.sshKeyId ?? null
+      : null;
+
+  return { asset, endpoint, credentialRef };
+}
 
 async function testConnection() {
-  if (!form.value.host || !form.value.username) {
-    testResult.value = { success: false, message: 'Host and Username are required' };
+  const payload = buildPayload();
+  if (!payload.asset.host.trim() || !payload.endpoint.username.trim()) {
+    testResult.value = {
+      success: false,
+      message: "Host and endpoint username are required",
+    };
     return;
   }
 
-  if (form.value.authType === 'key' && !form.value.sshKeyId) {
-    testResult.value = { success: false, message: 'SSH Key is required for key authentication' };
+  if (
+    payload.endpoint.authType === "password" &&
+    !payload.credentialRef?.secret
+  ) {
+    testResult.value = {
+      success: false,
+      message: "Password is required for password authentication",
+    };
+    return;
+  }
+
+  if (
+    payload.endpoint.authType === "key" &&
+    !payload.credentialRef?.sshKeyId
+  ) {
+    testResult.value = {
+      success: false,
+      message: "SSH key is required for key authentication",
+    };
     return;
   }
 
   isTesting.value = true;
   testResult.value = null;
 
-  const payload = { ...form.value };
-  payload.port = parseInt(payload.port.toString(), 10);
-  if (payload.jumpPort) {
-    payload.jumpPort = parseInt(payload.jumpPort.toString(), 10);
-  }
-  if (!payload.osType) {
-    payload.osType = 'Linux';
-  }
-  payload.platform = payload.platform ?? payload.osType;
-  payload.groupId = payload.folderId ?? payload.groupId ?? null;
-  payload.labels = labelsInput.value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-  // Clear jump fields if host is empty
-  if (!payload.jumpHost) {
-    delete payload.jumpHost;
-    delete payload.jumpPort;
-    delete payload.jumpUsername;
-    delete payload.jumpPassword;
-  }
-
   try {
-    await connectionStore.testConnection(payload);
-    testResult.value = { success: true, message: 'Connection successful!' };
-  } catch (e: any) {
-    testResult.value = { success: false, message: e.toString() };
+    await sessionService.testConnection({
+      name: payload.asset.name,
+      host: payload.endpoint.host,
+      port: payload.endpoint.port,
+      username: payload.endpoint.username,
+      password:
+        payload.endpoint.authType === "password"
+          ? payload.credentialRef?.secret ?? undefined
+          : undefined,
+      authType: payload.endpoint.authType,
+      sshKeyId: payload.credentialRef?.sshKeyId ?? payload.endpoint.sshKeyId ?? null,
+      jumpHost: payload.endpoint.jumpHost ?? undefined,
+      jumpPort: payload.endpoint.jumpPort ?? undefined,
+      jumpUsername: payload.endpoint.jumpUsername ?? undefined,
+      jumpPassword: undefined,
+      groupId: payload.asset.folderId ?? null,
+      osType: payload.asset.platform ?? "Linux",
+      platform: payload.asset.platform ?? "Linux",
+    });
+    testResult.value = { success: true, message: "Connection successful!" };
+  } catch (error: any) {
+    testResult.value = { success: false, message: error?.toString() ?? "Connection failed" };
   } finally {
     isTesting.value = false;
   }
 }
 
-async function installKey() {
-  if (!keyToInstall.value || !props.connectionToEdit?.id) return;
-  isInstallingKey.value = true;
-  installKeyResult.value = null;
-
-  try {
-    await sshKeyStore.installKey(props.connectionToEdit.id, keyToInstall.value);
-    installKeyResult.value = { success: true, message: 'Key installed successfully!' };
-
-    // Switch auth type and update form
-    form.value.authType = 'key';
-    form.value.sshKeyId = keyToInstall.value;
-
-    setTimeout(() => {
-      showInstallKeyModal.value = false;
-      installKeyResult.value = null;
-    }, 1500);
-
-  } catch (e: any) {
-    installKeyResult.value = { success: false, message: e.toString() };
-  } finally {
-    isInstallingKey.value = false;
-  }
-}
-
 function save() {
-  const payload = { ...form.value };
-  payload.port = parseInt(payload.port.toString(), 10);
-  if (payload.jumpPort) {
-    payload.jumpPort = parseInt(payload.jumpPort.toString(), 10);
-  }
-  if (!payload.osType) {
-    payload.osType = 'Linux';
-  }
-  payload.platform = payload.platform ?? payload.osType;
-  payload.groupId = payload.folderId ?? payload.groupId ?? null;
-  payload.labels = labelsInput.value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (!payload.jumpHost) {
-    delete payload.jumpHost;
-    delete payload.jumpPort;
-    delete payload.jumpUsername;
-    delete payload.jumpPassword;
-  }
-  emit('save', payload);
-  // Reset handled by watch or next open
+  const payload = buildPayload();
+  emit("save", payload);
 }
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 bg-bg-overlay flex items-center justify-center z-50">
-    <div class="bg-bg-elevated p-6 rounded w-[500px] text-text-primary max-h-[90vh] overflow-y-auto border border-border-primary">
-      <h2 class="text-xl mb-4 font-bold text-text-primary">{{ connectionToEdit ? 'Edit Asset' : 'New Asset' }}</h2>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Name</label>
-          <input v-model="form.name"
-            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-            placeholder="Production API Node" />
-        </div>
-        <div class="grid grid-cols-4 gap-4">
-          <div class="col-span-3">
-            <label class="block text-xs text-text-secondary uppercase mb-1">Host</label>
-            <input v-model="form.host"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-              placeholder="192.168.1.1" />
+  <div
+    v-if="show"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay"
+  >
+    <div
+      class="max-h-[90vh] w-[680px] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary"
+    >
+      <h2 class="mb-4 text-xl font-bold text-text-primary">
+        {{ assetToEdit ? "Edit Asset" : "New Asset" }}
+      </h2>
+
+      <div class="space-y-5">
+        <section class="space-y-4">
+          <div class="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            Asset Info
           </div>
+
           <div>
-            <label class="block text-xs text-text-secondary uppercase mb-1">Port</label>
-            <input v-model.number="form.port" type="number"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-              placeholder="22" />
+            <label class="mb-1 block text-xs uppercase text-text-secondary">Name</label>
+            <input
+              v-model="formAsset.name"
+              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              placeholder="Production API Node"
+            />
           </div>
-        </div>
-        <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Username</label>
-          <input v-model="form.username"
-            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-            placeholder="root" />
-        </div>
 
-        <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Access Method</label>
-          <div class="flex items-center justify-between">
-            <div class="flex space-x-4">
-              <label class="flex items-center space-x-2 cursor-pointer">
-                <input type="radio" v-model="form.authType" value="password"
-                  class="text-accent focus:ring-accent bg-bg-tertiary border-border-primary" />
-                <span class="text-sm">Password</span>
-              </label>
-              <label class="flex items-center space-x-2 cursor-pointer">
-                <input type="radio" v-model="form.authType" value="key"
-                  class="text-accent focus:ring-accent bg-bg-tertiary border-border-primary" />
-                <span class="text-sm">Private Key</span>
-              </label>
+          <div class="grid grid-cols-4 gap-4">
+            <div class="col-span-3">
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Host</label>
+              <input
+                v-model="formAsset.host"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="192.168.1.10"
+              />
             </div>
-            <!-- Setup Key Auth Button -->
-            <button v-if="connectionToEdit && connectionToEdit.id && form.authType === 'password'"
-              @click="showInstallKeyModal = true" class="text-xs text-accent hover:text-accent/80 underline">
-              Setup Key Auth
-            </button>
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Port</label>
+              <input
+                v-model.number="formAsset.port"
+                type="number"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="22"
+              />
+            </div>
           </div>
-        </div>
 
-        <!-- Install Key Modal/Overlay -->
-        <div v-if="showInstallKeyModal" class="fixed inset-0 bg-bg-overlay/80 z-50 flex items-center justify-center">
-          <div class="bg-bg-elevated p-6 rounded w-[400px] border border-border-primary">
-            <h3 class="text-lg font-bold text-text-primary mb-4">Install SSH Key</h3>
-            <p class="text-sm text-text-secondary mb-4">
-              This will install the public key to the server's <code>authorized_keys</code> and switch the connection to
-              use Key authentication.
-            </p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Platform</label>
+              <select
+                v-model="formAsset.platform"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              >
+                <option value="Linux">Linux</option>
+                <option value="Windows">Windows</option>
+                <option value="macOS">macOS</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Criticality</label>
+              <select
+                v-model="formAsset.criticality"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+          </div>
 
-            <div class="mb-4">
-              <label class="block text-xs text-text-secondary uppercase mb-1">Select Key to Install</label>
-              <select v-model="keyToInstall"
-                class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-                <option :value="null" disabled>Select a key</option>
-                <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
-                  {{ key.name }}
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Folder</label>
+              <select
+                v-model="formAsset.folderId"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              >
+                <option :value="null">None</option>
+                <option v-for="folder in assetStore.folders" :key="folder.id" :value="folder.id">
+                  {{ folder.name }}
                 </option>
               </select>
             </div>
-
-            <div v-if="installKeyResult" class="mb-4 text-sm"
-              :class="installKeyResult.success ? 'text-success' : 'text-error'">
-              {{ installKeyResult.message }}
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Environment</label>
+              <select
+                v-model="formAsset.envId"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              >
+                <option :value="null">None</option>
+                <option v-for="env in assetStore.environments" :key="env.id" :value="env.id">
+                  {{ env.name }}
+                </option>
+              </select>
             </div>
+          </div>
 
-            <div class="flex justify-end gap-2">
-              <button @click="showInstallKeyModal = false" :disabled="isInstallingKey"
-                class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
-              <button @click="installKey" :disabled="isInstallingKey || !keyToInstall"
-                class="px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded flex items-center gap-2">
-                <Loader2 v-if="isInstallingKey" class="w-3 h-3 animate-spin" />
-                Install & Switch
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Owner</label>
+              <input
+                v-model="formAsset.owner"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="platform-oncall"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Labels</label>
+              <input
+                v-model="labelsInput"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="prod, api, shanghai"
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Default Workspace</label>
+              <input
+                v-model="formAsset.defaultWorkspacePath"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="/srv/app/current"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Bastion Chain ID</label>
+              <input
+                v-model="formAsset.bastionChainId"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="prod-bastion-chain"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">Health Summary</label>
+            <input
+              v-model="formAsset.healthSummary"
+              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              placeholder="Healthy, last checked 5m ago"
+            />
+          </div>
+        </section>
+
+        <section class="space-y-4 border-t border-border-primary pt-4">
+          <div class="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            Default Access Endpoint
+          </div>
+
+          <div>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">Endpoint Username</label>
+            <input
+              v-model="formEndpoint.username"
+              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              placeholder="root"
+            />
+          </div>
+
+          <div>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">Access Method</label>
+            <div class="flex items-center gap-4">
+              <label class="flex cursor-pointer items-center gap-2">
+                <input
+                  v-model="formEndpoint.authType"
+                  type="radio"
+                  value="password"
+                  class="border-border-primary bg-bg-tertiary text-accent focus:ring-accent"
+                />
+                <span class="text-sm">Password</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2">
+                <input
+                  v-model="formEndpoint.authType"
+                  type="radio"
+                  value="key"
+                  class="border-border-primary bg-bg-tertiary text-accent focus:ring-accent"
+                />
+                <span class="text-sm">SSH Key</span>
+              </label>
+            </div>
+          </div>
+
+          <div v-if="formEndpoint.authType === 'password'">
+            <label class="mb-1 block text-xs uppercase text-text-secondary">Password</label>
+            <div class="relative">
+              <input
+                v-model="formCredentialRef!.secret"
+                :type="showPassword ? 'text' : 'password'"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
+                placeholder="••••••"
+              />
+              <button
+                class="absolute right-2 top-2 text-text-secondary hover:text-text-primary"
+                @click="showPassword = !showPassword"
+              >
+                <Eye v-if="!showPassword" class="h-5 w-5" />
+                <EyeOff v-else class="h-5 w-5" />
               </button>
             </div>
           </div>
-        </div>
 
-        <div v-if="form.authType === 'password'">
-          <label class="block text-xs text-text-secondary uppercase mb-1">Password</label>
-          <div class="relative">
-            <input v-model="form.password" :type="showPassword ? 'text' : 'password'"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none pr-10"
-              placeholder="••••••" />
-            <button @click="showPassword = !showPassword" class="absolute right-2 top-2 text-text-secondary hover:text-text-primary">
-              <Eye v-if="!showPassword" class="w-5 h-5" />
-              <EyeOff v-else class="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <div v-else>
-          <label class="block text-xs text-text-secondary uppercase mb-1">SSH Key</label>
-          <select v-model="form.sshKeyId"
-            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-            <option :value="null" disabled>Select a key</option>
-            <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
-              {{ key.name }}
-            </option>
-          </select>
-          <div v-if="sshKeyStore.keys.length === 0" class="text-xs text-warning mt-1">
-            No keys found. Please add a key in Settings > SSH Keys.
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Platform</label>
-          <select v-model="form.platform"
-            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-            <option value="Linux">Linux</option>
-            <option value="Windows">Windows</option>
-            <option value="macOS">macOS</option>
-          </select>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs text-text-secondary uppercase mb-1">Folder</label>
-            <select v-model="form.folderId"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-              <option :value="null">None</option>
-              <option v-for="group in assetStore.folders" :key="group.id" :value="group.id">
-                {{ group.name }}
+          <div v-else>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">SSH Key</label>
+            <select
+              v-model="formCredentialRef!.sshKeyId"
+              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+            >
+              <option :value="null" disabled>Select a key</option>
+              <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
+                {{ key.name }}
               </option>
             </select>
           </div>
-          <div>
-            <label class="block text-xs text-text-secondary uppercase mb-1">Environment</label>
-            <select v-model="form.envId"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-              <option :value="null">None</option>
-              <option v-for="env in assetStore.environments" :key="env.id" :value="env.id">
-                {{ env.name }}
-              </option>
-            </select>
-          </div>
-        </div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs text-text-secondary uppercase mb-1">Owner</label>
-            <input v-model="form.owner"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-              placeholder="oncall-platform" />
-          </div>
-          <div>
-            <label class="block text-xs text-text-secondary uppercase mb-1">Criticality</label>
-            <select v-model="form.criticality"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Labels</label>
-          <input v-model="labelsInput"
-            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-            placeholder="prod, api, shanghai" />
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs text-text-secondary uppercase mb-1">Default Workspace</label>
-            <input v-model="form.defaultWorkspacePath"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-              placeholder="/srv/app/current" />
-          </div>
-          <div>
-            <label class="block text-xs text-text-secondary uppercase mb-1">Bastion Chain ID</label>
-            <input v-model="form.bastionChainId"
-              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-              placeholder="prod-bastion-chain" />
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Legacy Group</label>
-          <select v-model="form.groupId"
-            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-            <option :value="null">None</option>
-            <option v-for="group in connectionStore.groups" :key="group.id" :value="group.id">
-              {{ group.name }}
-            </option>
-          </select>
-        </div>
-
-        <!-- Proxy Jump Section -->
-        <div class="border-t border-border-primary pt-4 mt-2">
-          <h3 class="text-sm font-semibold text-text-primary mb-2">Proxy Jump (Optional)</h3>
-          <div class="space-y-3 pl-2 border-l-2 border-border-primary">
-            <div class="grid grid-cols-4 gap-4">
-              <div class="col-span-3">
-                <label class="block text-xs text-text-tertiary uppercase mb-1">Jump Host</label>
-                <input v-model="form.jumpHost"
-                  class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-                  placeholder="jump.example.com" />
-              </div>
-              <div>
-                <label class="block text-xs text-text-tertiary uppercase mb-1">Port</label>
-                <input v-model.number="form.jumpPort" type="number"
-                  class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-                  placeholder="22" />
-              </div>
+          <div class="grid grid-cols-4 gap-4">
+            <div class="col-span-3">
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Jump Host</label>
+              <input
+                v-model="formEndpoint.jumpHost"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="jump.example.com"
+              />
             </div>
             <div>
-              <label class="block text-xs text-text-tertiary uppercase mb-1">Jump Username</label>
-              <input v-model="form.jumpUsername"
-                class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-                placeholder="jumpuser" />
-            </div>
-            <div>
-              <label class="block text-xs text-text-tertiary uppercase mb-1">Jump Password</label>
-              <div class="relative">
-                <input v-model="form.jumpPassword" :type="showJumpPassword ? 'text' : 'password'"
-                  class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none pr-10"
-                  placeholder="••••••" />
-                <button @click="showJumpPassword = !showJumpPassword"
-                  class="absolute right-2 top-2 text-text-secondary hover:text-text-primary">
-                  <Eye v-if="!showJumpPassword" class="w-5 h-5" />
-                  <EyeOff v-else class="w-5 h-5" />
-                </button>
-              </div>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">Jump Port</label>
+              <input
+                v-model.number="formEndpoint.jumpPort"
+                type="number"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                placeholder="22"
+              />
             </div>
           </div>
-        </div>
+
+          <div>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">Jump Username</label>
+            <input
+              v-model="formEndpoint.jumpUsername"
+              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              placeholder="jumpuser"
+            />
+          </div>
+        </section>
       </div>
 
-      <!-- Test Result Feedback -->
-      <div v-if="testResult" class="mt-4 p-2 rounded text-sm flex items-center gap-2"
-        :class="testResult.success ? 'bg-success/20 text-success' : 'bg-error/20 text-error'">
-        <CheckCircle v-if="testResult.success" class="w-4 h-4" />
-        <XCircle v-else class="w-4 h-4" />
+      <div
+        v-if="testResult"
+        class="mt-4 flex items-center gap-2 rounded p-2 text-sm"
+        :class="testResult.success ? 'bg-success/20 text-success' : 'bg-error/20 text-error'"
+      >
+        <CheckCircle v-if="testResult.success" class="h-4 w-4" />
+        <XCircle v-else class="h-4 w-4" />
         <span>{{ testResult.message }}</span>
       </div>
 
-      <div class="mt-6 flex justify-between items-center">
-        <button @click="testConnection" :disabled="isTesting"
-          class="px-4 py-2 bg-warning hover:bg-warning/80 text-text-primary rounded cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-          <Loader2 v-if="isTesting" class="w-4 h-4 animate-spin" />
+      <div class="mt-6 flex items-center justify-between">
+        <button
+          class="flex items-center gap-2 rounded bg-warning px-4 py-2 text-sm text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="isTesting"
+          @click="testConnection"
+        >
+          <Loader2 v-if="isTesting" class="h-4 w-4 animate-spin" />
           <span>Test Connection</span>
         </button>
 
-        <div class="flex space-x-2">
-          <button @click="$emit('close')"
-            class="px-4 py-2 bg-bg-tertiary hover:bg-bg-elevated text-text-primary rounded cursor-pointer text-sm">Cancel</button>
-          <button @click="save"
-            class="px-4 py-2 bg-accent hover:bg-accent/80 text-text-primary rounded cursor-pointer text-sm">Save</button>
+        <div class="flex gap-2">
+          <button
+            class="rounded bg-bg-tertiary px-4 py-2 text-sm text-text-primary hover:bg-bg-elevated"
+            @click="emit('close')"
+          >
+            Cancel
+          </button>
+          <button
+            class="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/80"
+            @click="save"
+          >
+            Save
+          </button>
         </div>
       </div>
     </div>

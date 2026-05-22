@@ -10,6 +10,7 @@ import type {
   AccessEndpoint,
   AssetFolder,
   AssetTag,
+  AssetUpsertPayload,
   AuditEvent,
   ConnectionHistoryEntry,
   ConnectionHistorySource,
@@ -149,8 +150,7 @@ export const useAssetStore = defineStore("assets", {
 
       this.assets = assets.map((asset) => ({
         ...asset,
-        platform: asset.platform ?? asset.osType ?? "Linux",
-        osType: asset.osType ?? asset.platform ?? "Linux",
+        platform: asset.platform ?? "Linux",
         folderId: asset.folderId ?? asset.groupId ?? null,
         labels: asset.labels ?? [],
         criticality: asset.criticality ?? "medium",
@@ -171,6 +171,68 @@ export const useAssetStore = defineStore("assets", {
       writeFavorites(this.favorites);
       writeHistory(this.history);
     },
+    defaultAccessEndpointForAsset(assetId?: number) {
+      if (assetId === undefined) return null;
+      return (
+        this.accessEndpoints.find(
+          (endpoint) =>
+            endpoint.assetId === assetId &&
+            this.assets.find((asset) => asset.id === assetId)?.accessEndpointId === endpoint.id,
+        ) ??
+        this.accessEndpoints.find((endpoint) => endpoint.assetId === assetId) ??
+        null
+      );
+    },
+    credentialRefById(credentialRefId?: number | null) {
+      if (credentialRefId == null) return null;
+      return this.credentialRefs.find((item) => item.id === credentialRefId) ?? null;
+    },
+    buildAssetPayload(
+      asset: HostAsset,
+      endpoint?: AccessEndpoint | null,
+      credentialRef?: CredentialRef | null,
+    ): AssetUpsertPayload {
+      const assetId = asset.id ?? endpoint?.assetId ?? 0;
+      const nextEndpoint: AccessEndpoint = {
+        id: endpoint?.id ?? asset.accessEndpointId ?? undefined,
+        assetId,
+        name: endpoint?.name ?? `${asset.name} default endpoint`,
+        host: endpoint?.host ?? asset.host,
+        port: endpoint?.port ?? asset.port,
+        username: endpoint?.username ?? credentialRef?.username ?? asset.owner ?? "root",
+        authType:
+          endpoint?.authType ??
+          (credentialRef?.credentialKind === "sshKey" ? "key" : "password"),
+        credentialRefId: credentialRef?.id ?? endpoint?.credentialRefId ?? null,
+        sshKeyId: endpoint?.sshKeyId ?? credentialRef?.sshKeyId ?? null,
+        jumpHost: endpoint?.jumpHost ?? null,
+        jumpPort: endpoint?.jumpPort ?? null,
+        jumpUsername: endpoint?.jumpUsername ?? null,
+        jumpPassword: null,
+      };
+
+      const nextCredentialRef =
+        credentialRef && (credentialRef.secret || credentialRef.sshKeyId || credentialRef.id)
+          ? {
+              ...credentialRef,
+              assetId: asset.id ?? credentialRef.assetId ?? null,
+              updatedAt: Date.now(),
+            }
+          : null;
+
+      return {
+        asset: {
+          ...asset,
+          folderId: asset.folderId ?? asset.groupId ?? null,
+          groupId: asset.folderId ?? asset.groupId ?? null,
+          labels: asset.labels ?? [],
+          criticality: asset.criticality ?? "medium",
+          platform: asset.platform ?? "Linux",
+        },
+        defaultAccessEndpoint: nextEndpoint,
+        defaultCredentialRef: nextCredentialRef,
+      };
+    },
     async refreshOpsData(assetId?: number) {
       const [jobTemplates, jobRuns, auditEvents] = await Promise.all([
         opsService.listJobTemplates(),
@@ -181,13 +243,34 @@ export const useAssetStore = defineStore("assets", {
       this.jobRuns = jobRuns;
       this.auditEvents = auditEvents;
     },
-    async addAsset(asset: HostAsset) {
-      const created = await assetService.create(asset);
+    async addAsset(
+      asset: HostAsset,
+      endpoint?: AccessEndpoint | null,
+      credentialRef?: CredentialRef | null,
+    ) {
+      const created = await assetService.create(
+        this.buildAssetPayload(asset, endpoint, credentialRef),
+      );
       await this.loadAssets();
       return created;
     },
-    async updateAsset(asset: HostAsset) {
-      const updated = await assetService.update(asset);
+    async updateAsset(
+      asset: HostAsset,
+      endpoint?: AccessEndpoint | null,
+      credentialRef?: CredentialRef | null,
+    ) {
+      const updated = await assetService.update(
+        this.buildAssetPayload(
+          asset,
+          endpoint ?? this.defaultAccessEndpointForAsset(asset.id),
+          credentialRef ??
+            this.credentialRefById(
+              endpoint?.credentialRefId ??
+                this.defaultAccessEndpointForAsset(asset.id)?.credentialRefId ??
+                null,
+            ),
+        ),
+      );
       await this.loadAssets();
       return updated;
     },

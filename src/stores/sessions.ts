@@ -2,8 +2,9 @@ import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useNotificationStore } from './notifications';
-import type { Session, Connection, ConnectionHistorySource, ConnectionStatusEvent, ReconnectEvent } from '../types';
+import type { Session, HostAsset, ConnectionHistorySource, ConnectionStatusEvent, ReconnectEvent } from '../types';
 import { useAssetStore } from './assets';
+import { sessionService } from '../services';
 
 export const useSessionStore = defineStore('sessions', {
   state: () => ({
@@ -106,52 +107,49 @@ export const useSessionStore = defineStore('sessions', {
       }
     },
 
-    async createSession(conn: Connection, source: ConnectionHistorySource = 'tree') {
-      const { useConnectionStore } = await import('./connections');
-      const connectionStore = useConnectionStore();
+    async createSession(asset: HostAsset, source: ConnectionHistorySource = 'tree') {
       const assetStore = useAssetStore();
 
       try {
-        const id = await invoke<string>('connect', { config: conn });
+        if (asset.id === undefined) {
+          throw new Error('Asset ID is required');
+        }
+        const connectionResult = await sessionService.connectAsset(
+          asset.id,
+          asset.accessEndpointId ?? null,
+        );
         const session: Session = {
-          id,
-          connectionId: conn.id!,
-          connectionName: conn.name,
+          id: connectionResult.sessionId,
+          assetId: connectionResult.assetId,
+          assetName: connectionResult.assetName,
           status: 'connected',
           activeTab: 'terminal',
           currentPath: '.',
           files: [],
           connectedAt: Date.now(),
-          assetId: conn.id,
-          riskLevel: conn.criticality ?? 'medium',
-          healthSummary: conn.healthSummary ?? null,
-          accessEndpointId: conn.accessEndpointId ?? conn.id ?? null,
-          credentialRefId: null,
-          bastionChainId: conn.bastionChainId ?? null,
+          envId: connectionResult.envId ?? asset.envId ?? null,
+          riskLevel: connectionResult.riskLevel ?? asset.criticality ?? 'medium',
+          healthSummary: connectionResult.healthSummary ?? asset.healthSummary ?? null,
+          accessEndpointId: connectionResult.accessEndpointId ?? asset.accessEndpointId ?? null,
+          credentialRefId: connectionResult.credentialRefId ?? null,
+          bastionChainId: connectionResult.bastionChainId ?? asset.bastionChainId ?? null,
           lastJobRunId: null,
+          os: connectionResult.osInfo,
         };
-        
-        // Fetch OS info
-        try {
-            const os = await invoke<string>('get_os_info', { id });
-            session.os = os;
-        } catch (e) {
-            console.error('Failed to get OS info', e);
-        }
 
         this.sessions.push(session);
-        this.activeSessionId = id;
-        if (conn.id !== undefined) {
-          connectionStore.addSuccessfulConnection(conn.id, source);
-          void assetStore.touchAsset(conn.id);
+        this.activeSessionId = connectionResult.sessionId;
+        if (asset.id !== undefined) {
+          assetStore.addSuccessfulConnection(asset.id, source);
+          void assetStore.touchAsset(asset.id);
         }
       } catch (e) {
         console.error('Failed to connect', e);
-        if (conn.id !== undefined) {
-          connectionStore.addFailedConnection(conn.id, String(e), source);
+        if (asset.id !== undefined) {
+          assetStore.addFailedConnection(asset.id, String(e), source);
           void assetStore.appendAuditEvent({
             eventType: 'session.connectFailed',
-            assetId: conn.id,
+            assetId: asset.id,
             sessionId: null,
             jobRunId: null,
             title: 'Session connection failed',
@@ -165,6 +163,7 @@ export const useSessionStore = defineStore('sessions', {
       }
     },
     async closeSession(id: string) {
+      const session = this.sessions.find((item) => item.id === id);
       // 1. Optimistically update UI first
       this.sessions = this.sessions.filter(s => s.id !== id);
       if (this.activeSessionId === id) {
@@ -173,7 +172,7 @@ export const useSessionStore = defineStore('sessions', {
 
       // 2. Perform backend disconnect in background
       try {
-        await invoke('disconnect', { id });
+        await sessionService.disconnectAsset(id, session?.assetId ?? null);
       } catch (e) {
         console.error("Error disconnecting session:", e);
       }
@@ -187,7 +186,7 @@ export const useSessionStore = defineStore('sessions', {
       this.sessions[index] = { ...session, status: 'disconnected' };
 
       try {
-        await invoke('disconnect', { id });
+        await sessionService.disconnectAsset(id, session.assetId);
       } catch (e) {
         console.error('Failed to disconnect', e);
       }
@@ -196,37 +195,31 @@ export const useSessionStore = defineStore('sessions', {
       const session = this.sessions.find(s => s.id === id);
       if (!session) return;
 
-      // We need the connection config. 
-      // Ideally we should store it in the session or fetch it from connection store.
-      // Since we only have connectionId, we need to access connectionStore.
-      // But circular dependency might be an issue if we import useConnectionStore here?
-      // Let's try to import it inside the action or use a getter if possible.
-      // Or just pass the config? No, the UI calls this.
-      
-      // Dynamic import to avoid circular dependency if any
-      const { useConnectionStore } = await import('./connections');
-      const connectionStore = useConnectionStore();
-      const conn = connectionStore.connections.find(c => c.id === session.connectionId);
-      
-      if (!conn) {
-        useNotificationStore().error('Connection configuration not found!');
+      const assetStore = useAssetStore();
+      const asset = assetStore.assets.find((item) => item.id === session.assetId);
+
+      if (!asset?.id) {
+        useNotificationStore().error('Asset configuration not found!');
         return;
       }
 
       session.status = 'connecting';
       try {
-        // Pass the existing session ID to reuse it
-        await invoke('connect', { config: conn, id: session.id });
+        const result = await sessionService.connectAsset(
+          asset.id,
+          session.accessEndpointId ?? asset.accessEndpointId ?? null,
+          session.id,
+        );
         session.status = 'connected';
         session.connectedAt = Date.now();
-        
-        // Fetch OS info on reconnect
-        try {
-            const os = await invoke<string>('get_os_info', { id: session.id });
-            session.os = os;
-        } catch (e) {
-            console.error('Failed to get OS info', e);
-        }
+        session.os = result.osInfo;
+        session.assetName = result.assetName;
+        session.envId = result.envId ?? asset.envId ?? null;
+        session.riskLevel = result.riskLevel ?? asset.criticality ?? 'medium';
+        session.healthSummary = result.healthSummary ?? asset.healthSummary ?? null;
+        session.accessEndpointId = result.accessEndpointId ?? session.accessEndpointId ?? null;
+        session.credentialRefId = result.credentialRefId ?? session.credentialRefId ?? null;
+        session.bastionChainId = result.bastionChainId ?? session.bastionChainId ?? null;
       } catch (e) {
         console.error('Failed to reconnect', e);
         session.status = 'disconnected';

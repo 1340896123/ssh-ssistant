@@ -231,7 +231,7 @@ function formatDuration(timestamp: number) {
                   class="h-3.5 w-3.5 fill-current text-error"
                 />
                 <span class="truncate text-sm font-medium text-text-primary">
-                  {{ session.connectionName }}
+                  {{ session.assetName }}
                 </span>
                 <span
                   v-if="session.id === activeSession?.id"

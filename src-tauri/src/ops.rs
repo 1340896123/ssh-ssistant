@@ -1,9 +1,10 @@
 use crate::db::get_db_path;
 use crate::models::{
-    AccessEndpoint, AssetFolder, AssetTag, AuditEvent, CredentialRef, Environment, HostAsset,
-    JobRun, JobTemplate, SavedAssetView, SyncState,
+    AccessEndpoint, AssetFolder, AssetSessionConnectResult, AssetTag, AssetUpsertPayload,
+    AuditEvent, Connection as SshConnection, CredentialRef, Environment, HostAsset, JobRun,
+    JobTemplate, SavedAssetView, SyncState,
 };
-use crate::ssh::{client::AppState, command};
+use crate::ssh::{client, client::AppState, command};
 use rusqlite::{params, Connection as SqliteConnection};
 use tauri::{AppHandle, State};
 
@@ -45,9 +46,30 @@ fn join_labels(labels: &[String]) -> String {
         .join(",")
 }
 
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|item| {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn default_credential_name(asset_name: &str, credential_kind: &str) -> String {
+    match credential_kind {
+        "sshKey" => format!("{} key credential", asset_name),
+        "token" => format!("{} token credential", asset_name),
+        _ => format!("{} password credential", asset_name),
+    }
+}
+
 pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
     let db_path = get_db_path(app_handle);
     let conn = SqliteConnection::open(db_path)?;
+
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
 
     conn.execute_batch(
         r#"
@@ -273,6 +295,16 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         [],
     )?;
     conn.execute(
+        "UPDATE access_endpoints
+         SET credential_ref_id = CASE
+            WHEN auth_type = 'key' AND ssh_key_id IS NOT NULL THEN 2000000 + ssh_key_id
+            WHEN auth_type = 'password' THEN 1000000 + asset_id
+            ELSE credential_ref_id
+         END
+         WHERE credential_ref_id IS NULL",
+        [],
+    )?;
+    conn.execute(
         "UPDATE host_assets
          SET access_endpoint_id = COALESCE(access_endpoint_id, (
             SELECT ae.id FROM access_endpoints ae WHERE ae.asset_id = host_assets.id LIMIT 1
@@ -285,6 +317,21 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
          VALUES (1, 'local-default', 'idle', 1, strftime('%s','now'))",
         [],
     )?;
+
+    // Clean up orphaned foreign keys before re-enabling constraints
+    conn.execute(
+        "UPDATE host_assets SET ssh_key_id = NULL WHERE ssh_key_id IS NOT NULL AND ssh_key_id NOT IN (SELECT id FROM ssh_keys)",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE access_endpoints SET ssh_key_id = NULL WHERE ssh_key_id IS NOT NULL AND ssh_key_id NOT IN (SELECT id FROM ssh_keys)",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE access_endpoints SET credential_ref_id = NULL WHERE credential_ref_id IS NOT NULL AND credential_ref_id NOT IN (SELECT id FROM credential_refs)",
+        [],
+    )?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
     Ok(())
 }
@@ -382,32 +429,21 @@ fn map_host_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HostAsset> {
         name: row.get(1)?,
         host: row.get(2)?,
         port: row.get(3)?,
-        username: row.get(4)?,
-        password: row.get(5)?,
-        auth_type: row.get(6)?,
-        ssh_key_id: row.get(7)?,
-        jump_host: row.get(8)?,
-        jump_port: row.get(9)?,
-        jump_username: row.get(10)?,
-        jump_password: row.get(11)?,
-        platform: row.get(12)?,
-        folder_id: row.get(13)?,
-        env_id: row.get(14)?,
-        labels: parse_labels(row.get(15)?),
-        owner: row.get(16)?,
-        criticality: row.get(17)?,
-        default_workspace_path: row.get(18)?,
-        access_endpoint_id: row.get(19)?,
-        bastion_chain_id: row.get(20)?,
-        health_summary: row.get(21)?,
-        last_accessed_at: row.get(22)?,
+        platform: row.get(4)?,
+        folder_id: row.get(5)?,
+        env_id: row.get(6)?,
+        labels: parse_labels(row.get(7)?),
+        owner: row.get(8)?,
+        criticality: row.get(9)?,
+        default_workspace_path: row.get(10)?,
+        access_endpoint_id: row.get(11)?,
+        bastion_chain_id: row.get(12)?,
+        health_summary: row.get(13)?,
+        last_accessed_at: row.get(14)?,
         is_favorite: row
-            .get::<_, Option<i64>>(23)?
+            .get::<_, Option<i64>>(15)?
             .map(|value| value != 0),
-        os_type: Some(row.get::<_, String>(24)?),
-        group_id: row.get(25)?,
-        key_content: None,
-        key_passphrase: None,
+        group_id: row.get(16)?,
     })
 }
 
@@ -526,15 +562,311 @@ fn map_audit_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEvent> 
     })
 }
 
+pub fn map_connection_from_endpoint(
+    asset: &HostAsset,
+    endpoint: &AccessEndpoint,
+    credential_ref: Option<&CredentialRef>,
+) -> SshConnection {
+    let auth_type = endpoint
+        .auth_type
+        .clone()
+        .or_else(|| credential_ref.map(|credential| match credential.credential_kind.as_str() {
+            "sshKey" => "key".to_string(),
+            _ => "password".to_string(),
+        }))
+        .unwrap_or_else(|| "password".to_string());
+
+    let password = credential_ref.and_then(|credential| {
+        if credential.credential_kind == "password" {
+            credential.secret.clone()
+        } else {
+            None
+        }
+    });
+
+    let ssh_key_id = endpoint
+        .ssh_key_id
+        .or_else(|| credential_ref.and_then(|credential| credential.ssh_key_id));
+
+    SshConnection {
+        id: asset.id,
+        name: asset.name.clone(),
+        host: endpoint.host.clone(),
+        port: endpoint.port,
+        username: endpoint.username.clone(),
+        password,
+        auth_type: Some(auth_type),
+        ssh_key_id,
+        jump_host: endpoint.jump_host.clone(),
+        jump_port: endpoint.jump_port,
+        jump_username: endpoint.jump_username.clone(),
+        jump_password: None,
+        group_id: asset.folder_id.or(asset.group_id),
+        os_type: Some(asset.platform.clone()),
+        key_content: None,
+        key_passphrase: None,
+    }
+}
+
+pub fn resolve_asset_bundle(
+    conn: &SqliteConnection,
+    asset_id: i64,
+    endpoint_id: Option<i64>,
+) -> Result<(HostAsset, AccessEndpoint, Option<CredentialRef>), String> {
+    let asset = conn
+        .query_row(
+            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+                    default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at,
+                    is_favorite, platform, folder_id
+             FROM host_assets WHERE id = ?1",
+            params![asset_id],
+            map_host_asset_row,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let resolved_endpoint_id = endpoint_id
+        .or(asset.access_endpoint_id)
+        .ok_or_else(|| "Asset has no default access endpoint".to_string())?;
+
+    let endpoint = conn
+        .query_row(
+            "SELECT id, asset_id, name, host, port, username, auth_type, credential_ref_id, ssh_key_id, jump_host, jump_port, jump_username, jump_password
+             FROM access_endpoints WHERE id = ?1 AND asset_id = ?2",
+            params![resolved_endpoint_id, asset_id],
+            map_access_endpoint_row,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let credential_ref = if let Some(credential_ref_id) = endpoint.credential_ref_id {
+        Some(
+            conn.query_row(
+                "SELECT id, name, credential_kind, username, secret, ssh_key_id, asset_id, created_at, updated_at
+                 FROM credential_refs WHERE id = ?1",
+                params![credential_ref_id],
+                map_credential_ref_row,
+            )
+            .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+
+    Ok((asset, endpoint, credential_ref))
+}
+
+fn save_asset_bundle(
+    tx: &SqliteConnection,
+    existing_asset_id: Option<i64>,
+    payload: AssetUpsertPayload,
+) -> Result<(i64, HostAsset), String> {
+    let AssetUpsertPayload {
+        mut asset,
+        mut default_access_endpoint,
+        default_credential_ref,
+    } = payload;
+
+    let asset_id = existing_asset_id.unwrap_or_else(|| asset.id.unwrap_or_default());
+    let timestamp = now_ts();
+    let labels_csv = join_labels(&asset.labels);
+    let folder_id = asset.folder_id.or(asset.group_id);
+    let endpoint_username = default_access_endpoint.username.clone();
+    let endpoint_auth_type = default_access_endpoint
+        .auth_type
+        .clone()
+        .or_else(|| {
+            default_credential_ref.as_ref().map(|credential_ref| {
+                if credential_ref.credential_kind == "sshKey" {
+                    "key".to_string()
+                } else {
+                    "password".to_string()
+                }
+            })
+        })
+        .unwrap_or_else(|| "password".to_string());
+    let endpoint_password = if endpoint_auth_type == "password" {
+        default_credential_ref
+            .as_ref()
+            .and_then(|credential_ref| normalize_optional_string(credential_ref.secret.clone()))
+    } else {
+        None
+    };
+    let endpoint_ssh_key_id = default_access_endpoint
+        .ssh_key_id
+        .or_else(|| default_credential_ref.as_ref().and_then(|credential_ref| credential_ref.ssh_key_id));
+
+    tx.execute(
+        "INSERT INTO host_assets (
+            id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
+            platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
+            access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, ?19, ?20, ?21, ?22, ?23, ?24)
+         ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            host = excluded.host,
+            port = excluded.port,
+            username = excluded.username,
+            password = excluded.password,
+            auth_type = excluded.auth_type,
+            ssh_key_id = excluded.ssh_key_id,
+            jump_host = excluded.jump_host,
+            jump_port = excluded.jump_port,
+            jump_username = excluded.jump_username,
+            platform = excluded.platform,
+            folder_id = excluded.folder_id,
+            env_id = excluded.env_id,
+            labels_csv = excluded.labels_csv,
+            owner = excluded.owner,
+            criticality = excluded.criticality,
+            default_workspace_path = excluded.default_workspace_path,
+            bastion_chain_id = excluded.bastion_chain_id,
+            health_summary = excluded.health_summary,
+            last_accessed_at = excluded.last_accessed_at,
+            is_favorite = excluded.is_favorite,
+            updated_at = excluded.updated_at",
+        params![
+            asset_id,
+            asset.name,
+            asset.host,
+            asset.port,
+            endpoint_username,
+            endpoint_password,
+            endpoint_auth_type,
+            endpoint_ssh_key_id,
+            normalize_optional_string(default_access_endpoint.jump_host.clone()),
+            default_access_endpoint.jump_port,
+            normalize_optional_string(default_access_endpoint.jump_username.clone()),
+            asset.platform,
+            folder_id,
+            asset.env_id,
+            labels_csv,
+            normalize_optional_string(asset.owner.clone()),
+            asset.criticality,
+            normalize_optional_string(asset.default_workspace_path.clone()),
+            normalize_optional_string(asset.bastion_chain_id.clone()),
+            normalize_optional_string(asset.health_summary.clone()),
+            asset.last_accessed_at,
+            asset.is_favorite.unwrap_or(false) as i64,
+            timestamp,
+            timestamp
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    upsert_asset_tags(tx, asset_id, &asset.labels)?;
+
+    let credential_ref_id = if let Some(mut credential_ref) = default_credential_ref {
+        let credential_id = credential_ref.id.unwrap_or_default();
+        let created_at = if existing_asset_id.is_some() && credential_id != 0 {
+            credential_ref.created_at
+        } else {
+            timestamp
+        };
+        let credential_name = if credential_ref.name.trim().is_empty() {
+            default_credential_name(&asset.name, credential_ref.credential_kind.as_str())
+        } else {
+            credential_ref.name.clone()
+        };
+
+        tx.execute(
+            "INSERT INTO credential_refs (id, name, credential_kind, username, secret, ssh_key_id, asset_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                credential_kind = excluded.credential_kind,
+                username = excluded.username,
+                secret = excluded.secret,
+                ssh_key_id = excluded.ssh_key_id,
+                asset_id = excluded.asset_id,
+                updated_at = excluded.updated_at",
+            params![
+                credential_id,
+                credential_name,
+                credential_ref.credential_kind,
+                normalize_optional_string(credential_ref.username.clone()),
+                normalize_optional_string(credential_ref.secret.clone()),
+                credential_ref.ssh_key_id,
+                Some(asset_id),
+                created_at,
+                timestamp
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+
+        if credential_id == 0 {
+            Some(tx.last_insert_rowid())
+        } else {
+            Some(credential_id)
+        }
+    } else {
+        None
+    };
+
+    let endpoint_id = default_access_endpoint.id.unwrap_or(asset_id);
+    let endpoint_name = if default_access_endpoint.name.trim().is_empty() {
+        format!("{} default endpoint", asset.name)
+    } else {
+        default_access_endpoint.name.clone()
+    };
+    tx.execute(
+        "INSERT INTO access_endpoints (id, asset_id, name, host, port, username, auth_type, credential_ref_id, ssh_key_id, jump_host, jump_port, jump_username, jump_password)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL)
+         ON CONFLICT(id) DO UPDATE SET
+            asset_id = excluded.asset_id,
+            name = excluded.name,
+            host = excluded.host,
+            port = excluded.port,
+            username = excluded.username,
+            auth_type = excluded.auth_type,
+            credential_ref_id = excluded.credential_ref_id,
+            ssh_key_id = excluded.ssh_key_id,
+            jump_host = excluded.jump_host,
+            jump_port = excluded.jump_port,
+            jump_username = excluded.jump_username,
+            jump_password = NULL",
+        params![
+            endpoint_id,
+            asset_id,
+            endpoint_name,
+            default_access_endpoint.host,
+            default_access_endpoint.port,
+            default_access_endpoint.username,
+            Some(endpoint_auth_type),
+            credential_ref_id,
+            endpoint_ssh_key_id,
+            normalize_optional_string(default_access_endpoint.jump_host.clone()),
+            default_access_endpoint.jump_port,
+            normalize_optional_string(default_access_endpoint.jump_username.clone())
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE host_assets SET access_endpoint_id = ?2, updated_at = ?3 WHERE id = ?1",
+        params![asset_id, endpoint_id, timestamp],
+    )
+    .map_err(|e| e.to_string())?;
+
+    asset.id = Some(asset_id);
+    asset.access_endpoint_id = Some(endpoint_id);
+    asset.folder_id = folder_id;
+    asset.group_id = folder_id;
+    asset.owner = normalize_optional_string(asset.owner);
+    asset.default_workspace_path = normalize_optional_string(asset.default_workspace_path);
+    asset.bastion_chain_id = normalize_optional_string(asset.bastion_chain_id);
+    asset.health_summary = normalize_optional_string(asset.health_summary);
+    asset.is_favorite = Some(asset.is_favorite.unwrap_or(false));
+
+    Ok((asset_id, asset))
+}
+
 #[tauri::command]
 pub fn asset_get_host_assets(app_handle: AppHandle) -> Result<Vec<HostAsset>, String> {
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
-                    platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path, access_endpoint_id, bastion_chain_id,
-                    health_summary, last_accessed_at, is_favorite, platform, folder_id
+            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+                    default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, folder_id
              FROM host_assets
              ORDER BY COALESCE(last_accessed_at, 0) DESC, name COLLATE NOCASE ASC",
         )
@@ -557,11 +889,10 @@ pub fn asset_search_host_assets(app_handle: AppHandle, query: String) -> Result<
     let pattern = format!("%{}%", query.trim());
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
-                    platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path, access_endpoint_id, bastion_chain_id,
-                    health_summary, last_accessed_at, is_favorite, platform, folder_id
+            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+                    default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, folder_id
              FROM host_assets
-             WHERE name LIKE ?1 OR host LIKE ?1 OR username LIKE ?1 OR owner LIKE ?1 OR labels_csv LIKE ?1
+             WHERE name LIKE ?1 OR host LIKE ?1 OR owner LIKE ?1 OR labels_csv LIKE ?1
              ORDER BY name COLLATE NOCASE ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -704,121 +1035,289 @@ pub fn access_get_credential_refs(app_handle: AppHandle) -> Result<Vec<Credentia
 }
 
 #[tauri::command]
-pub fn asset_create_host_asset(app_handle: AppHandle, asset: HostAsset) -> Result<HostAsset, String> {
+pub fn access_create_access_endpoint(
+    app_handle: AppHandle,
+    endpoint: AccessEndpoint,
+) -> Result<AccessEndpoint, String> {
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let asset_name = asset.name.clone();
-    let asset_host = asset.host.clone();
-    let asset_username = asset.username.clone();
-    let asset_platform = asset.platform.clone();
-    let asset_auth_type = asset
-        .auth_type
-        .clone()
-        .unwrap_or_else(|| "password".to_string());
-    let asset_folder_id = asset.folder_id;
-    let asset_password = asset.password.clone();
-    let asset_jump_host = asset.jump_host.clone();
-    let asset_jump_port = asset.jump_port;
-    let asset_jump_username = asset.jump_username.clone();
-    let asset_jump_password = asset.jump_password.clone();
-    let asset_ssh_key_id = asset.ssh_key_id;
-    let asset_labels = asset.labels.clone();
-    let asset_owner = asset.owner.clone();
-    let asset_criticality = asset.criticality.clone();
-    let asset_workspace = asset.default_workspace_path.clone();
-    let asset_bastion_chain_id = asset.bastion_chain_id.clone();
-    let asset_health_summary = asset.health_summary.clone();
-    let asset_last_accessed_at = asset.last_accessed_at;
-    let asset_is_favorite = asset.is_favorite.unwrap_or(false);
-    let env_id = asset.env_id;
-
-    tx.execute(
-        "INSERT INTO connections (name, host, port, username, password, jump_host, jump_port, jump_username, jump_password, group_id, os_type, auth_type, ssh_key_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+    conn.execute(
+        "INSERT INTO access_endpoints (asset_id, name, host, port, username, auth_type, credential_ref_id, ssh_key_id, jump_host, jump_port, jump_username, jump_password)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL)",
         params![
-            asset_name,
-            asset_host,
-            asset.port,
-            asset_username,
-            asset_password,
-            asset_jump_host,
-            asset_jump_port,
-            asset_jump_username,
-            asset_jump_password,
-            asset_folder_id,
-            Some(asset_platform.clone()),
-            asset_auth_type.clone(),
-            asset_ssh_key_id
+            endpoint.asset_id,
+            endpoint.name,
+            endpoint.host,
+            endpoint.port,
+            endpoint.username,
+            endpoint.auth_type,
+            endpoint.credential_ref_id,
+            endpoint.ssh_key_id,
+            normalize_optional_string(endpoint.jump_host.clone()),
+            endpoint.jump_port,
+            normalize_optional_string(endpoint.jump_username.clone())
         ],
     )
     .map_err(|e| e.to_string())?;
+    let id = conn.last_insert_rowid();
+    conn.execute(
+        "UPDATE host_assets SET access_endpoint_id = COALESCE(access_endpoint_id, ?2), updated_at = ?3 WHERE id = ?1",
+        params![endpoint.asset_id, id, now_ts()],
+    )
+    .map_err(|e| e.to_string())?;
+    append_audit_event(
+        &app_handle,
+        "access.endpointCreated",
+        Some(endpoint.asset_id),
+        None,
+        None,
+        "Created access endpoint",
+        Some(endpoint.name.as_str()),
+        "info",
+        None,
+    )?;
+    Ok(AccessEndpoint { id: Some(id), ..endpoint })
+}
 
-    let asset_id = tx.last_insert_rowid();
+#[tauri::command]
+pub fn access_update_access_endpoint(
+    app_handle: AppHandle,
+    endpoint: AccessEndpoint,
+) -> Result<AccessEndpoint, String> {
+    let endpoint_id = endpoint
+        .id
+        .ok_or_else(|| "Endpoint ID is required".to_string())?;
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE access_endpoints
+         SET asset_id = ?1, name = ?2, host = ?3, port = ?4, username = ?5, auth_type = ?6, credential_ref_id = ?7, ssh_key_id = ?8,
+             jump_host = ?9, jump_port = ?10, jump_username = ?11, jump_password = NULL
+         WHERE id = ?12",
+        params![
+            endpoint.asset_id,
+            endpoint.name,
+            endpoint.host,
+            endpoint.port,
+            endpoint.username,
+            endpoint.auth_type,
+            endpoint.credential_ref_id,
+            endpoint.ssh_key_id,
+            normalize_optional_string(endpoint.jump_host.clone()),
+            endpoint.jump_port,
+            normalize_optional_string(endpoint.jump_username.clone()),
+            endpoint_id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    append_audit_event(
+        &app_handle,
+        "access.endpointUpdated",
+        Some(endpoint.asset_id),
+        None,
+        None,
+        "Updated access endpoint",
+        Some(endpoint.name.as_str()),
+        "info",
+        None,
+    )?;
+    Ok(endpoint)
+}
+
+#[tauri::command]
+pub fn access_delete_access_endpoint(app_handle: AppHandle, id: i64) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let asset_id: i64 = conn
+        .query_row(
+            "SELECT asset_id FROM access_endpoints WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM access_endpoints WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE host_assets
+         SET access_endpoint_id = (
+            SELECT ae.id FROM access_endpoints ae WHERE ae.asset_id = ?2 ORDER BY ae.id ASC LIMIT 1
+         ),
+         updated_at = ?3
+         WHERE id = ?1",
+        params![asset_id, asset_id, now_ts()],
+    )
+    .map_err(|e| e.to_string())?;
+    append_audit_event(
+        &app_handle,
+        "access.endpointDeleted",
+        Some(asset_id),
+        None,
+        None,
+        "Deleted access endpoint",
+        None,
+        "warning",
+        None,
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn access_create_credential_ref(
+    app_handle: AppHandle,
+    credential_ref: CredentialRef,
+) -> Result<CredentialRef, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let created_at = if credential_ref.created_at == 0 {
+        now_ts()
+    } else {
+        credential_ref.created_at
+    };
+    let updated_at = now_ts();
+    conn.execute(
+        "INSERT INTO credential_refs (name, credential_kind, username, secret, ssh_key_id, asset_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            credential_ref.name,
+            credential_ref.credential_kind,
+            normalize_optional_string(credential_ref.username.clone()),
+            normalize_optional_string(credential_ref.secret.clone()),
+            credential_ref.ssh_key_id,
+            credential_ref.asset_id,
+            created_at,
+            updated_at
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    let id = conn.last_insert_rowid();
+    append_audit_event(
+        &app_handle,
+        "access.credentialCreated",
+        credential_ref.asset_id,
+        None,
+        None,
+        "Created credential reference",
+        Some(credential_ref.name.as_str()),
+        "info",
+        None,
+    )?;
+    Ok(CredentialRef {
+        id: Some(id),
+        created_at,
+        updated_at,
+        ..credential_ref
+    })
+}
+
+#[tauri::command]
+pub fn access_update_credential_ref(
+    app_handle: AppHandle,
+    credential_ref: CredentialRef,
+) -> Result<CredentialRef, String> {
+    let id = credential_ref
+        .id
+        .ok_or_else(|| "Credential ref ID is required".to_string())?;
+    let updated_at = now_ts();
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE credential_refs
+         SET name = ?1, credential_kind = ?2, username = ?3, secret = ?4, ssh_key_id = ?5, asset_id = ?6, updated_at = ?7
+         WHERE id = ?8",
+        params![
+            credential_ref.name,
+            credential_ref.credential_kind,
+            normalize_optional_string(credential_ref.username.clone()),
+            normalize_optional_string(credential_ref.secret.clone()),
+            credential_ref.ssh_key_id,
+            credential_ref.asset_id,
+            updated_at,
+            id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    append_audit_event(
+        &app_handle,
+        "access.credentialUpdated",
+        credential_ref.asset_id,
+        None,
+        None,
+        "Updated credential reference",
+        Some(credential_ref.name.as_str()),
+        "info",
+        None,
+    )?;
+    Ok(CredentialRef { updated_at, ..credential_ref })
+}
+
+#[tauri::command]
+pub fn access_delete_credential_ref(app_handle: AppHandle, id: i64) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let asset_id = conn
+        .query_row(
+            "SELECT asset_id FROM credential_refs WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM credential_refs WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    append_audit_event(
+        &app_handle,
+        "access.credentialDeleted",
+        asset_id,
+        None,
+        None,
+        "Deleted credential reference",
+        None,
+        "warning",
+        None,
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn asset_create_host_asset(
+    app_handle: AppHandle,
+    payload: AssetUpsertPayload,
+) -> Result<HostAsset, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute(
         "INSERT INTO host_assets (
-            id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
-            platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path, bastion_chain_id, health_summary,
-            last_accessed_at, is_favorite, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+            name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
+            access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?7, ?7)",
         params![
-            asset_id,
-            asset_name.clone(),
-            asset_host.clone(),
-            asset.port,
-            asset_username.clone(),
-            asset_password.clone(),
-            asset_auth_type.clone(),
-            asset_ssh_key_id,
-            asset_jump_host.clone(),
-            asset_jump_port,
-            asset_jump_username.clone(),
-            asset_jump_password.clone(),
-            asset_platform,
-            asset_folder_id,
-            env_id,
-            join_labels(&asset_labels),
-            asset_owner,
-            asset_criticality,
-            asset_workspace,
-            asset_bastion_chain_id,
-            asset_health_summary,
-            asset_last_accessed_at,
-            asset_is_favorite as i64,
-            now_ts(),
+            payload.asset.name,
+            payload.asset.host,
+            payload.asset.port,
+            payload.asset.platform,
+            payload.asset.folder_id.or(payload.asset.group_id),
+            payload.asset.env_id,
             now_ts()
         ],
     )
     .map_err(|e| e.to_string())?;
-
-    upsert_asset_tags(&tx, asset_id, &asset_labels)?;
-
-    tx.execute(
-        "INSERT INTO access_endpoints (
-            id, asset_id, name, host, port, username, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            asset_id,
-            asset_id,
-            format!("{} endpoint", asset_name),
-            asset_host,
-            asset.port,
-            asset_username,
-            asset_auth_type,
-            asset_ssh_key_id,
-            asset_jump_host,
-            asset_jump_port,
-            asset_jump_username,
-            asset_jump_password
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "UPDATE host_assets SET access_endpoint_id = ?2 WHERE id = ?1",
-        params![asset_id, asset_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let asset_id = tx.last_insert_rowid();
+    let (_, saved_asset) = save_asset_bundle(
+        &tx,
+        Some(asset_id),
+        AssetUpsertPayload {
+            asset: HostAsset {
+                id: Some(asset_id),
+                ..payload.asset
+            },
+            default_access_endpoint: AccessEndpoint {
+                id: payload.default_access_endpoint.id.or(Some(asset_id)),
+                asset_id,
+                ..payload.default_access_endpoint
+            },
+            default_credential_ref: payload.default_credential_ref,
+        },
+    )?;
 
     append_audit_event_with_conn(
         &tx,
@@ -833,143 +1332,22 @@ pub fn asset_create_host_asset(app_handle: AppHandle, asset: HostAsset) -> Resul
     )?;
 
     tx.commit().map_err(|e| e.to_string())?;
-
-    asset_get_host_assets(app_handle)?
-        .into_iter()
-        .find(|item| item.id == Some(asset_id))
-        .ok_or_else(|| "Created asset not found".to_string())
+    Ok(saved_asset)
 }
 
 #[tauri::command]
-pub fn asset_update_host_asset(app_handle: AppHandle, asset: HostAsset) -> Result<HostAsset, String> {
-    let asset_id = asset.id.ok_or_else(|| "Asset ID is required".to_string())?;
+pub fn asset_update_host_asset(
+    app_handle: AppHandle,
+    payload: AssetUpsertPayload,
+) -> Result<HostAsset, String> {
+    let asset_id = payload
+        .asset
+        .id
+        .ok_or_else(|| "Asset ID is required".to_string())?;
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let asset_name = asset.name.clone();
-    let asset_host = asset.host.clone();
-    let asset_username = asset.username.clone();
-    let asset_password = asset.password.clone();
-    let asset_jump_host = asset.jump_host.clone();
-    let asset_jump_port = asset.jump_port;
-    let asset_jump_username = asset.jump_username.clone();
-    let asset_jump_password = asset.jump_password.clone();
-    let asset_folder_id = asset.folder_id;
-    let asset_platform = asset.platform.clone();
-    let asset_auth_type = asset
-        .auth_type
-        .clone()
-        .unwrap_or_else(|| "password".to_string());
-    let asset_ssh_key_id = asset.ssh_key_id;
-    let asset_env_id = asset.env_id;
-    let asset_labels = asset.labels.clone();
-    let asset_owner = asset.owner.clone();
-    let asset_criticality = asset.criticality.clone();
-    let asset_workspace = asset.default_workspace_path.clone();
-    let asset_bastion_chain_id = asset.bastion_chain_id.clone();
-    let asset_health_summary = asset.health_summary.clone();
-    let asset_last_accessed_at = asset.last_accessed_at;
-    let asset_is_favorite = asset.is_favorite.unwrap_or(false);
-    let endpoint_id = asset.access_endpoint_id.unwrap_or(asset_id);
-
-    tx.execute(
-        "UPDATE connections
-         SET name = ?1, host = ?2, port = ?3, username = ?4, password = ?5, jump_host = ?6, jump_port = ?7, jump_username = ?8, jump_password = ?9, group_id = ?10, os_type = ?11, auth_type = ?12, ssh_key_id = ?13
-         WHERE id = ?14",
-        params![
-            asset_name.clone(),
-            asset_host.clone(),
-            asset.port,
-            asset_username.clone(),
-            asset_password.clone(),
-            asset_jump_host.clone(),
-            asset_jump_port,
-            asset_jump_username.clone(),
-            asset_jump_password.clone(),
-            asset_folder_id,
-            Some(asset_platform.clone()),
-            asset_auth_type.clone(),
-            asset_ssh_key_id,
-            asset_id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "UPDATE host_assets
-         SET name = ?1, host = ?2, port = ?3, username = ?4, password = ?5, auth_type = ?6, ssh_key_id = ?7,
-             jump_host = ?8, jump_port = ?9, jump_username = ?10, jump_password = ?11, platform = ?12, folder_id = ?13,
-             env_id = ?14, labels_csv = ?15, owner = ?16, criticality = ?17, default_workspace_path = ?18,
-             bastion_chain_id = ?19, health_summary = ?20, last_accessed_at = ?21, is_favorite = ?22, updated_at = ?23
-         WHERE id = ?24",
-        params![
-            asset_name.clone(),
-            asset_host.clone(),
-            asset.port,
-            asset_username.clone(),
-            asset_password.clone(),
-            asset_auth_type.clone(),
-            asset_ssh_key_id,
-            asset_jump_host.clone(),
-            asset_jump_port,
-            asset_jump_username.clone(),
-            asset_jump_password.clone(),
-            asset_platform,
-            asset_folder_id,
-            asset_env_id,
-            join_labels(&asset_labels),
-            asset_owner,
-            asset_criticality,
-            asset_workspace,
-            asset_bastion_chain_id,
-            asset_health_summary,
-            asset_last_accessed_at,
-            asset_is_favorite as i64,
-            now_ts(),
-            asset_id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "INSERT INTO access_endpoints (id, asset_id, name, host, port, username, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-         ON CONFLICT(id) DO UPDATE SET
-            asset_id = excluded.asset_id,
-            name = excluded.name,
-            host = excluded.host,
-            port = excluded.port,
-            username = excluded.username,
-            auth_type = excluded.auth_type,
-            ssh_key_id = excluded.ssh_key_id,
-            jump_host = excluded.jump_host,
-            jump_port = excluded.jump_port,
-            jump_username = excluded.jump_username,
-            jump_password = excluded.jump_password",
-        params![
-            endpoint_id,
-            asset_id,
-            format!("{} endpoint", asset_name),
-            asset_host,
-            asset.port,
-            asset_username,
-            asset_auth_type,
-            asset_ssh_key_id,
-            asset_jump_host,
-            asset_jump_port,
-            asset_jump_username,
-            asset_jump_password
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "UPDATE host_assets SET access_endpoint_id = COALESCE(access_endpoint_id, ?2), updated_at = ?3 WHERE id = ?1",
-        params![asset_id, endpoint_id, now_ts()],
-    )
-    .map_err(|e| e.to_string())?;
-
-    upsert_asset_tags(&tx, asset_id, &asset_labels)?;
+    let (_, saved_asset) = save_asset_bundle(&tx, Some(asset_id), payload)?;
 
     append_audit_event_with_conn(
         &tx,
@@ -984,11 +1362,7 @@ pub fn asset_update_host_asset(app_handle: AppHandle, asset: HostAsset) -> Resul
     )?;
 
     tx.commit().map_err(|e| e.to_string())?;
-
-    asset_get_host_assets(app_handle)?
-        .into_iter()
-        .find(|item| item.id == Some(asset_id))
-        .ok_or_else(|| "Updated asset not found".to_string())
+    Ok(saved_asset)
 }
 
 #[tauri::command]
@@ -1008,8 +1382,6 @@ pub fn asset_delete_host_asset(app_handle: AppHandle, id: i64) -> Result<(), Str
         None,
     )?;
     tx.execute("DELETE FROM host_assets WHERE id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
-    tx.execute("DELETE FROM connections WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -1653,8 +2025,8 @@ pub fn sync_save_state(app_handle: AppHandle, state: SyncState) -> Result<SyncSt
 #[tauri::command]
 pub fn ai_plan_action(asset: HostAsset, user_request: String) -> Result<String, String> {
     Ok(format!(
-        "Plan action for asset '{}' ({}@{}): inspect current state, identify safe commands, require confirmation before write operations. Request: {}",
-        asset.name, asset.username, asset.host, user_request
+        "Plan action for asset '{}' ({}): inspect current state, identify safe commands, require confirmation before write operations. Request: {}",
+        asset.name, asset.host, user_request
     ))
 }
 
@@ -1672,4 +2044,81 @@ pub fn ai_generate_runbook(asset: HostAsset, target: String) -> Result<String, S
         "Runbook for asset '{}': define pre-checks, read-only validation, guarded remediation, and rollback notes for {}.",
         asset.name, target
     ))
+}
+
+#[tauri::command]
+pub async fn session_connect_asset(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    asset_id: i64,
+    access_endpoint_id: Option<i64>,
+    existing_session_id: Option<String>,
+) -> Result<AssetSessionConnectResult, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let (asset, endpoint, credential_ref) = resolve_asset_bundle(&conn, asset_id, access_endpoint_id)?;
+    drop(conn);
+
+    let ssh_config = map_connection_from_endpoint(&asset, &endpoint, credential_ref.as_ref());
+    let session_id = client::connect(
+        app_handle.clone(),
+        state,
+        ssh_config,
+        existing_session_id,
+    )
+    .await?;
+
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE host_assets SET last_accessed_at = ?2, updated_at = ?2 WHERE id = ?1",
+        params![asset_id, now_ts()],
+    )
+    .map_err(|e| e.to_string())?;
+    append_audit_event(
+        &app_handle,
+        "session.connected",
+        Some(asset_id),
+        Some(session_id.as_str()),
+        None,
+        "Connected asset session",
+        Some(asset.name.as_str()),
+        "info",
+        None,
+    )?;
+
+    Ok(AssetSessionConnectResult {
+        session_id,
+        asset_id,
+        asset_name: asset.name,
+        env_id: asset.env_id,
+        access_endpoint_id: endpoint.id,
+        credential_ref_id: endpoint.credential_ref_id.or_else(|| credential_ref.and_then(|item| item.id)),
+        bastion_chain_id: asset.bastion_chain_id,
+        risk_level: asset.criticality,
+        health_summary: asset.health_summary,
+        os_info: asset.platform,
+    })
+}
+
+#[tauri::command]
+pub async fn session_disconnect_asset(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    asset_id: Option<i64>,
+) -> Result<(), String> {
+    client::disconnect(state, session_id.clone()).await?;
+    append_audit_event(
+        &app_handle,
+        "session.disconnected",
+        asset_id,
+        Some(session_id.as_str()),
+        None,
+        "Disconnected asset session",
+        None,
+        "info",
+        None,
+    )?;
+    Ok(())
 }

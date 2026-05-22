@@ -1579,12 +1579,11 @@ pub async fn install_ssh_key(
     connection_id: i64,
     key_id: i64,
 ) -> Result<(), String> {
-    // 1. Get Connection and Key
-    let connections = crate::db::get_connections(app.clone())?;
-    let conn = connections
-        .into_iter()
-        .find(|c| c.id == Some(connection_id))
-        .ok_or("Connection not found")?;
+    let db_path = crate::db::get_db_path(&app);
+    let conn_db = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    let (asset, endpoint, credential_ref) =
+        crate::ops::resolve_asset_bundle(&conn_db, connection_id, None)?;
+    let conn = crate::ops::map_connection_from_endpoint(&asset, &endpoint, credential_ref.as_ref());
 
     let key = crate::db::get_ssh_key_by_id(&app, key_id)?.ok_or("SSH Key not found")?;
 
@@ -1637,7 +1636,31 @@ pub async fn install_ssh_key(
     updated_conn.auth_type = Some("key".to_string());
     updated_conn.ssh_key_id = Some(key_id);
 
-    crate::db::update_connection(app, updated_conn)?;
+    let mut credential_ref_to_save = credential_ref.unwrap_or(crate::models::CredentialRef {
+        id: None,
+        name: format!("{} key credential", asset.name),
+        credential_kind: "sshKey".to_string(),
+        username: None,
+        secret: None,
+        ssh_key_id: Some(key_id),
+        asset_id: Some(connection_id),
+        created_at: 0,
+        updated_at: 0,
+    });
+    credential_ref_to_save.credential_kind = "sshKey".to_string();
+    credential_ref_to_save.secret = None;
+    credential_ref_to_save.ssh_key_id = Some(key_id);
+
+    let payload = crate::models::AssetUpsertPayload {
+        asset,
+        default_access_endpoint: crate::models::AccessEndpoint {
+            auth_type: Some("key".to_string()),
+            ssh_key_id: Some(key_id),
+            ..endpoint
+        },
+        default_credential_ref: Some(credential_ref_to_save),
+    };
+    crate::ops::asset_update_host_asset(app, payload)?;
 
     Ok(())
 }

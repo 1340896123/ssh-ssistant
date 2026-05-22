@@ -59,7 +59,7 @@ function formatDuration(timestamp: number) {
 
         <div class="min-w-0 flex-1">
           <div class="truncate text-sm text-text-primary">
-            {{ session.connectionName }}
+            {{ session.assetName }}
           </div>
         </div>
 

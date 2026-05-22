@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   BookMarked,
   Briefcase,
+  Cable,
   FolderPlus,
   FolderTree,
   HardDrive,
@@ -40,6 +41,7 @@ const searchQuery = ref("");
 const historyFilter = ref<HistoryFilter>("all");
 const isHistoryExpanded = ref(false);
 const isFavoritesExpanded = ref(false);
+const selectedAssetId = ref<number | null>(null);
 
 onMounted(async () => {
   await assetStore.loadAssets();
@@ -93,16 +95,37 @@ const environmentMap = computed(() => {
   return map;
 });
 
+function endpointLabel(asset: HostAsset) {
+  const endpoint = asset.id ? assetStore.defaultAccessEndpointForAsset(asset.id) : null;
+  return endpoint ? `${endpoint.username}@${endpoint.host}` : asset.host;
+}
+
+const selectedAsset = computed(() =>
+  assetStore.assets.find((asset) => asset.id === selectedAssetId.value) ?? null,
+);
+
+const selectedEndpoint = computed(() =>
+  selectedAsset.value?.id
+    ? assetStore.defaultAccessEndpointForAsset(selectedAsset.value.id)
+    : null,
+);
+
+const selectedAuditEvents = computed(() =>
+  assetStore.auditEvents
+    .filter((event) => event.assetId === selectedAssetId.value)
+    .slice(0, 4),
+);
+
 const searchResults = computed(() => {
   if (!query.value) return [];
   return assets.value.filter((asset) => {
     const values = [
       asset.name,
       asset.host,
-      asset.username,
       asset.owner,
       ...(asset.labels ?? []),
       environmentMap.value.get(asset.envId ?? -1) ?? "",
+      endpointLabel(asset),
     ];
     return values.some((value) => value?.toLowerCase().includes(query.value));
   });
@@ -133,6 +156,7 @@ function sourceLabel(source: ConnectionHistorySource | "favorite") {
 }
 
 function connect(asset: HostAsset, source: ConnectionHistorySource = "tree") {
+  selectedAssetId.value = asset.id ?? null;
   sessionStore.createSession(asset, source);
 }
 
@@ -168,6 +192,13 @@ async function deleteAsset(asset: HostAsset) {
   if (!window.confirm(`Delete asset "${asset.name}"?`)) return;
   await assetStore.deleteAsset(asset.id);
   notificationStore.success(`Deleted asset ${asset.name}`);
+}
+
+function selectAsset(asset: HostAsset) {
+  selectedAssetId.value = asset.id ?? null;
+  if (asset.id !== undefined) {
+    void assetStore.refreshOpsData(asset.id);
+  }
 }
 </script>
 
@@ -272,13 +303,13 @@ async function deleteAsset(asset: HostAsset) {
           class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3"
         >
           <div class="flex items-start justify-between gap-3">
-            <button class="min-w-0 flex-1 text-left" @click="connect(asset, 'search')">
+            <button class="min-w-0 flex-1 text-left" @click="selectAsset(asset); connect(asset, 'search')">
               <div class="flex items-center gap-2">
                 <span class="truncate text-sm text-text-primary">{{ asset.name }}</span>
                 <span
                   class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary"
                 >
-                  {{ asset.platform ?? asset.osType ?? "Linux" }}
+                  {{ asset.platform ?? "Linux" }}
                 </span>
                 <span
                   v-if="asset.criticality"
@@ -294,9 +325,7 @@ async function deleteAsset(asset: HostAsset) {
                   {{ asset.criticality }}
                 </span>
               </div>
-              <div class="mt-1 truncate text-xs text-text-secondary">
-                {{ asset.username }}@{{ asset.host }}
-              </div>
+              <div class="mt-1 truncate text-xs text-text-secondary">{{ endpointLabel(asset) }}</div>
               <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-text-secondary">
                 <span v-if="asset.owner">Owner: {{ asset.owner }}</span>
                 <span v-if="asset.envId && environmentMap.get(asset.envId)">Env: {{ environmentMap.get(asset.envId) }}</span>
@@ -373,9 +402,9 @@ async function deleteAsset(asset: HostAsset) {
               class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
             >
               <div class="flex items-start justify-between gap-3">
-                <button class="min-w-0 flex-1 text-left" @click="connect(asset, 'quick')">
+                <button class="min-w-0 flex-1 text-left" @click="selectAsset(asset); connect(asset, 'quick')">
                   <div class="truncate text-sm text-text-primary">{{ asset.name }}</div>
-                  <div class="mt-1 truncate text-xs text-text-secondary">{{ asset.username }}@{{ asset.host }}</div>
+                  <div class="mt-1 truncate text-xs text-text-secondary">{{ endpointLabel(asset) }}</div>
                 </button>
                 <button
                   class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-warning"
@@ -420,7 +449,7 @@ async function deleteAsset(asset: HostAsset) {
               class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
             >
               <div class="flex items-start justify-between gap-3">
-                <button class="min-w-0 flex-1 text-left" @click="connect(item.asset, 'history')">
+                <button class="min-w-0 flex-1 text-left" @click="selectAsset(item.asset); connect(item.asset, 'history')">
                   <div class="flex items-center gap-2">
                     <span class="min-w-0 flex-1 truncate text-sm text-text-primary">{{ item.asset.name }}</span>
                     <span class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary">
@@ -428,7 +457,7 @@ async function deleteAsset(asset: HostAsset) {
                     </span>
                     <span class="shrink-0 text-[11px] text-text-secondary">{{ formatRecentTime(item.entry.connectedAt) }}</span>
                   </div>
-                  <div class="mt-1 truncate text-xs text-text-secondary">{{ item.asset.username }}@{{ item.asset.host }}</div>
+                  <div class="mt-1 truncate text-xs text-text-secondary">{{ endpointLabel(item.asset) }}</div>
                   <div v-if="item.entry.reason" class="mt-1 truncate text-[11px]" :class="item.entry.status === 'failed' ? 'text-error' : 'text-text-secondary'">
                     {{ item.entry.reason }}
                   </div>
@@ -440,7 +469,8 @@ async function deleteAsset(asset: HostAsset) {
       </div>
 
       <div class="min-h-0 flex-1 px-3 py-3">
-        <div class="flex h-full min-h-0 flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
+        <div class="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.9fr)]">
+          <div class="flex min-h-0 flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
           <div class="flex items-center justify-between gap-3 border-b border-border-primary px-3 py-2.5 text-xs">
             <div class="flex items-center gap-1.5 font-medium uppercase tracking-wide text-text-secondary">
               <FolderTree class="h-3.5 w-3.5" />
@@ -456,7 +486,12 @@ async function deleteAsset(asset: HostAsset) {
                 :key="`${'children' in item ? 'folder' : 'asset'}-${item.id}`"
                 :item="item"
                 :level="1"
-                @connect="connect"
+                @connect="
+                  (asset) => {
+                    selectAsset(asset);
+                    connect(asset);
+                  }
+                "
                 @edit="editAsset"
                 @delete="deleteAsset"
                 @create-group="createFolder"
@@ -464,6 +499,111 @@ async function deleteAsset(asset: HostAsset) {
                 @delete-group="deleteFolder"
                 @context-menu="() => {}"
               />
+            </div>
+          </div>
+        </div>
+
+          <div class="flex min-h-0 flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
+            <div class="border-b border-border-primary px-4 py-3">
+              <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                Asset Detail
+              </div>
+              <div v-if="selectedAsset" class="mt-2">
+                <div class="text-sm font-semibold text-text-primary">
+                  {{ selectedAsset.name }}
+                </div>
+                <div class="mt-1 text-xs text-text-secondary">
+                  {{ selectedEndpoint ? `${selectedEndpoint.username}@${selectedEndpoint.host}` : selectedAsset.host }}
+                </div>
+              </div>
+            </div>
+
+            <div v-if="selectedAsset" class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2">
+                    <div class="text-text-secondary">Environment</div>
+                    <div class="mt-1 text-text-primary">
+                      {{ (selectedAsset.envId && environmentMap.get(selectedAsset.envId)) || "Unassigned" }}
+                    </div>
+                  </div>
+                  <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2">
+                    <div class="text-text-secondary">Risk</div>
+                    <div class="mt-1 text-text-primary">{{ selectedAsset.criticality }}</div>
+                  </div>
+                </div>
+
+                <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3 text-xs text-text-secondary">
+                  <div class="font-medium text-text-primary">Workspace</div>
+                  <div class="mt-1">
+                    {{ selectedAsset.defaultWorkspacePath || "No default workspace configured" }}
+                  </div>
+                </div>
+
+                <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3 text-xs text-text-secondary">
+                  <div class="font-medium text-text-primary">Default Endpoint</div>
+                  <div class="mt-1">
+                    {{ selectedEndpoint ? `${selectedEndpoint.username}@${selectedEndpoint.host}:${selectedEndpoint.port}` : "No access endpoint configured" }}
+                  </div>
+                  <div v-if="selectedEndpoint?.jumpHost" class="mt-1">
+                    Jump via {{ selectedEndpoint.jumpUsername || "user" }}@{{ selectedEndpoint.jumpHost }}:{{ selectedEndpoint.jumpPort || 22 }}
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    class="rounded border border-border-primary bg-accent px-3 py-2 text-sm text-white hover:opacity-90"
+                    @click="selectAsset(selectedAsset); connect(selectedAsset, 'quick')"
+                  >
+                    Open Terminal
+                  </button>
+                  <button
+                    class="rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary hover:bg-bg-elevated"
+                    @click="
+                      selectAsset(selectedAsset);
+                      connect(selectedAsset, 'quick');
+                      sessionStore.setActiveTab('files');
+                    "
+                  >
+                    Open Files
+                  </button>
+                  <button
+                    class="inline-flex items-center gap-1 rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary hover:bg-bg-elevated"
+                    @click="emit('tunnels', selectedAsset)"
+                  >
+                    <Cable class="h-3.5 w-3.5" />
+                    <span>Manage Tunnels</span>
+                  </button>
+                </div>
+
+                <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3 text-xs text-text-secondary">
+                  <div class="font-medium text-text-primary">Recent Audit</div>
+                  <div v-if="selectedAuditEvents.length === 0" class="mt-2">
+                    No recent audit events
+                  </div>
+                  <div v-else class="mt-2 space-y-2">
+                    <div
+                      v-for="event in selectedAuditEvents"
+                      :key="event.id"
+                      class="rounded border border-border-primary bg-bg-secondary px-2 py-2"
+                    >
+                      <div class="text-text-primary">{{ event.title }}</div>
+                      <div class="mt-1 text-[11px] text-text-secondary">
+                        {{ event.detail || event.eventType }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+              <div>
+                <div class="text-sm font-medium text-text-primary">Select an asset</div>
+                <div class="mt-1 text-xs text-text-secondary">
+                  Review endpoint, workspace, audit and quick actions here.
+                </div>
+              </div>
             </div>
           </div>
         </div>

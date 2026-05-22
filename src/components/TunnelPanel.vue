@@ -2,34 +2,34 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { RefreshCw, Play, Square, Settings2, Trash2 } from 'lucide-vue-next';
 import { useTunnelStore } from '../stores/tunnels';
-import { useConnectionStore } from '../stores/connections';
+import { useAssetStore } from '../stores/assets';
 import { useNotificationStore } from '../stores/notifications';
 import { useI18n } from '../composables/useI18n';
-import type { Connection, Tunnel } from '../types';
+import type { HostAsset, Tunnel } from '../types';
 
 const emit = defineEmits<{
-  (e: 'manage', connection: Connection): void;
+  (e: 'manage', asset: HostAsset): void;
 }>();
 
 const tunnelStore = useTunnelStore();
-const connectionStore = useConnectionStore();
+const assetStore = useAssetStore();
 const notificationStore = useNotificationStore();
 const { t } = useI18n();
 
 const selectedConnectionId = ref<number | 'all'>('all');
 const isLoading = ref(false);
 
-const connectionMap = computed(() => {
-  const map = new Map<number, Connection>();
-  for (const conn of connectionStore.connections) {
-    if (conn.id != null) map.set(conn.id, conn);
+const assetMap = computed(() => {
+  const map = new Map<number, HostAsset>();
+  for (const asset of assetStore.assets) {
+    if (asset.id != null) map.set(asset.id, asset);
   }
   return map;
 });
 
-const selectedConnection = computed(() => {
+const selectedAsset = computed(() => {
   if (selectedConnectionId.value === 'all') return null;
-  return connectionMap.value.get(selectedConnectionId.value) || null;
+  return assetMap.value.get(selectedConnectionId.value) || null;
 });
 
 async function loadData() {
@@ -49,7 +49,7 @@ async function loadData() {
 }
 
 onMounted(async () => {
-  await connectionStore.loadConnections();
+  await assetStore.loadAssets();
   await loadData();
 });
 
@@ -93,32 +93,32 @@ async function stopTunnel(tunnel: Tunnel) {
 
 function openManage(tunnel?: Tunnel) {
   if (tunnel) {
-    const connection = connectionMap.value.get(tunnel.connectionId);
-    if (!connection) {
+    const asset = assetMap.value.get(tunnel.connectionId);
+    if (!asset) {
       notificationStore.error(t('tunnels.connectionMissing') || 'Connection not found');
       return;
     }
-    emit('manage', connection);
+    emit('manage', asset);
     return;
   }
 
-  if (!selectedConnection.value) {
+  if (!selectedAsset.value) {
     notificationStore.error(t('tunnels.selectConnection'));
     return;
   }
-  emit('manage', selectedConnection.value);
+  emit('manage', selectedAsset.value);
 }
 
 async function deleteTunnel(tunnel: Tunnel) {
   if (!tunnel.id) return;
-  const connection = connectionMap.value.get(tunnel.connectionId);
-  if (!connection) {
+  const asset = assetMap.value.get(tunnel.connectionId);
+  if (!asset?.id) {
     notificationStore.error(t('tunnels.connectionMissing') || 'Connection not found');
     return;
   }
   if (!window.confirm(t('tunnels.deleteConfirm', { name: tunnel.name }))) return;
   try {
-    await tunnelStore.deleteTunnel(tunnel.id, connection.id!);
+    await tunnelStore.deleteTunnel(tunnel.id, asset.id);
   } catch (e: any) {
     notificationStore.error(e?.toString() || 'Failed to delete tunnel');
   }
@@ -141,8 +141,8 @@ async function deleteTunnel(tunnel: Tunnel) {
         <select v-model="selectedConnectionId"
           class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
           <option value="all">{{ t('tunnels.allConnections') }}</option>
-          <option v-for="conn in connectionStore.connections" :key="conn.id" :value="conn.id">
-            {{ conn.name }}
+          <option v-for="asset in assetStore.assets" :key="asset.id" :value="asset.id">
+            {{ asset.name }}
           </option>
         </select>
       </div>
@@ -162,7 +162,7 @@ async function deleteTunnel(tunnel: Tunnel) {
               {{ t('tunnels.mapping') }}: {{ formatMapping(tunnel) }}
             </div>
             <div class="text-[11px] text-text-muted mt-1">
-              {{ connectionMap.get(tunnel.connectionId)?.name || 'Unknown' }}
+              {{ assetMap.get(tunnel.connectionId)?.name || 'Unknown' }}
             </div>
           </div>
           <div class="flex items-center space-x-2">

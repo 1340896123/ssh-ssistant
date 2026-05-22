@@ -493,8 +493,11 @@ pub fn start_tunnel(
     let tunnel =
         db::get_tunnel_by_id(&app_handle, id)?.ok_or_else(|| "Tunnel not found".to_string())?;
 
-    let connection = db::get_connection_by_id(&app_handle, tunnel.connection_id)?
-        .ok_or_else(|| "Connection not found for tunnel".to_string())?;
+    let db_path = db::get_db_path(&app_handle);
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    let (asset, endpoint, credential_ref) =
+        crate::ops::resolve_asset_bundle(&conn, tunnel.connection_id, None)?;
+    let connection = crate::ops::map_connection_from_endpoint(&asset, &endpoint, credential_ref.as_ref());
 
     let key = if connection.auth_type.as_deref() == Some("key") {
         if let Some(key_id) = connection.ssh_key_id {
