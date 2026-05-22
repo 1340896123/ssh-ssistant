@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useNotificationStore } from './notifications';
 import type { Session, Connection, ConnectionHistorySource, ConnectionStatusEvent, ReconnectEvent } from '../types';
+import { useAssetStore } from './assets';
 
 export const useSessionStore = defineStore('sessions', {
   state: () => ({
@@ -108,6 +109,7 @@ export const useSessionStore = defineStore('sessions', {
     async createSession(conn: Connection, source: ConnectionHistorySource = 'tree') {
       const { useConnectionStore } = await import('./connections');
       const connectionStore = useConnectionStore();
+      const assetStore = useAssetStore();
 
       try {
         const id = await invoke<string>('connect', { config: conn });
@@ -120,6 +122,13 @@ export const useSessionStore = defineStore('sessions', {
           currentPath: '.',
           files: [],
           connectedAt: Date.now(),
+          assetId: conn.id,
+          riskLevel: conn.criticality ?? 'medium',
+          healthSummary: conn.healthSummary ?? null,
+          accessEndpointId: conn.accessEndpointId ?? conn.id ?? null,
+          credentialRefId: null,
+          bastionChainId: conn.bastionChainId ?? null,
+          lastJobRunId: null,
         };
         
         // Fetch OS info
@@ -134,11 +143,23 @@ export const useSessionStore = defineStore('sessions', {
         this.activeSessionId = id;
         if (conn.id !== undefined) {
           connectionStore.addSuccessfulConnection(conn.id, source);
+          void assetStore.touchAsset(conn.id);
         }
       } catch (e) {
         console.error('Failed to connect', e);
         if (conn.id !== undefined) {
           connectionStore.addFailedConnection(conn.id, String(e), source);
+          void assetStore.appendAuditEvent({
+            eventType: 'session.connectFailed',
+            assetId: conn.id,
+            sessionId: null,
+            jobRunId: null,
+            title: 'Session connection failed',
+            detail: String(e),
+            severity: 'warning',
+            metadataJson: null,
+            createdAt: Date.now(),
+          });
         }
         useNotificationStore().error('Failed to connect: ' + e);
       }

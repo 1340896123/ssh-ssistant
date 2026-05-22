@@ -9,7 +9,7 @@ import {
   watch,
 } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import ConnectionList from "./components/ConnectionList.vue";
+import AssetCenter from "./components/AssetCenter.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import TunnelModal from "./components/TunnelModal.vue";
 import TunnelPanel from "./components/TunnelPanel.vue";
@@ -244,6 +244,12 @@ const activeConnection = computed(() =>
     (connection) => connection.id === activeSession.value?.connectionId
   )
 );
+const activeAssetRisk = computed(
+  () => activeSession.value?.riskLevel ?? activeConnection.value?.criticality ?? null
+);
+const activeAssetHealth = computed(
+  () => activeSession.value?.healthSummary ?? activeConnection.value?.healthSummary ?? null
+);
 const activeWorkspace = computed(() => activeSession.value?.activeWorkspace);
 const activeSelection = computed(() =>
   activeSession.value
@@ -477,7 +483,7 @@ function openNewConnectionModal() {
   showConnectionModal.value = true;
 }
 
-function openEditConnectionModal(connection: Connection) {
+function openEditConnectionModal(connection: Connection | null) {
   editingConnection.value = connection;
   showConnectionModal.value = true;
 }
@@ -858,7 +864,7 @@ onUnmounted(() => {
           </div>
 
           <div class="min-h-0 flex-1">
-            <ConnectionList
+            <AssetCenter
               v-if="activeActivity === 'connections'"
               @edit="openEditConnectionModal"
               @tunnels="openTunnelModal"
@@ -952,14 +958,14 @@ onUnmounted(() => {
                 @click="openConnectionsWorkbench"
               >
                 <Monitor class="h-3.5 w-3.5" />
-                <span>{{ t("workbench.openConnections") }}</span>
+                <span>Open Asset Center</span>
               </button>
               <button
                 class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-90"
                 @click="openNewConnectionModal"
               >
                 <Plus class="h-3.5 w-3.5" />
-                <span>{{ t("app.newConnection") }}</span>
+                <span>New Asset</span>
               </button>
             </div>
           </div>
@@ -990,10 +996,10 @@ onUnmounted(() => {
             <div v-else class="flex h-full items-center justify-center px-6">
               <div class="w-full max-w-xl rounded-2xl border border-border-primary bg-bg-secondary px-8 py-10 text-center">
                 <div class="text-2xl font-semibold text-text-primary">
-                  SSH Assistant
+                  SSH Assistant Ops
                 </div>
                 <div class="mt-3 text-sm text-text-secondary">
-                  {{ t("app.selectConnectionToStart") }}
+                  Select an asset to open terminal, files, tunnels, and AI ops context.
                 </div>
                 <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-text-secondary">
                   <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+1 {{ t("workbench.focusMode") }}</span>
@@ -1003,10 +1009,10 @@ onUnmounted(() => {
                 </div>
                 <div class="mt-8 flex items-center justify-center gap-3">
                   <button class="btn btn-primary" @click="openNewConnectionModal">
-                    {{ t("app.newConnection") }}
+                    New Asset
                   </button>
                   <button class="btn btn-secondary" @click="openConnectionsWorkbench">
-                    {{ t("workbench.openConnections") }}
+                    Open Asset Center
                   </button>
                 </div>
               </div>
@@ -1025,6 +1031,25 @@ onUnmounted(() => {
             </span>
             <span v-if="activeSession">
               {{ t("app.sessionDuration") }} {{ activeSessionDuration }}
+            </span>
+            <span
+              v-if="activeAssetRisk"
+              class="rounded-full border border-border-primary px-2 py-0.5"
+              :class="
+                activeAssetRisk === 'critical'
+                  ? 'text-error'
+                  : activeAssetRisk === 'high'
+                    ? 'text-warning'
+                    : 'text-text-secondary'
+              "
+            >
+              Risk {{ activeAssetRisk }}
+            </span>
+            <span
+              v-if="activeAssetHealth"
+              class="truncate rounded-full border border-border-primary px-2 py-0.5"
+            >
+              {{ activeAssetHealth }}
             </span>
             <span
               v-if="activeSession?.currentPath"
@@ -1101,6 +1126,12 @@ onUnmounted(() => {
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
                   <span v-if="activeConnection">{{ activeConnection.username }}@{{ activeConnection.host }}</span>
+                  <span
+                    v-if="activeAssetRisk"
+                    class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5"
+                  >
+                    Risk {{ activeAssetRisk }}
+                  </span>
                   <span
                     v-if="activeWorkspace"
                     class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5"
@@ -1244,7 +1275,7 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="min-h-0 flex-1">
-            <ConnectionList
+            <AssetCenter
               v-if="activeActivity === 'connections'"
               @edit="openEditConnectionModal"
               @tunnels="openTunnelModal"
@@ -1282,6 +1313,13 @@ onUnmounted(() => {
                       ? `${activeConnection.username}@${activeConnection.host}`
                       : t("workbench.contextEmptyDescription")
                   }}
+                </div>
+                <div
+                  v-if="activeAssetHealth || activeAssetRisk"
+                  class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-text-secondary"
+                >
+                  <span v-if="activeAssetHealth">{{ activeAssetHealth }}</span>
+                  <span v-if="activeAssetRisk">Risk {{ activeAssetRisk }}</span>
                 </div>
               </div>
               <button

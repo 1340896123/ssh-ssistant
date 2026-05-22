@@ -4,11 +4,13 @@ import type { Connection } from '../types';
 import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-vue-next';
 import { useConnectionStore } from '../stores/connections';
 import { useSshKeyStore } from '../stores/sshKeys';
+import { useAssetStore } from '../stores/assets';
 
 const props = defineProps<{ show: boolean, connectionToEdit?: Connection | null }>();
 const emit = defineEmits(['close', 'save']);
 const connectionStore = useConnectionStore();
 const sshKeyStore = useSshKeyStore();
+const assetStore = useAssetStore();
 
 const form = ref<Connection>({
   name: '',
@@ -22,8 +24,17 @@ const form = ref<Connection>({
   jumpPort: 22,
   jumpUsername: '',
   jumpPassword: '',
-  osType: 'Linux'
+  osType: 'Linux',
+  platform: 'Linux',
+  folderId: null,
+  envId: null,
+  labels: [],
+  owner: '',
+  criticality: 'medium',
+  defaultWorkspacePath: '',
+  bastionChainId: ''
 });
+const labelsInput = ref('');
 
 const showPassword = ref(false);
 const showJumpPassword = ref(false);
@@ -43,15 +54,19 @@ watch(() => props.show, (newVal) => {
     isTesting.value = false;
     testResult.value = null;
     sshKeyStore.loadKeys(); // Load keys when modal opens
+    void assetStore.loadAssets();
     if (props.connectionToEdit) {
       form.value = { ...props.connectionToEdit };
       // Ensure optional fields are handled if undefined
       if (!form.value.jumpPort) form.value.jumpPort = 22;
-      // Provide default OS type for backward compatibility
       if (!form.value.osType) form.value.osType = 'Linux';
+      if (!form.value.platform) form.value.platform = form.value.osType ?? 'Linux';
       if (!form.value.authType) form.value.authType = 'password';
+      form.value.folderId = form.value.folderId ?? form.value.groupId ?? null;
+      form.value.labels = form.value.labels ?? [];
+      form.value.criticality = form.value.criticality ?? 'medium';
+      labelsInput.value = (form.value.labels ?? []).join(', ');
     } else {
-      // Reset for new connection
       form.value = {
         name: '',
         host: '',
@@ -65,8 +80,17 @@ watch(() => props.show, (newVal) => {
         jumpUsername: '',
         jumpPassword: '',
         groupId: null,
-        osType: 'Linux'
+        osType: 'Linux',
+        platform: 'Linux',
+        folderId: null,
+        envId: null,
+        labels: [],
+        owner: '',
+        criticality: 'medium',
+        defaultWorkspacePath: '',
+        bastionChainId: ''
       };
+      labelsInput.value = '';
     }
   }
 });
@@ -90,10 +114,15 @@ async function testConnection() {
   if (payload.jumpPort) {
     payload.jumpPort = parseInt(payload.jumpPort.toString(), 10);
   }
-  // Ensure osType is provided for backward compatibility
   if (!payload.osType) {
     payload.osType = 'Linux';
   }
+  payload.platform = payload.platform ?? payload.osType;
+  payload.groupId = payload.folderId ?? payload.groupId ?? null;
+  payload.labels = labelsInput.value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
   // Clear jump fields if host is empty
   if (!payload.jumpHost) {
     delete payload.jumpHost;
@@ -143,11 +172,15 @@ function save() {
   if (payload.jumpPort) {
     payload.jumpPort = parseInt(payload.jumpPort.toString(), 10);
   }
-  // Ensure osType is provided for backward compatibility
   if (!payload.osType) {
     payload.osType = 'Linux';
   }
-  // Clear jump fields if host is empty to avoid sending empty strings as Some("")
+  payload.platform = payload.platform ?? payload.osType;
+  payload.groupId = payload.folderId ?? payload.groupId ?? null;
+  payload.labels = labelsInput.value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
   if (!payload.jumpHost) {
     delete payload.jumpHost;
     delete payload.jumpPort;
@@ -162,13 +195,13 @@ function save() {
 <template>
   <div v-if="show" class="fixed inset-0 bg-bg-overlay flex items-center justify-center z-50">
     <div class="bg-bg-elevated p-6 rounded w-[500px] text-text-primary max-h-[90vh] overflow-y-auto border border-border-primary">
-      <h2 class="text-xl mb-4 font-bold text-text-primary">{{ connectionToEdit ? 'Edit Connection' : 'New Connection' }}</h2>
+      <h2 class="text-xl mb-4 font-bold text-text-primary">{{ connectionToEdit ? 'Edit Asset' : 'New Asset' }}</h2>
       <div class="space-y-4">
         <div>
           <label class="block text-xs text-text-secondary uppercase mb-1">Name</label>
           <input v-model="form.name"
             class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-            placeholder="My Server" />
+            placeholder="Production API Node" />
         </div>
         <div class="grid grid-cols-4 gap-4">
           <div class="col-span-3">
@@ -192,7 +225,7 @@ function save() {
         </div>
 
         <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Authentication Method</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Access Method</label>
           <div class="flex items-center justify-between">
             <div class="flex space-x-4">
               <label class="flex items-center space-x-2 cursor-pointer">
@@ -279,8 +312,8 @@ function save() {
         </div>
 
         <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Operating System</label>
-          <select v-model="form.osType"
+          <label class="block text-xs text-text-secondary uppercase mb-1">Platform</label>
+          <select v-model="form.platform"
             class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
             <option value="Linux">Linux</option>
             <option value="Windows">Windows</option>
@@ -288,8 +321,72 @@ function save() {
           </select>
         </div>
 
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Folder</label>
+            <select v-model="form.folderId"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
+              <option :value="null">None</option>
+              <option v-for="group in assetStore.folders" :key="group.id" :value="group.id">
+                {{ group.name }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Environment</label>
+            <select v-model="form.envId"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
+              <option :value="null">None</option>
+              <option v-for="env in assetStore.environments" :key="env.id" :value="env.id">
+                {{ env.name }}
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Owner</label>
+            <input v-model="form.owner"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
+              placeholder="oncall-platform" />
+          </div>
+          <div>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Criticality</label>
+            <select v-model="form.criticality"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+        </div>
+
         <div>
-          <label class="block text-xs text-text-secondary uppercase mb-1">Group</label>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Labels</label>
+          <input v-model="labelsInput"
+            class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
+            placeholder="prod, api, shanghai" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Default Workspace</label>
+            <input v-model="form.defaultWorkspacePath"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
+              placeholder="/srv/app/current" />
+          </div>
+          <div>
+            <label class="block text-xs text-text-secondary uppercase mb-1">Bastion Chain ID</label>
+            <input v-model="form.bastionChainId"
+              class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
+              placeholder="prod-bastion-chain" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-text-secondary uppercase mb-1">Legacy Group</label>
           <select v-model="form.groupId"
             class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
             <option :value="null">None</option>

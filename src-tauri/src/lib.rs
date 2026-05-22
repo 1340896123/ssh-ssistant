@@ -1,5 +1,6 @@
 mod db;
 mod models;
+mod ops;
 mod ssh;
 mod system;
 
@@ -19,6 +20,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             db::init_db(app.handle())?;
+            ops::init_ops_schema(app.handle())?;
             ssh::wsl::import_wsl_to_db(app.handle()).ok(); // Best effort import
             app.manage(ssh::AppState::new());
             Ok(())
@@ -62,6 +64,41 @@ pub fn run() {
             db::create_connection,
             db::update_connection,
             db::delete_connection,
+            ops::asset_get_host_assets,
+            ops::asset_search_host_assets,
+            ops::asset_create_host_asset,
+            ops::asset_update_host_asset,
+            ops::asset_delete_host_asset,
+            ops::asset_touch_host_asset,
+            ops::asset_toggle_favorite,
+            ops::asset_get_asset_folders,
+            ops::asset_create_asset_folder,
+            ops::asset_update_asset_folder,
+            ops::asset_delete_asset_folder,
+            ops::asset_get_environments,
+            ops::asset_create_environment,
+            ops::asset_update_environment,
+            ops::asset_delete_environment,
+            ops::asset_get_asset_tags,
+            ops::asset_create_asset_tag,
+            ops::asset_delete_asset_tag,
+            ops::asset_get_saved_views,
+            ops::asset_create_saved_view,
+            ops::asset_delete_saved_view,
+            ops::access_get_access_endpoints,
+            ops::access_get_credential_refs,
+            ops::ops_list_job_templates,
+            ops::ops_create_job_template,
+            ops::ops_delete_job_template,
+            ops::ops_list_job_runs,
+            ops::ops_execute_job,
+            ops::audit_list_events,
+            ops::audit_create_event,
+            ops::sync_get_state,
+            ops::sync_save_state,
+            ops::ai_plan_action,
+            ops::ai_explain_state,
+            ops::ai_generate_runbook,
             db::get_tunnels,
             db::create_tunnel,
             db::update_tunnel,

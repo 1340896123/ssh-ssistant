@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import type { Connection, ConnectionGroup, ConnectionHistoryEntry, ConnectionHistorySource, ConnectionHistoryStatus } from '../types';
+import { useAssetStore } from './assets';
 
 const FAVORITES_STORAGE_KEY = 'connection-favorites';
 const HISTORY_STORAGE_KEY = 'connection-history';
@@ -92,13 +93,18 @@ export const useConnectionStore = defineStore('connections', {
   },
   actions: {
     async loadConnections() {
+      const assetStore = useAssetStore();
       try {
-        const [conns, groups] = await Promise.all([
-          invoke<Connection[]>('get_connections'),
-          invoke<ConnectionGroup[]>('get_groups')
-        ]);
-        this.connections = conns;
-        this.groups = groups;
+        await assetStore.loadAssets();
+        this.connections = assetStore.assets.map((asset) => ({
+          ...asset,
+          groupId: asset.folderId ?? asset.groupId ?? null,
+          osType: asset.osType ?? asset.platform ?? 'Linux',
+        }));
+        this.groups = assetStore.folders.map((folder) => ({
+          ...folder,
+          parentId: folder.parentId ?? null,
+        }));
         this.favorites = this.favorites.filter(id => this.connections.some(conn => conn.id === id));
         this.history = this.history.filter(entry => this.connections.some(conn => conn.id === entry.connectionId));
         writeFavorites(this.favorites);
@@ -111,7 +117,15 @@ export const useConnectionStore = defineStore('connections', {
     async addConnection(conn: Connection): Promise<boolean> {
       console.log('Adding connection:', conn);
       try {
-        await invoke('create_connection', { conn });
+        const assetStore = useAssetStore();
+        await assetStore.addAsset({
+          ...conn,
+          folderId: conn.groupId ?? conn.folderId ?? null,
+          platform: conn.platform ?? conn.osType ?? 'Linux',
+          osType: conn.osType ?? conn.platform ?? 'Linux',
+          labels: conn.labels ?? [],
+          criticality: conn.criticality ?? 'medium',
+        });
         await this.loadConnections();
         return true;
       } catch (e) {
@@ -122,7 +136,15 @@ export const useConnectionStore = defineStore('connections', {
     async updateConnection(conn: Connection): Promise<boolean> {
       console.log('Updating connection:', conn);
       try {
-        await invoke('update_connection', { conn });
+        const assetStore = useAssetStore();
+        await assetStore.updateAsset({
+          ...conn,
+          folderId: conn.groupId ?? conn.folderId ?? null,
+          platform: conn.platform ?? conn.osType ?? 'Linux',
+          osType: conn.osType ?? conn.platform ?? 'Linux',
+          labels: conn.labels ?? [],
+          criticality: conn.criticality ?? 'medium',
+        });
         await this.loadConnections();
         return true;
       } catch (e) {
@@ -131,7 +153,8 @@ export const useConnectionStore = defineStore('connections', {
       }
     },
     async deleteConnection(id: number) {
-      await invoke('delete_connection', { id });
+      const assetStore = useAssetStore();
+      await assetStore.deleteAsset(id);
       this.favorites = this.favorites.filter(favoriteId => favoriteId !== id);
       this.history = this.history.filter(entry => entry.connectionId !== id);
       writeFavorites(this.favorites);
@@ -140,7 +163,11 @@ export const useConnectionStore = defineStore('connections', {
     },
     async addGroup(group: ConnectionGroup): Promise<boolean> {
       try {
-        await invoke('create_group', { group });
+        const assetStore = useAssetStore();
+        await assetStore.addFolder({
+          ...group,
+          parentId: group.parentId ?? null,
+        });
         await this.loadConnections();
         return true;
       } catch (e) {
@@ -150,7 +177,11 @@ export const useConnectionStore = defineStore('connections', {
     },
     async updateGroup(group: ConnectionGroup): Promise<boolean> {
       try {
-        await invoke('update_group', { group });
+        const assetStore = useAssetStore();
+        await assetStore.updateFolder({
+          ...group,
+          parentId: group.parentId ?? null,
+        });
         await this.loadConnections();
         return true;
       } catch (e) {
@@ -159,7 +190,8 @@ export const useConnectionStore = defineStore('connections', {
       }
     },
     async deleteGroup(id: number) {
-      await invoke('delete_group', { id });
+      const assetStore = useAssetStore();
+      await assetStore.deleteFolder(id);
       await this.loadConnections();
     },
     async moveItem(type: 'connection' | 'group', id: number, targetGroupId: number | null) {
@@ -193,12 +225,13 @@ export const useConnectionStore = defineStore('connections', {
       }
     },
     toggleFavorite(connectionId: number) {
+      const assetStore = useAssetStore();
+      void assetStore.toggleFavorite(connectionId);
       if (this.favorites.includes(connectionId)) {
         this.favorites = this.favorites.filter(id => id !== connectionId);
       } else {
         this.favorites = [connectionId, ...this.favorites].slice(0, 8);
       }
-
       writeFavorites(this.favorites);
     },
     isFavorite(connectionId: number) {

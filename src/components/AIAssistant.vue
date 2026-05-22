@@ -2,6 +2,7 @@
 import { ref, nextTick, computed, onMounted, onUnmounted, watch } from "vue";
 import { useSettingsStore } from "../stores/settings";
 import { useSessionStore } from "../stores/sessions";
+import { useAssetStore } from "../stores/assets";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
@@ -45,11 +46,17 @@ const emit = defineEmits(["refresh-context", "context-meta-change"]);
 
 const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
+const assetStore = useAssetStore();
 const { t } = useI18n();
 
 const activeWorkspace = computed(() => {
   const session = sessionStore.sessions.find((s) => s.id === props.sessionId);
   return session?.activeWorkspace;
+});
+const activeAsset = computed(() => {
+  const session = sessionStore.sessions.find((s) => s.id === props.sessionId);
+  if (!session?.assetId) return null;
+  return assetStore.assets.find((asset) => asset.id === session.assetId) ?? null;
 });
 
 function renderMarkdown(content: string) {
@@ -853,11 +860,20 @@ ${activeWorkspace.value.context}
               throw new DOMException("Aborted", "AbortError");
             }
 
-            result = await invoke<string>("exec_command", {
-              id: props.sessionId,
-              command: cmd,
-              toolCallId: toolCall.id,
-            });
+            const jobRun = await assetStore.executeJob(
+              props.sessionId,
+              cmd,
+              activeAsset.value?.id,
+              activeAsset.value?.criticality ?? "medium",
+              "ai-tool",
+            );
+            result = jobRun.output || "(No output)";
+            const activeSession = sessionStore.sessions.find(
+              (session) => session.id === props.sessionId,
+            );
+            if (activeSession && jobRun.id) {
+              activeSession.lastJobRunId = jobRun.id;
+            }
             setToolRunStatus(toolCall.id, "done");
 
             // Check if aborted after command completed
@@ -1003,6 +1019,9 @@ ${activeWorkspace.value.context}
     if (abortController.value === currentController) {
       isLoading.value = false;
       abortController.value = null;
+    }
+    if (activeAsset.value?.id) {
+      void assetStore.refreshOpsData(activeAsset.value.id);
     }
     scrollToBottom();
   }

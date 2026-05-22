@@ -12,6 +12,75 @@ pub struct SshKey {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct HostAsset {
+    pub id: Option<i64>,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: Option<String>,
+    pub auth_type: Option<String>,
+    pub ssh_key_id: Option<i64>,
+    pub jump_host: Option<String>,
+    pub jump_port: Option<u16>,
+    pub jump_username: Option<String>,
+    pub jump_password: Option<String>,
+    pub platform: String,
+    pub folder_id: Option<i64>,
+    pub env_id: Option<i64>,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    pub owner: Option<String>,
+    pub criticality: String,
+    pub default_workspace_path: Option<String>,
+    pub access_endpoint_id: Option<i64>,
+    pub bastion_chain_id: Option<String>,
+    pub health_summary: Option<String>,
+    pub last_accessed_at: Option<i64>,
+    pub is_favorite: Option<bool>,
+    pub os_type: Option<String>,
+    pub group_id: Option<i64>,
+    pub key_content: Option<String>,
+    pub key_passphrase: Option<String>,
+}
+
+impl Default for HostAsset {
+    fn default() -> Self {
+        Self {
+            id: None,
+            name: String::new(),
+            host: String::new(),
+            port: 22,
+            username: String::new(),
+            password: None,
+            auth_type: Some("password".to_string()),
+            ssh_key_id: None,
+            jump_host: None,
+            jump_port: Some(22),
+            jump_username: None,
+            jump_password: None,
+            platform: "Linux".to_string(),
+            folder_id: None,
+            env_id: None,
+            labels: Vec::new(),
+            owner: None,
+            criticality: "medium".to_string(),
+            default_workspace_path: None,
+            access_endpoint_id: None,
+            bastion_chain_id: None,
+            health_summary: None,
+            last_accessed_at: None,
+            is_favorite: Some(false),
+            os_type: Some("Linux".to_string()),
+            group_id: None,
+            key_content: None,
+            key_passphrase: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Connection {
     pub id: Option<i64>,
     pub name: String,
@@ -19,19 +88,83 @@ pub struct Connection {
     pub port: u16,
     pub username: String,
     pub password: Option<String>,
-    pub auth_type: Option<String>, // "password" or "key", default "password"
+    pub auth_type: Option<String>,
     pub ssh_key_id: Option<i64>,
-    // Jump host configuration
     pub jump_host: Option<String>,
     pub jump_port: Option<u16>,
     pub jump_username: Option<String>,
     pub jump_password: Option<String>,
     pub group_id: Option<i64>,
-    pub os_type: Option<String>, // Default "Linux" for backward compatibility
-
-    // Internal use for connection (not stored in connections table)
+    pub os_type: Option<String>,
     pub key_content: Option<String>,
     pub key_passphrase: Option<String>,
+}
+
+impl From<HostAsset> for Connection {
+    fn from(value: HostAsset) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            host: value.host,
+            port: value.port,
+            username: value.username,
+            password: value.password,
+            auth_type: value.auth_type,
+            ssh_key_id: value.ssh_key_id,
+            jump_host: value.jump_host,
+            jump_port: value.jump_port,
+            jump_username: value.jump_username,
+            jump_password: value.jump_password,
+            group_id: value.folder_id.or(value.group_id),
+            os_type: Some(value.platform),
+            key_content: value.key_content,
+            key_passphrase: value.key_passphrase,
+        }
+    }
+}
+
+impl From<Connection> for HostAsset {
+    fn from(value: Connection) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            host: value.host,
+            port: value.port,
+            username: value.username.clone(),
+            password: value.password,
+            auth_type: value.auth_type,
+            ssh_key_id: value.ssh_key_id,
+            jump_host: value.jump_host,
+            jump_port: value.jump_port,
+            jump_username: value.jump_username,
+            jump_password: value.jump_password,
+            platform: value.os_type.clone().unwrap_or_else(|| "Linux".to_string()),
+            folder_id: value.group_id,
+            env_id: None,
+            labels: Vec::new(),
+            owner: Some(value.username),
+            criticality: "medium".to_string(),
+            default_workspace_path: None,
+            access_endpoint_id: value.id,
+            bastion_chain_id: None,
+            health_summary: None,
+            last_accessed_at: None,
+            is_favorite: Some(false),
+            os_type: value.os_type,
+            group_id: value.group_id,
+            key_content: value.key_content,
+            key_passphrase: value.key_passphrase,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetFolder {
+    pub id: Option<i64>,
+    pub name: String,
+    pub parent_id: Option<i64>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -40,6 +173,163 @@ pub struct ConnectionGroup {
     pub id: Option<i64>,
     pub name: String,
     pub parent_id: Option<i64>,
+}
+
+impl From<AssetFolder> for ConnectionGroup {
+    fn from(value: AssetFolder) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            parent_id: value.parent_id,
+        }
+    }
+}
+
+impl From<ConnectionGroup> for AssetFolder {
+    fn from(value: ConnectionGroup) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            parent_id: value.parent_id,
+            color: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Environment {
+    pub id: Option<i64>,
+    pub name: String,
+    pub slug: String,
+    pub color: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetTag {
+    pub id: Option<i64>,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessEndpoint {
+    pub id: Option<i64>,
+    pub asset_id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: Option<String>,
+    pub credential_ref_id: Option<i64>,
+    pub ssh_key_id: Option<i64>,
+    pub jump_host: Option<String>,
+    pub jump_port: Option<u16>,
+    pub jump_username: Option<String>,
+    pub jump_password: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialRef {
+    pub id: Option<i64>,
+    pub name: String,
+    pub credential_kind: String,
+    pub username: Option<String>,
+    pub secret: Option<String>,
+    pub ssh_key_id: Option<i64>,
+    pub asset_id: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsSession {
+    pub id: String,
+    pub asset_id: i64,
+    pub asset_name: String,
+    pub access_endpoint_id: Option<i64>,
+    pub credential_ref_id: Option<i64>,
+    pub bastion_chain_id: Option<String>,
+    pub current_path: Option<String>,
+    pub risk_level: String,
+    pub last_job_run_id: Option<i64>,
+    pub health_summary: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedAssetView {
+    pub id: Option<i64>,
+    pub name: String,
+    pub query_json: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobTemplate {
+    pub id: Option<i64>,
+    pub name: String,
+    pub command: String,
+    pub scope_type: String,
+    pub scope_value: Option<String>,
+    pub risk_level: String,
+    pub requires_confirmation: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobRun {
+    pub id: Option<i64>,
+    pub asset_id: Option<i64>,
+    pub session_id: Option<String>,
+    pub template_id: Option<i64>,
+    pub command: String,
+    pub status: String,
+    pub output: Option<String>,
+    pub risk_level: String,
+    pub initiated_by: Option<String>,
+    pub source: Option<String>,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEvent {
+    pub id: Option<i64>,
+    pub event_type: String,
+    pub asset_id: Option<i64>,
+    pub session_id: Option<String>,
+    pub job_run_id: Option<i64>,
+    pub title: String,
+    pub detail: Option<String>,
+    pub severity: String,
+    pub metadata_json: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncState {
+    pub id: Option<i64>,
+    pub state_key: String,
+    pub status: String,
+    pub version: i64,
+    pub endpoint_url: Option<String>,
+    pub last_synced_at: Option<i64>,
+    pub last_error: Option<String>,
+    pub metadata_json: Option<String>,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

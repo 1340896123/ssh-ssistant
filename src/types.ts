@@ -6,7 +6,10 @@ export interface SshKey {
   createdAt: number;
 }
 
-export interface Connection {
+export type HostPlatform = "Linux" | "Windows" | "macOS";
+export type AssetCriticality = "low" | "medium" | "high" | "critical";
+
+export interface HostAsset {
   id?: number;
   name: string;
   host: string;
@@ -15,14 +18,27 @@ export interface Connection {
   password?: string;
   authType?: "password" | "key";
   sshKeyId?: number | null;
-  // Jump host config
   jumpHost?: string;
   jumpPort?: number;
   jumpUsername?: string;
   jumpPassword?: string;
+  platform?: HostPlatform;
+  folderId?: number | null;
+  envId?: number | null;
+  labels?: string[];
+  owner?: string;
+  criticality?: AssetCriticality;
+  defaultWorkspacePath?: string;
+  accessEndpointId?: number | null;
+  bastionChainId?: string | null;
+  healthSummary?: string | null;
+  lastAccessedAt?: number | null;
+  isFavorite?: boolean;
+  osType?: HostPlatform;
   groupId?: number | null;
-  osType?: string; // Operating system type: "Linux", "Windows", "macOS", optional for backward compatibility
 }
+
+export type Connection = HostAsset;
 
 export type ConnectionHistoryStatus = "success" | "failed";
 
@@ -36,19 +52,124 @@ export interface ConnectionHistoryEntry {
   source: ConnectionHistorySource;
 }
 
-export interface ConnectionGroup {
+export interface AssetFolder {
   id?: number;
   name: string;
   parentId?: number | null;
-  children?: (ConnectionGroup | Connection)[]; // For UI tree structure
+  color?: string | null;
+  children?: (AssetFolder | HostAsset)[];
+}
+
+export type ConnectionGroup = AssetFolder;
+
+export interface Environment {
+  id?: number;
+  name: string;
+  slug: string;
+  color?: string | null;
+  description?: string | null;
+}
+
+export interface AssetTag {
+  id?: number;
+  name: string;
+  color?: string | null;
+}
+
+export interface AccessEndpoint {
+  id?: number;
+  assetId: number;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  authType?: "password" | "key";
+  credentialRefId?: number | null;
+  sshKeyId?: number | null;
+  jumpHost?: string | null;
+  jumpPort?: number | null;
+  jumpUsername?: string | null;
+  jumpPassword?: string | null;
+}
+
+export interface CredentialRef {
+  id?: number;
+  name: string;
+  credentialKind: "password" | "sshKey" | "token";
+  username?: string | null;
+  secret?: string | null;
+  sshKeyId?: number | null;
+  assetId?: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SavedAssetView {
+  id?: number;
+  name: string;
+  queryJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface JobTemplate {
+  id?: number;
+  name: string;
+  command: string;
+  scopeType: string;
+  scopeValue?: string | null;
+  riskLevel: AssetCriticality;
+  requiresConfirmation: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface JobRun {
+  id?: number;
+  assetId?: number | null;
+  sessionId?: string | null;
+  templateId?: number | null;
+  command: string;
+  status: string;
+  output?: string | null;
+  riskLevel: AssetCriticality;
+  initiatedBy?: string | null;
+  source?: string | null;
+  createdAt: number;
+  completedAt?: number | null;
+}
+
+export interface AuditEvent {
+  id?: number;
+  eventType: string;
+  assetId?: number | null;
+  sessionId?: string | null;
+  jobRunId?: number | null;
+  title: string;
+  detail?: string | null;
+  severity: "info" | "warning" | "error";
+  metadataJson?: string | null;
+  createdAt: number;
+}
+
+export interface SyncState {
+  id?: number;
+  stateKey: string;
+  status: string;
+  version: number;
+  endpointUrl?: string | null;
+  lastSyncedAt?: number | null;
+  lastError?: string | null;
+  metadataJson?: string | null;
+  updatedAt: number;
 }
 
 export type TunnelType = "local" | "remote" | "dynamic";
 
 export interface Tunnel {
   id?: number;
-  name: string;
   connectionId: number;
+  name: string;
   tunnelType: TunnelType;
   localHost?: string;
   localPort?: number;
@@ -109,13 +230,13 @@ export type FileManagerLayout = "left" | "bottom";
 export interface FileManagerSettings {
   viewMode: FileManagerViewMode;
   layout: FileManagerLayout;
-  sftpBufferSize: number; // SFTP buffer size in KB
+  sftpBufferSize: number;
 }
 
 export interface SshPoolSettings {
-  maxBackgroundSessions: number; // 最大后台会话数量
-  enableAutoCleanup: boolean; // 是否启用自动清理
-  cleanupIntervalMinutes: number; // 清理间隔（分钟）
+  maxBackgroundSessions: number;
+  enableAutoCleanup: boolean;
+  cleanupIntervalMinutes: number;
 }
 
 export interface ConnectionTimeoutSettings {
@@ -127,42 +248,42 @@ export interface ConnectionTimeoutSettings {
 }
 
 export interface ReconnectSettings {
-  maxReconnectAttempts: number;      // Maximum reconnection attempts, default 5
-  initialDelayMs: number;            // Initial delay in ms, default 1000
-  maxDelayMs: number;                // Maximum delay in ms, default 30000
-  backoffMultiplier: number;         // Backoff multiplier, default 2.0
-  enableAutoReconnect: boolean;      // Enable auto reconnect, default true
+  maxReconnectAttempts: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
+  enableAutoReconnect: boolean;
 }
 
 export interface HeartbeatSettings {
-  tcpKeepaliveIntervalSecs: number;      // TCP keepalive interval, default 60
-  sshKeepaliveIntervalSecs: number;      // SSH keepalive interval, default 15
-  appHeartbeatIntervalSecs: number;      // Application layer heartbeat interval, default 30
-  heartbeatTimeoutSecs: number;          // Heartbeat timeout, default 5
-  failedHeartbeatsBeforeAction: number;  // Failed heartbeats before action, default 3
+  tcpKeepaliveIntervalSecs: number;
+  sshKeepaliveIntervalSecs: number;
+  appHeartbeatIntervalSecs: number;
+  heartbeatTimeoutSecs: number;
+  failedHeartbeatsBeforeAction: number;
 }
 
 export interface PoolHealthSettings {
-  healthCheckIntervalSecs: number;     // Health check interval, default 60
-  sessionWarmupCount: number;          // Session warmup count, default 1
-  maxSessionAgeMinutes: number;        // Max session age in minutes, default 60
-  unhealthyThreshold: number;          // Unhealthy failure threshold, default 3
+  healthCheckIntervalSecs: number;
+  sessionWarmupCount: number;
+  maxSessionAgeMinutes: number;
+  unhealthyThreshold: number;
 }
 
 export type NetworkQuality = "Excellent" | "Good" | "Fair" | "Poor" | "Unknown";
 
 export interface NetworkAdaptiveSettings {
-  enableAdaptive: boolean;             // Enable adaptive mode, default true
-  latencyCheckIntervalSecs: number;    // Latency check interval, default 30
-  highLatencyThresholdMs: number;      // High latency threshold, default 300
-  lowBandwidthThresholdKbps: number;   // Low bandwidth threshold, default 100
+  enableAdaptive: boolean;
+  latencyCheckIntervalSecs: number;
+  highLatencyThresholdMs: number;
+  lowBandwidthThresholdKbps: number;
 }
 
 export interface NetworkStatus {
-  latencyMs: number;                   // Current latency in ms
-  bandwidthKbps?: number;              // Estimated bandwidth in KB/s
-  quality: NetworkQuality;             // Network quality level
-  lastUpdate: number;                  // Last update timestamp
+  latencyMs: number;
+  bandwidthKbps?: number;
+  quality: NetworkQuality;
+  lastUpdate: number;
 }
 
 export interface AdaptiveParams {
@@ -195,7 +316,7 @@ export interface Workspace {
 }
 
 export interface Session {
-  id: string; // UUID from backend
+  id: string;
   connectionId: number;
   connectionName: string;
   status: "connected" | "disconnected" | "connecting";
@@ -205,7 +326,16 @@ export interface Session {
   connectedAt: number;
   activeWorkspace?: Workspace;
   os?: string;
+  assetId?: number;
+  riskLevel?: AssetCriticality;
+  healthSummary?: string | null;
+  accessEndpointId?: number | null;
+  credentialRefId?: number | null;
+  bastionChainId?: string | null;
+  lastJobRunId?: number | null;
 }
+
+export type OpsSession = Session;
 
 export type ConnectionStatus =
   | "connecting"
