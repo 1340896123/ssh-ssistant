@@ -130,21 +130,25 @@ pub async fn write_remote_file(
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
     };
+    let audit_path = path.clone();
 
     let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
+            let command_path = path.clone();
+            let command_mode = mode.clone();
+            let command_content = content.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
 
                 // Convert content to bytes
-                let content_bytes = content.into_bytes();
+                let content_bytes = command_content.into_bytes();
 
                 sender
                     .send(SshCommand::SftpWrite {
-                        path,
+                        path: command_path,
                         content: content_bytes,
-                        mode,
+                        mode: command_mode,
                         listener: tx,
                     })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
@@ -156,9 +160,12 @@ pub async fn write_remote_file(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
+            let wsl_path_value = path.clone();
+            let wsl_mode = mode.clone();
+            let wsl_content = content.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &path);
-                let open_mode = mode.unwrap_or_else(|| "overwrite".to_string());
+                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
+                let open_mode = wsl_mode.unwrap_or_else(|| "overwrite".to_string());
 
                 let mut options = std::fs::OpenOptions::new();
                 options.write(true).create(true);
@@ -169,7 +176,7 @@ pub async fn write_remote_file(
                 }
 
                 let mut file = options.open(wsl_path).map_err(|e| e.to_string())?;
-                file.write_all(content.as_bytes())
+                file.write_all(wsl_content.as_bytes())
                     .map_err(|e| e.to_string())?;
                 Ok(())
             })
@@ -185,7 +192,7 @@ pub async fn write_remote_file(
             &id,
             "file.written",
             "Wrote remote file",
-            Some(path.as_str()),
+            Some(audit_path.as_str()),
             "warning",
         );
     }
@@ -363,14 +370,19 @@ pub async fn create_directory(
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
     };
+    let audit_path = path.clone();
 
     let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
+            let command_path = path.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
-                    .send(SshCommand::SftpMkdir { path, listener: tx })
+                    .send(SshCommand::SftpMkdir {
+                        path: command_path,
+                        listener: tx,
+                    })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
 
                 rx.recv()
@@ -380,8 +392,9 @@ pub async fn create_directory(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
+            let wsl_path_value = path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &path);
+                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
                 std::fs::create_dir(wsl_path).map_err(|e| e.to_string())
             })
             .await
@@ -396,7 +409,7 @@ pub async fn create_directory(
             &id,
             "file.directoryCreated",
             "Created remote directory",
-            Some(path.as_str()),
+            Some(audit_path.as_str()),
             "warning",
         );
     }
@@ -415,14 +428,19 @@ pub async fn create_file(
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
     };
+    let audit_path = path.clone();
 
     let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
+            let command_path = path.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
-                    .send(SshCommand::SftpCreate { path, listener: tx })
+                    .send(SshCommand::SftpCreate {
+                        path: command_path,
+                        listener: tx,
+                    })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
 
                 rx.recv()
@@ -432,8 +450,9 @@ pub async fn create_file(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
+            let wsl_path_value = path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &path);
+                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
                 std::fs::File::create(wsl_path).map_err(|e| e.to_string())?;
                 Ok(())
             })
@@ -449,7 +468,7 @@ pub async fn create_file(
             &id,
             "file.created",
             "Created remote file",
-            Some(path.as_str()),
+            Some(audit_path.as_str()),
             "warning",
         );
     }
@@ -469,15 +488,17 @@ pub async fn delete_item(
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
     };
+    let audit_path = path.clone();
 
     let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
+            let command_path = path.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
                     .send(SshCommand::SftpDelete {
-                        path,
+                        path: command_path,
                         is_dir,
                         listener: tx,
                     })
@@ -490,8 +511,9 @@ pub async fn delete_item(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
+            let wsl_path_value = path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &path);
+                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
                 if is_dir {
                     std::fs::remove_dir_all(wsl_path).map_err(|e| e.to_string())
                 } else {
@@ -514,7 +536,7 @@ pub async fn delete_item(
             } else {
                 "Deleted remote file"
             },
-            Some(path.as_str()),
+            Some(audit_path.as_str()),
             "warning",
         );
     }
@@ -536,16 +558,20 @@ pub async fn rename_item(
         let clients = state.clients.lock().map_err(|e| e.to_string())?;
         clients.get(&id).ok_or("Session not found")?.clone()
     };
+    let audit_old_path = old_path.clone();
+    let audit_new_path = new_path.clone();
 
     let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
+            let command_old_path = old_path.clone();
+            let command_new_path = new_path.clone();
             execute_ssh_operation(move || {
                 let (tx, rx) = std::sync::mpsc::channel();
                 sender
                     .send(SshCommand::SftpRename {
-                        old_path,
-                        new_path,
+                        old_path: command_old_path,
+                        new_path: command_new_path,
                         listener: tx,
                     })
                     .map_err(|e| format!("Failed to send command: {}", e))?;
@@ -557,9 +583,11 @@ pub async fn rename_item(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
+            let wsl_old_path = old_path.clone();
+            let wsl_new_path = new_path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_old = to_wsl_path(&distro, &old_path);
-                let wsl_new = to_wsl_path(&distro, &new_path);
+                let wsl_old = to_wsl_path(&distro, &wsl_old_path);
+                let wsl_new = to_wsl_path(&distro, &wsl_new_path);
                 std::fs::rename(wsl_old, wsl_new).map_err(|e| e.to_string())
             })
             .await
@@ -574,7 +602,7 @@ pub async fn rename_item(
             &id,
             "file.renamed",
             "Renamed remote file",
-            Some(format!("{} -> {}", old_path, new_path).as_str()),
+            Some(format!("{} -> {}", audit_old_path, audit_new_path).as_str()),
             "warning",
         );
     }

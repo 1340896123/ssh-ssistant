@@ -13,6 +13,7 @@ import AssetCenter from "./components/AssetCenter.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import TunnelModal from "./components/TunnelModal.vue";
 import TunnelPanel from "./components/TunnelPanel.vue";
+import OpsWorkbench from "./components/OpsWorkbench.vue";
 import SessionTabs from "./components/SessionTabs.vue";
 import SessionsWorkbenchPanel from "./components/SessionsWorkbenchPanel.vue";
 import TerminalTabArea from "./components/TerminalTabArea.vue";
@@ -30,6 +31,7 @@ import type { AccessEndpoint, CredentialRef, HostAsset } from "./types";
 import {
   Bot,
   Cable,
+  ClipboardCheck,
   Focus,
   FolderOpen,
   Monitor,
@@ -43,7 +45,7 @@ import {
   Settings,
 } from "lucide-vue-next";
 
-type ActivityId = "connections" | "tunnels" | "sessions";
+type ActivityId = "connections" | "tunnels" | "ops" | "sessions";
 type ContextTab = "ai" | "files";
 type ResizeTarget = "resource" | "context";
 
@@ -319,6 +321,13 @@ const activeResourcePaneMeta = computed(() => {
     return {
       title: t("app.tunnels"),
       subtitle: t("workbench.tunnelsSubtitle"),
+    };
+  }
+
+  if (activeActivity.value === "ops") {
+    return {
+      title: t("workbench.opsTitle"),
+      subtitle: t("workbench.opsSubtitle"),
     };
   }
 
@@ -738,6 +747,10 @@ function openConnectionsWorkbench() {
   activateActivity("connections");
 }
 
+function openOpsWorkbench() {
+  activateActivity("ops");
+}
+
 onMounted(async () => {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, label: string) {
@@ -836,6 +849,18 @@ onUnmounted(() => {
           <button
             class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
             :class="
+              activeActivity === 'ops'
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
+            "
+            :title="t('workbench.opsTitle')"
+            @click="activateActivity('ops')"
+          >
+            <ClipboardCheck class="h-4.5 w-4.5" />
+          </button>
+          <button
+            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
+            :class="
               activeActivity === 'sessions'
                 ? 'bg-accent/15 text-accent'
                 : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
@@ -897,6 +922,10 @@ onUnmounted(() => {
             >
               <TunnelPanel @manage="openTunnelModal" />
             </div>
+            <OpsWorkbench
+              v-else-if="activeActivity === 'ops'"
+              :active-asset="activeAsset"
+            />
             <SessionsWorkbenchPanel
               v-else
               @new-connection="openNewConnectionModal"
@@ -1035,6 +1064,9 @@ onUnmounted(() => {
                   </button>
                   <button class="btn btn-secondary" @click="openConnectionsWorkbench">
                     Open Asset Center
+                  </button>
+                  <button class="btn btn-secondary" @click="openOpsWorkbench">
+                    Open Ops Workbench
                   </button>
                 </div>
               </div>
@@ -1315,6 +1347,10 @@ onUnmounted(() => {
             >
               <TunnelPanel @manage="openTunnelModal" />
             </div>
+            <OpsWorkbench
+              v-else-if="activeActivity === 'ops'"
+              :active-asset="activeAsset"
+            />
             <SessionsWorkbenchPanel
               v-else
               @new-connection="openNewConnectionModal"

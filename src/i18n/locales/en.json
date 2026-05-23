@@ -13,6 +13,8 @@
   "workbench": {
     "connectionsSubtitle": "Manage connection directories, favorites, and recent history",
     "tunnelsSubtitle": "Port forwards and tunnel activity in one place",
+    "opsTitle": "Ops Workbench",
+    "opsSubtitle": "Global console, job execution, audit search, and sync readiness",
     "sessionsTitle": "Sessions",
     "sessionsSubtitle": "Track the SSH sessions you are actively working in",
     "collapseResourcePane": "Collapse resource pane",

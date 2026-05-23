@@ -1,13 +1,18 @@
 use crate::db::get_db_path;
 use crate::models::{
     AccessEndpoint, AssetFolder, AssetSessionConnectResult, AssetTag, AssetUpsertPayload,
-    AuditEvent, Connection as SshConnection, CredentialRef, Environment, HostAsset, JobRun,
-    JobTemplate, OpsSession, SavedAssetView, SyncState,
+    AuditEvent, Connection as SshConnection, CredentialRef, Environment, HostAsset,
+    JobBatchPreview, JobBatchPreviewTarget, JobBatchRequest, JobBatchResult, JobBatchResultItem,
+    JobRun, JobRunArchive, JobTemplate, OpsConsoleAnswer, OpsMatchedAsset, OpsPlanStep,
+    OpsSession, SavedAssetView, SyncChangeLogEntry, SyncObjectVersionSummary, SyncOverview,
+    SyncServiceConfig, SyncState,
 };
 use crate::ssh::{client, client::AppState, command};
 use rusqlite::{params, Connection as SqliteConnection};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tauri::{AppHandle, State};
+use uuid::Uuid;
 
 fn now_ts() -> i64 {
     std::time::SystemTime::now()
@@ -63,6 +68,38 @@ fn default_credential_name(asset_name: &str, credential_kind: &str) -> String {
         "sshKey" => format!("{} key credential", asset_name),
         "token" => format!("{} token credential", asset_name),
         _ => format!("{} password credential", asset_name),
+    }
+}
+
+fn normalize_scope_type(scope_type: &str) -> String {
+    match scope_type.trim().to_lowercase().as_str() {
+        "label" | "labels" | "tag" | "tags" => "tag".to_string(),
+        "env" | "environment" | "environments" => "environment".to_string(),
+        "asset" | "assets" => "asset".to_string(),
+        "all" => "all".to_string(),
+        _ => "asset".to_string(),
+    }
+}
+
+fn normalize_risk_level(risk_level: Option<String>) -> String {
+    match risk_level
+        .unwrap_or_else(|| "medium".to_string())
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "low" => "low".to_string(),
+        "high" => "high".to_string(),
+        "critical" => "critical".to_string(),
+        _ => "medium".to_string(),
+    }
+}
+
+fn severity_rank(severity: &str) -> i64 {
+    match severity {
+        "error" => 3,
+        "warning" => 2,
+        _ => 1,
     }
 }
 
@@ -243,11 +280,73 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
             updated_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS job_run_archives (
+            id INTEGER PRIMARY KEY,
+            job_run_id INTEGER NOT NULL UNIQUE,
+            asset_id INTEGER,
+            session_id TEXT,
+            command TEXT NOT NULL,
+            status TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            output TEXT,
+            summary TEXT,
+            archived_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            completed_at INTEGER,
+            source TEXT,
+            FOREIGN KEY(job_run_id) REFERENCES job_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY(asset_id) REFERENCES host_assets(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_object_versions (
+            object_type TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY(object_type, object_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_change_log (
+            id INTEGER PRIMARY KEY,
+            object_type TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            object_version INTEGER NOT NULL,
+            summary TEXT NOT NULL,
+            payload_json TEXT,
+            sync_status TEXT NOT NULL DEFAULT 'pending',
+            service_key TEXT,
+            created_at INTEGER NOT NULL,
+            synced_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_services (
+            id INTEGER PRIMARY KEY,
+            service_key TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            base_url TEXT,
+            auth_mode TEXT NOT NULL DEFAULT 'none',
+            auth_token TEXT,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            metadata_json TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_host_assets_last_accessed_at
             ON host_assets(last_accessed_at DESC);
 
         CREATE INDEX IF NOT EXISTS idx_audit_events_asset_created_at
             ON audit_events(asset_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_job_run_archives_asset_archived_at
+            ON job_run_archives(asset_id, archived_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_sync_change_log_created_at
+            ON sync_change_log(created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_sync_change_log_status
+            ON sync_change_log(sync_status, created_at DESC);
         "#,
     )?;
 
@@ -335,6 +434,15 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
          VALUES (1, 'local-default', 'idle', 1, strftime('%s','now'))",
         [],
     )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO sync_services (
+            id, service_key, display_name, base_url, auth_mode, auth_token, enabled, metadata_json, created_at, updated_at
+         ) VALUES (
+            1, 'local-first', 'Local First Mirror', NULL, 'none', NULL, 1,
+            '{\"kind\":\"noop\",\"supportsPush\":false,\"supportsPull\":false}', strftime('%s','now'), strftime('%s','now')
+         )",
+        [],
+    )?;
 
     // Clean up orphaned foreign keys before re-enabling constraints
     conn.execute(
@@ -377,6 +485,59 @@ fn append_audit_event_with_conn(
             detail,
             severity,
             metadata_json,
+            now_ts()
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+fn bump_object_version(
+    conn: &SqliteConnection,
+    object_type: &str,
+    object_id: &str,
+) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO sync_object_versions (object_type, object_id, version, updated_at)
+         VALUES (?1, ?2, 1, ?3)
+         ON CONFLICT(object_type, object_id) DO UPDATE SET
+            version = sync_object_versions.version + 1,
+            updated_at = excluded.updated_at",
+        params![object_type, object_id, now_ts()],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        "SELECT version FROM sync_object_versions WHERE object_type = ?1 AND object_id = ?2",
+        params![object_type, object_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn record_change_log(
+    conn: &SqliteConnection,
+    object_type: &str,
+    object_id: &str,
+    operation: &str,
+    summary: &str,
+    payload_json: Option<String>,
+    service_key: Option<&str>,
+) -> Result<i64, String> {
+    let object_version = bump_object_version(conn, object_type, object_id)?;
+    conn.execute(
+        "INSERT INTO sync_change_log (
+            object_type, object_id, operation, object_version, summary, payload_json, sync_status, service_key, created_at, synced_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, NULL)",
+        params![
+            object_type,
+            object_id,
+            operation,
+            object_version,
+            summary,
+            payload_json,
+            service_key,
             now_ts()
         ],
     )
@@ -439,6 +600,55 @@ fn upsert_asset_tags(conn: &SqliteConnection, asset_id: i64, labels: &[String]) 
     }
 
     Ok(())
+}
+
+fn map_job_run_archive_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRunArchive> {
+    Ok(JobRunArchive {
+        id: row.get(0)?,
+        job_run_id: row.get(1)?,
+        asset_id: row.get(2)?,
+        session_id: row.get(3)?,
+        command: row.get(4)?,
+        status: row.get(5)?,
+        risk_level: row.get(6)?,
+        output: row.get(7)?,
+        summary: row.get(8)?,
+        archived_at: row.get(9)?,
+        created_at: row.get(10)?,
+        completed_at: row.get(11)?,
+        source: row.get(12)?,
+    })
+}
+
+fn map_sync_change_log_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncChangeLogEntry> {
+    Ok(SyncChangeLogEntry {
+        id: row.get(0)?,
+        object_type: row.get(1)?,
+        object_id: row.get(2)?,
+        operation: row.get(3)?,
+        object_version: row.get(4)?,
+        summary: row.get(5)?,
+        payload_json: row.get(6)?,
+        sync_status: row.get(7)?,
+        service_key: row.get(8)?,
+        created_at: row.get(9)?,
+        synced_at: row.get(10)?,
+    })
+}
+
+fn map_sync_service_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncServiceConfig> {
+    Ok(SyncServiceConfig {
+        id: row.get(0)?,
+        service_key: row.get(1)?,
+        display_name: row.get(2)?,
+        base_url: row.get(3)?,
+        auth_mode: row.get(4)?,
+        auth_token: row.get(5)?,
+        enabled: row.get::<_, i64>(6)? != 0,
+        metadata_json: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
 }
 
 fn map_host_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HostAsset> {
@@ -592,6 +802,234 @@ fn map_access_history_row(
     })
 }
 
+fn resolve_job_targets(
+    conn: &SqliteConnection,
+    scope_type: &str,
+    scope_value: Option<&str>,
+    explicit_asset_ids: &[i64],
+) -> Result<Vec<JobBatchPreviewTarget>, String> {
+    let normalized_scope = normalize_scope_type(scope_type);
+    let trimmed_scope_value = scope_value.map(str::trim).filter(|value| !value.is_empty());
+    let mut targets: Vec<JobBatchPreviewTarget> = Vec::new();
+
+    if !explicit_asset_ids.is_empty() {
+        let placeholders = explicit_asset_ids
+            .iter()
+            .map(|_| "?".to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT
+                ha.id,
+                ha.name,
+                ha.host,
+                ha.labels_csv,
+                COALESCE(env.name, '') AS env_name,
+                ha.criticality
+             FROM host_assets ha
+             LEFT JOIN environments env ON env.id = ha.env_id
+             WHERE ha.id IN ({})
+             ORDER BY ha.name COLLATE NOCASE ASC",
+            placeholders
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(explicit_asset_ids.iter()), |row| {
+                Ok(JobBatchPreviewTarget {
+                    asset_id: row.get(0)?,
+                    asset_name: row.get(1)?,
+                    host: row.get(2)?,
+                    labels: parse_labels(row.get(3)?),
+                    environment_name: {
+                        let value: String = row.get(4)?;
+                        if value.is_empty() {
+                            None
+                        } else {
+                            Some(value)
+                        }
+                    },
+                    risk_level: row.get(5)?,
+                    match_reason: "Explicit asset selection".to_string(),
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            targets.push(row.map_err(|e| e.to_string())?);
+        }
+        return Ok(targets);
+    }
+
+    match normalized_scope.as_str() {
+        "all" => {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT
+                        ha.id,
+                        ha.name,
+                        ha.host,
+                        ha.labels_csv,
+                        COALESCE(env.name, '') AS env_name,
+                        ha.criticality
+                     FROM host_assets ha
+                     LEFT JOIN environments env ON env.id = ha.env_id
+                     ORDER BY ha.name COLLATE NOCASE ASC",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(JobBatchPreviewTarget {
+                        asset_id: row.get(0)?,
+                        asset_name: row.get(1)?,
+                        host: row.get(2)?,
+                        labels: parse_labels(row.get(3)?),
+                        environment_name: {
+                            let value: String = row.get(4)?;
+                            if value.is_empty() {
+                                None
+                            } else {
+                                Some(value)
+                            }
+                        },
+                        risk_level: row.get(5)?,
+                        match_reason: "All assets".to_string(),
+                    })
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                targets.push(row.map_err(|e| e.to_string())?);
+            }
+        }
+        "environment" => {
+            let env_value = trimmed_scope_value.ok_or_else(|| "Environment scope requires a value".to_string())?;
+            let like_pattern = format!("%{}%", env_value);
+            let mut stmt = conn
+                .prepare(
+                    "SELECT
+                        ha.id,
+                        ha.name,
+                        ha.host,
+                        ha.labels_csv,
+                        env.name,
+                        ha.criticality
+                     FROM host_assets ha
+                     INNER JOIN environments env ON env.id = ha.env_id
+                     WHERE env.name LIKE ?1 OR env.slug LIKE ?1
+                     ORDER BY ha.name COLLATE NOCASE ASC",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![like_pattern], |row| {
+                    let env_name: String = row.get(4)?;
+                    Ok(JobBatchPreviewTarget {
+                        asset_id: row.get(0)?,
+                        asset_name: row.get(1)?,
+                        host: row.get(2)?,
+                        labels: parse_labels(row.get(3)?),
+                        environment_name: Some(env_name.clone()),
+                        risk_level: row.get(5)?,
+                        match_reason: format!("Environment match: {}", env_name),
+                    })
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                targets.push(row.map_err(|e| e.to_string())?);
+            }
+        }
+        "tag" => {
+            let tag_value = trimmed_scope_value.ok_or_else(|| "Tag scope requires a value".to_string())?;
+            let like_pattern = format!("%{}%", tag_value);
+            let mut stmt = conn
+                .prepare(
+                    "SELECT
+                        ha.id,
+                        ha.name,
+                        ha.host,
+                        ha.labels_csv,
+                        COALESCE(env.name, '') AS env_name,
+                        ha.criticality
+                     FROM host_assets ha
+                     LEFT JOIN environments env ON env.id = ha.env_id
+                     WHERE ha.labels_csv LIKE ?1
+                        OR EXISTS (
+                            SELECT 1
+                            FROM host_asset_tags hat
+                            INNER JOIN asset_tags tag ON tag.id = hat.tag_id
+                            WHERE hat.asset_id = ha.id AND tag.name LIKE ?1
+                        )
+                     ORDER BY ha.name COLLATE NOCASE ASC",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![like_pattern], |row| {
+                    Ok(JobBatchPreviewTarget {
+                        asset_id: row.get(0)?,
+                        asset_name: row.get(1)?,
+                        host: row.get(2)?,
+                        labels: parse_labels(row.get(3)?),
+                        environment_name: {
+                            let value: String = row.get(4)?;
+                            if value.is_empty() {
+                                None
+                            } else {
+                                Some(value)
+                            }
+                        },
+                        risk_level: row.get(5)?,
+                        match_reason: format!("Tag match: {}", tag_value),
+                    })
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                targets.push(row.map_err(|e| e.to_string())?);
+            }
+        }
+        _ => {
+            let asset_value = trimmed_scope_value.ok_or_else(|| "Asset scope requires a value".to_string())?;
+            let like_pattern = format!("%{}%", asset_value);
+            let mut stmt = conn
+                .prepare(
+                    "SELECT
+                        ha.id,
+                        ha.name,
+                        ha.host,
+                        ha.labels_csv,
+                        COALESCE(env.name, '') AS env_name,
+                        ha.criticality
+                     FROM host_assets ha
+                     LEFT JOIN environments env ON env.id = ha.env_id
+                     WHERE ha.name LIKE ?1 OR ha.host LIKE ?1 OR COALESCE(ha.owner, '') LIKE ?1
+                     ORDER BY ha.name COLLATE NOCASE ASC",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![like_pattern], |row| {
+                    Ok(JobBatchPreviewTarget {
+                        asset_id: row.get(0)?,
+                        asset_name: row.get(1)?,
+                        host: row.get(2)?,
+                        labels: parse_labels(row.get(3)?),
+                        environment_name: {
+                            let value: String = row.get(4)?;
+                            if value.is_empty() {
+                                None
+                            } else {
+                                Some(value)
+                            }
+                        },
+                        risk_level: row.get(5)?,
+                        match_reason: format!("Asset search: {}", asset_value),
+                    })
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                targets.push(row.map_err(|e| e.to_string())?);
+            }
+        }
+    }
+
+    Ok(targets)
+}
+
 pub fn map_connection_from_endpoint(
     asset: &HostAsset,
     endpoint: &AccessEndpoint,
@@ -647,7 +1085,7 @@ pub fn resolve_asset_bundle(
         .query_row(
             "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
                     default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at,
-                    is_favorite, platform, folder_id
+                    is_favorite, folder_id
              FROM host_assets WHERE id = ?1",
             params![asset_id],
             map_host_asset_row,
@@ -887,6 +1325,45 @@ fn save_asset_bundle(
     asset.is_favorite = Some(asset.is_favorite.unwrap_or(false));
 
     Ok((asset_id, asset))
+}
+
+fn archive_job_run_with_conn(
+    conn: &SqliteConnection,
+    job_run_id: i64,
+    summary: Option<String>,
+) -> Result<JobRunArchive, String> {
+    let archived_at = now_ts();
+    conn.execute(
+        "INSERT INTO job_run_archives (
+            job_run_id, asset_id, session_id, command, status, risk_level, output, summary, archived_at, created_at, completed_at, source
+        )
+        SELECT
+            id, asset_id, session_id, command, status, risk_level, output, ?2, ?3, created_at, completed_at, source
+        FROM job_runs
+        WHERE id = ?1
+        ON CONFLICT(job_run_id) DO UPDATE SET
+            asset_id = excluded.asset_id,
+            session_id = excluded.session_id,
+            command = excluded.command,
+            status = excluded.status,
+            risk_level = excluded.risk_level,
+            output = excluded.output,
+            summary = excluded.summary,
+            archived_at = excluded.archived_at,
+            created_at = excluded.created_at,
+            completed_at = excluded.completed_at,
+            source = excluded.source",
+        params![job_run_id, summary, archived_at],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        "SELECT id, job_run_id, asset_id, session_id, command, status, risk_level, output, summary, archived_at, created_at, completed_at, source
+         FROM job_run_archives WHERE job_run_id = ?1",
+        params![job_run_id],
+        map_job_run_archive_row,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1514,6 +1991,15 @@ pub fn asset_create_host_asset(
         "info",
         None,
     )?;
+    record_change_log(
+        &tx,
+        "hostAsset",
+        asset_id.to_string().as_str(),
+        "create",
+        "Created host asset",
+        Some(json!(saved_asset.clone()).to_string()),
+        Some("local-first"),
+    )?;
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(saved_asset)
@@ -1544,6 +2030,15 @@ pub fn asset_update_host_asset(
         "info",
         None,
     )?;
+    record_change_log(
+        &tx,
+        "hostAsset",
+        asset_id.to_string().as_str(),
+        "update",
+        "Updated host asset",
+        Some(json!(saved_asset.clone()).to_string()),
+        Some("local-first"),
+    )?;
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(saved_asset)
@@ -1564,6 +2059,15 @@ pub fn asset_delete_host_asset(app_handle: AppHandle, id: i64) -> Result<(), Str
         Some("Host asset deleted from asset center."),
         "warning",
         None,
+    )?;
+    record_change_log(
+        &tx,
+        "hostAsset",
+        id.to_string().as_str(),
+        "delete",
+        "Deleted host asset",
+        Some(json!({ "assetId": id }).to_string()),
+        Some("local-first"),
     )?;
     tx.execute("DELETE FROM host_assets WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
@@ -1591,6 +2095,15 @@ pub fn asset_touch_host_asset(app_handle: AppHandle, id: i64) -> Result<(), Stri
         "info",
         None,
     )?;
+    record_change_log(
+        &conn,
+        "hostAsset",
+        id.to_string().as_str(),
+        "touch",
+        "Updated asset access timestamp",
+        Some(json!({ "assetId": id, "lastAccessedAt": now_ts() }).to_string()),
+        Some("local-first"),
+    )?;
     Ok(())
 }
 
@@ -1617,6 +2130,19 @@ pub fn asset_toggle_favorite(app_handle: AppHandle, id: i64, is_favorite: bool) 
         None,
         "info",
         None,
+    )?;
+    record_change_log(
+        &conn,
+        "hostAsset",
+        id.to_string().as_str(),
+        "favorite",
+        if is_favorite {
+            "Marked asset as favorite"
+        } else {
+            "Removed asset favorite mark"
+        },
+        Some(json!({ "assetId": id, "isFavorite": is_favorite }).to_string()),
+        Some("local-first"),
     )?;
     Ok(())
 }
@@ -1930,12 +2456,22 @@ pub fn ops_create_job_template(app_handle: AppHandle, template: JobTemplate) -> 
         "info",
         None,
     )?;
-    Ok(JobTemplate {
+    let saved = JobTemplate {
         id: Some(id),
         created_at: timestamp,
         updated_at: timestamp,
         ..template
-    })
+    };
+    record_change_log(
+        &conn,
+        "jobTemplate",
+        id.to_string().as_str(),
+        "create",
+        "Created job template",
+        Some(json!(saved.clone()).to_string()),
+        Some("local-first"),
+    )?;
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -1954,6 +2490,15 @@ pub fn ops_delete_job_template(app_handle: AppHandle, id: i64) -> Result<(), Str
         None,
         "warning",
         None,
+    )?;
+    record_change_log(
+        &conn,
+        "jobTemplate",
+        id.to_string().as_str(),
+        "delete",
+        "Deleted job template",
+        Some(json!({ "jobTemplateId": id }).to_string()),
+        Some("local-first"),
     )?;
     Ok(())
 }
@@ -1989,6 +2534,49 @@ pub fn ops_list_job_runs(app_handle: AppHandle, asset_id: Option<i64>) -> Result
         items.push(row.map_err(|e| e.to_string())?);
     }
     Ok(items)
+}
+
+#[tauri::command]
+pub fn ops_preview_job_batch(
+    app_handle: AppHandle,
+    request: JobBatchRequest,
+) -> Result<JobBatchPreview, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let targets = resolve_job_targets(
+        &conn,
+        request.scope_type.as_str(),
+        request.scope_value.as_deref(),
+        &request.target_asset_ids,
+    )?;
+    let clients = request.target_asset_ids.len();
+    let mut warnings = Vec::new();
+    let risk_level = normalize_risk_level(request.risk_level.clone());
+
+    if targets.is_empty() {
+        warnings.push("No matching assets were found for the current scope.".to_string());
+    }
+    if targets.len() > 10 {
+        warnings.push(format!(
+            "This batch targets {} assets. Consider narrowing scope or running in stages.",
+            targets.len()
+        ));
+    }
+    if risk_level == "critical" || risk_level == "high" {
+        warnings.push("High-risk commands should be reviewed carefully before execution.".to_string());
+    }
+
+    Ok(JobBatchPreview {
+        command: request.command_text,
+        scope_type: normalize_scope_type(request.scope_type.as_str()),
+        scope_value: request.scope_value,
+        risk_level: risk_level.clone(),
+        target_count: targets.len(),
+        requires_confirmation: risk_level != "low" || targets.len() > 1,
+        suggested_session_reuse: clients.min(targets.len()),
+        targets,
+        warnings,
+    })
 }
 
 #[tauri::command]
@@ -2092,6 +2680,477 @@ pub async fn ops_execute_job(
 }
 
 #[tauri::command]
+pub async fn ops_execute_job_batch(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    request: JobBatchRequest,
+) -> Result<JobBatchResult, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(&db_path).map_err(|e| e.to_string())?;
+    let preview_targets = resolve_job_targets(
+        &conn,
+        request.scope_type.as_str(),
+        request.scope_value.as_deref(),
+        &request.target_asset_ids,
+    )?;
+    drop(conn);
+
+    let started_at = now_ts();
+    let mut items = Vec::new();
+    let mut warnings = Vec::new();
+    let mut completed = 0usize;
+    let mut failed = 0usize;
+    let normalized_risk = normalize_risk_level(request.risk_level.clone());
+
+    if preview_targets.is_empty() {
+        return Err("No matching assets found for batch execution".to_string());
+    }
+
+    for target in preview_targets {
+        let mut created_temp_session = false;
+        let mut used_existing_session = false;
+        let session_id = {
+            let clients = state.clients.lock().map_err(|e| e.to_string())?;
+            clients.iter().find_map(|(session_id, client)| {
+                if client.asset_id == Some(target.asset_id) {
+                    Some(session_id.clone())
+                } else {
+                    None
+                }
+            })
+        };
+
+        let active_session_id = if let Some(existing_session_id) = session_id {
+            used_existing_session = true;
+            existing_session_id
+        } else {
+            let conn = SqliteConnection::open(&db_path).map_err(|e| e.to_string())?;
+            let (asset, endpoint, credential_ref) =
+                resolve_asset_bundle(&conn, target.asset_id, None)?;
+            drop(conn);
+            let ssh_config = map_connection_from_endpoint(&asset, &endpoint, credential_ref.as_ref());
+            let temp_session_id = client::connect(
+                app_handle.clone(),
+                state.clone(),
+                ssh_config,
+                Some(format!("batch-{}-{}", target.asset_id, Uuid::new_v4())),
+            )
+            .await?;
+
+            {
+                let mut clients = state.clients.lock().map_err(|e| e.to_string())?;
+                if let Some(client) = clients.get_mut(&temp_session_id) {
+                    client.asset_id = Some(target.asset_id);
+                    client.access_endpoint_id = endpoint.id;
+                    client.credential_ref_id = endpoint
+                        .credential_ref_id
+                        .or_else(|| credential_ref.as_ref().and_then(|item| item.id));
+                    client.bastion_chain_id = asset.bastion_chain_id.clone();
+                }
+            }
+            created_temp_session = true;
+            temp_session_id
+        };
+
+        let job_run_outcome = ops_execute_job(
+            app_handle.clone(),
+            state.clone(),
+            active_session_id.clone(),
+            Some(target.asset_id),
+            request.command_text.clone(),
+            Some(normalized_risk.clone()),
+            request.source.clone().or_else(|| Some("job-batch".to_string())),
+        )
+        .await;
+
+        match job_run_outcome {
+            Ok(job_run) => {
+                let summary = if job_run.status == "completed" {
+                    format!("Batch execution completed on {}", target.asset_name)
+                } else {
+                    format!("Batch execution ended with status {} on {}", job_run.status, target.asset_name)
+                };
+                let conn = SqliteConnection::open(&db_path).map_err(|e| e.to_string())?;
+                if let Some(job_run_id) = job_run.id {
+                    let _ = archive_job_run_with_conn(&conn, job_run_id, Some(summary.clone()));
+                    let _ = record_change_log(
+                        &conn,
+                        "jobRun",
+                        job_run_id.to_string().as_str(),
+                        "archive",
+                        summary.as_str(),
+                        Some(
+                            json!({
+                                "assetId": target.asset_id,
+                                "assetName": target.asset_name,
+                                "status": job_run.status,
+                                "source": request.source.clone().unwrap_or_else(|| "job-batch".to_string())
+                            })
+                            .to_string(),
+                        ),
+                        Some("local-first"),
+                    );
+                }
+                if job_run.status == "completed" {
+                    completed += 1;
+                } else {
+                    failed += 1;
+                }
+                items.push(JobBatchResultItem {
+                    asset_id: target.asset_id,
+                    asset_name: target.asset_name,
+                    session_id: Some(active_session_id.clone()),
+                    job_run_id: job_run.id,
+                    status: job_run.status,
+                    output: job_run.output,
+                    error: None,
+                    risk_level: job_run.risk_level,
+                    used_existing_session,
+                });
+            }
+            Err(error) => {
+                failed += 1;
+                warnings.push(format!("{}: {}", target.asset_name, error));
+                let conn = SqliteConnection::open(&db_path).map_err(|e| e.to_string())?;
+                let _ = append_audit_event_with_conn(
+                    &conn,
+                    "job.batchFailed",
+                    Some(target.asset_id),
+                    Some(active_session_id.as_str()),
+                    None,
+                    "Batch job execution failed",
+                    Some(error.as_str()),
+                    "warning",
+                    Some(
+                        json!({
+                            "assetName": target.asset_name,
+                            "command": request.command_text,
+                            "scopeType": request.scope_type,
+                            "scopeValue": request.scope_value,
+                        })
+                        .to_string()
+                        .as_str(),
+                    ),
+                );
+                items.push(JobBatchResultItem {
+                    asset_id: target.asset_id,
+                    asset_name: target.asset_name,
+                    session_id: Some(active_session_id.clone()),
+                    job_run_id: None,
+                    status: "error".to_string(),
+                    output: None,
+                    error: Some(error),
+                    risk_level: normalized_risk.clone(),
+                    used_existing_session,
+                });
+            }
+        }
+
+        if created_temp_session {
+            let _ = client::disconnect(state.clone(), active_session_id).await;
+        }
+    }
+
+    Ok(JobBatchResult {
+        total: items.len(),
+        completed,
+        failed,
+        started_at,
+        completed_at: now_ts(),
+        items,
+        warnings,
+    })
+}
+
+#[tauri::command]
+pub fn ops_list_job_archives(
+    app_handle: AppHandle,
+    asset_id: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<JobRunArchive>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let limit = limit.unwrap_or(100) as i64;
+    let (sql, asset_param): (&str, Option<i64>) = if let Some(asset_id) = asset_id {
+        (
+            "SELECT id, job_run_id, asset_id, session_id, command, status, risk_level, output, summary, archived_at, created_at, completed_at, source
+             FROM job_run_archives WHERE asset_id = ?1 ORDER BY archived_at DESC LIMIT ?2",
+            Some(asset_id),
+        )
+    } else {
+        (
+            "SELECT id, job_run_id, asset_id, session_id, command, status, risk_level, output, summary, archived_at, created_at, completed_at, source
+             FROM job_run_archives ORDER BY archived_at DESC LIMIT ?1",
+            None,
+        )
+    };
+
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let rows = if let Some(asset_id) = asset_param {
+        stmt.query_map(params![asset_id, limit], map_job_run_archive_row)
+            .map_err(|e| e.to_string())?
+    } else {
+        stmt.query_map(params![limit], map_job_run_archive_row)
+            .map_err(|e| e.to_string())?
+    };
+
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn ops_console_query(
+    app_handle: AppHandle,
+    query: String,
+    selected_asset_id: Option<i64>,
+) -> Result<OpsConsoleAnswer, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let trimmed_query = query.trim();
+    if trimmed_query.is_empty() {
+        return Err("Query is required".to_string());
+    }
+
+    let normalized_query = trimmed_query.to_lowercase();
+    let pattern = format!("%{}%", trimmed_query);
+    let asset_sql = if selected_asset_id.is_some() {
+        "SELECT
+            ha.id,
+            ha.name,
+            ha.host,
+            ha.criticality,
+            env.name,
+            ha.health_summary,
+            CASE
+                WHEN ha.name LIKE ?1 THEN 'Name matched'
+                WHEN ha.host LIKE ?1 THEN 'Host matched'
+                WHEN ha.labels_csv LIKE ?1 THEN 'Label matched'
+                WHEN COALESCE(ha.owner, '') LIKE ?1 THEN 'Owner matched'
+                ELSE 'Selected asset'
+            END AS match_reason
+         FROM host_assets ha
+         LEFT JOIN environments env ON env.id = ha.env_id
+         WHERE ha.id = ?2
+         ORDER BY ha.name COLLATE NOCASE ASC"
+    } else {
+        "SELECT
+            ha.id,
+            ha.name,
+            ha.host,
+            ha.criticality,
+            env.name,
+            ha.health_summary,
+            CASE
+                WHEN ha.name LIKE ?1 THEN 'Name matched'
+                WHEN ha.host LIKE ?1 THEN 'Host matched'
+                WHEN ha.labels_csv LIKE ?1 THEN 'Label matched'
+                WHEN COALESCE(ha.owner, '') LIKE ?1 THEN 'Owner matched'
+                WHEN COALESCE(env.name, '') LIKE ?1 THEN 'Environment matched'
+                ELSE 'Critical asset context'
+            END AS match_reason
+         FROM host_assets ha
+         LEFT JOIN environments env ON env.id = ha.env_id
+         WHERE ha.name LIKE ?1
+            OR ha.host LIKE ?1
+            OR ha.labels_csv LIKE ?1
+            OR COALESCE(ha.owner, '') LIKE ?1
+            OR COALESCE(env.name, '') LIKE ?1
+         ORDER BY
+            CASE ha.criticality
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                ELSE 4
+            END,
+            ha.name COLLATE NOCASE ASC
+         LIMIT 8"
+    };
+
+    let mut matched_assets = Vec::new();
+    let mut stmt = conn.prepare(asset_sql).map_err(|e| e.to_string())?;
+    if let Some(asset_id) = selected_asset_id {
+        let rows = stmt
+            .query_map(params![pattern, asset_id], |row| {
+                Ok(OpsMatchedAsset {
+                    asset_id: row.get(0)?,
+                    asset_name: row.get(1)?,
+                    host: row.get(2)?,
+                    criticality: row.get(3)?,
+                    environment_name: row.get(4)?,
+                    health_summary: row.get(5)?,
+                    match_reason: row.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            matched_assets.push(row.map_err(|e| e.to_string())?);
+        }
+    } else {
+        let rows = stmt
+            .query_map(params![pattern], |row| {
+                Ok(OpsMatchedAsset {
+                    asset_id: row.get(0)?,
+                    asset_name: row.get(1)?,
+                    host: row.get(2)?,
+                    criticality: row.get(3)?,
+                    environment_name: row.get(4)?,
+                    health_summary: row.get(5)?,
+                    match_reason: row.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            matched_assets.push(row.map_err(|e| e.to_string())?);
+        }
+    }
+
+    let mut recent_events = Vec::new();
+    if !matched_assets.is_empty() {
+        let asset_ids = matched_assets
+            .iter()
+            .map(|item| item.asset_id.to_string())
+            .collect::<Vec<_>>();
+        let sql = format!(
+            "SELECT id, event_type, asset_id, session_id, job_run_id, title, detail, severity, metadata_json, created_at
+             FROM audit_events
+             WHERE asset_id IN ({})
+             ORDER BY created_at DESC
+             LIMIT 10",
+            asset_ids.join(",")
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], map_audit_event_row)
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            recent_events.push(row.map_err(|e| e.to_string())?);
+        }
+    }
+
+    let top_event = recent_events
+        .iter()
+        .max_by_key(|event| (severity_rank(event.severity.as_str()), event.created_at));
+
+    let status_explanation = if let Some(event) = top_event {
+        Some(format!(
+            "Recent signal: [{}] {}. {}",
+            event.severity,
+            event.title,
+            event.detail.clone().unwrap_or_else(|| "Review latest audit trail and validate the current state before making changes.".to_string())
+        ))
+    } else if !matched_assets.is_empty() {
+        Some("No recent audit anomalies found for the matched assets. Start with a read-only validation pass.".to_string())
+    } else {
+        Some("No direct asset matches were found. Try searching by hostname, label, owner, or environment.".to_string())
+    };
+
+    let recommended_checks = if normalized_query.contains("disk") || normalized_query.contains("storage") {
+        vec![
+            "Run `df -h` to confirm filesystem pressure.".to_string(),
+            "Run `du -sh <path>` on the hottest paths before cleanup.".to_string(),
+            "Verify whether log rotation or backup retention changed recently.".to_string(),
+        ]
+    } else if normalized_query.contains("cpu") || normalized_query.contains("load") || normalized_query.contains("slow") {
+        vec![
+            "Run `uptime` and `top -bn1 | head -30` to inspect load and top processes.".to_string(),
+            "Check whether the issue is isolated to one asset or a tagged fleet.".to_string(),
+            "Inspect deploy, cron, and batch job windows around the first symptom.".to_string(),
+        ]
+    } else if normalized_query.contains("memory") || normalized_query.contains("oom") {
+        vec![
+            "Run `free -m` and inspect cgroup or service memory ceilings.".to_string(),
+            "Review `dmesg | tail -n 50` for OOM killer activity.".to_string(),
+            "Validate whether restart loops are masking memory pressure.".to_string(),
+        ]
+    } else {
+        vec![
+            "Confirm the scope: one asset, an environment, or a tagged batch.".to_string(),
+            "Start with read-only inspection commands before remediation.".to_string(),
+            "Capture a brief result review after each execution step.".to_string(),
+        ]
+    };
+
+    let primary_asset = matched_assets.first();
+    let plan_steps = vec![
+        OpsPlanStep {
+            id: "inspect".to_string(),
+            title: "Inspect the current state".to_string(),
+            description: "Run a read-only validation step on the primary target and verify the symptom is reproducible.".to_string(),
+            command: Some(if normalized_query.contains("disk") || normalized_query.contains("storage") {
+                "df -h".to_string()
+            } else if normalized_query.contains("memory") || normalized_query.contains("oom") {
+                "free -m && dmesg | tail -n 30".to_string()
+            } else if normalized_query.contains("cpu") || normalized_query.contains("load") || normalized_query.contains("slow") {
+                "uptime && top -bn1 | head -n 20".to_string()
+            } else {
+                "uname -a && uptime".to_string()
+            }),
+            target_asset_id: primary_asset.map(|asset| asset.asset_id),
+            target_asset_name: primary_asset.map(|asset| asset.asset_name.clone()),
+            risk_level: "low".to_string(),
+            requires_confirmation: false,
+            runbook: Some("Capture the output, compare with recent healthy baseline, and only then proceed.".to_string()),
+        },
+        OpsPlanStep {
+            id: "scope".to_string(),
+            title: "Confirm affected scope".to_string(),
+            description: "Use tags, environment, or owner information to decide whether remediation should be single-host or batch.".to_string(),
+            command: None,
+            target_asset_id: None,
+            target_asset_name: None,
+            risk_level: "medium".to_string(),
+            requires_confirmation: true,
+            runbook: Some("If more than one critical asset is involved, prepare a staged rollout or canary.".to_string()),
+        },
+        OpsPlanStep {
+            id: "review".to_string(),
+            title: "Review execution results".to_string(),
+            description: "Archive the outputs, update audit notes, and confirm the service returned to a steady state.".to_string(),
+            command: None,
+            target_asset_id: None,
+            target_asset_name: None,
+            risk_level: "low".to_string(),
+            requires_confirmation: true,
+            runbook: Some("Summarize impact, changes made, and any follow-up tasks for the next operator.".to_string()),
+        },
+    ];
+
+    let summary = if matched_assets.is_empty() {
+        format!("No direct asset match for '{}'. Broaden the query or select an asset to continue.", trimmed_query)
+    } else {
+        format!(
+            "Matched {} asset(s) for '{}'. Prioritize read-only inspection first, then move to confirmed remediation.",
+            matched_assets.len(),
+            trimmed_query
+        )
+    };
+
+    let review_checklist = vec![
+        "Was the target scope confirmed before any write operation?".to_string(),
+        "Did the command output get archived for later audit review?".to_string(),
+        "Is rollback or follow-up work clearly captured?".to_string(),
+    ];
+
+    let sources = matched_assets
+        .iter()
+        .map(|asset| format!("asset:{} ({})", asset.asset_name, asset.host))
+        .collect::<Vec<_>>();
+
+    Ok(OpsConsoleAnswer {
+        summary,
+        matched_assets,
+        status_explanation,
+        recommended_checks,
+        plan_steps,
+        review_checklist,
+        sources,
+    })
+}
+
+#[tauri::command]
 pub fn audit_list_events(
     app_handle: AppHandle,
     asset_id: Option<i64>,
@@ -2122,6 +3181,56 @@ pub fn audit_list_events(
         stmt.query_map(params![limit], map_audit_event_row)
             .map_err(|e| e.to_string())?
     };
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn audit_search_events(
+    app_handle: AppHandle,
+    query: Option<String>,
+    severity: Option<String>,
+    asset_id: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<AuditEvent>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let mut clauses = vec!["1 = 1".to_string()];
+    let mut params_vec: Vec<String> = Vec::new();
+
+    if let Some(query) = query.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+        clauses.push("(title LIKE ? OR COALESCE(detail, '') LIKE ? OR COALESCE(metadata_json, '') LIKE ?)".to_string());
+        let pattern = format!("%{}%", query);
+        params_vec.push(pattern.clone());
+        params_vec.push(pattern.clone());
+        params_vec.push(pattern);
+    }
+    if let Some(severity) = severity.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+        clauses.push("severity = ?".to_string());
+        params_vec.push(severity.to_string());
+    }
+    if let Some(asset_id) = asset_id {
+        clauses.push("asset_id = ?".to_string());
+        params_vec.push(asset_id.to_string());
+    }
+
+    let sql = format!(
+        "SELECT id, event_type, asset_id, session_id, job_run_id, title, detail, severity, metadata_json, created_at
+         FROM audit_events
+         WHERE {}
+         ORDER BY created_at DESC
+         LIMIT {}",
+        clauses.join(" AND "),
+        limit.unwrap_or(200)
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params_vec.iter()), map_audit_event_row)
+        .map_err(|e| e.to_string())?;
+
     let mut items = Vec::new();
     for row in rows {
         items.push(row.map_err(|e| e.to_string())?);
@@ -2175,6 +3284,95 @@ pub fn sync_get_state(app_handle: AppHandle) -> Result<SyncState, String> {
 }
 
 #[tauri::command]
+pub fn sync_get_overview(app_handle: AppHandle) -> Result<SyncOverview, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let state = sync_get_state(app_handle.clone())?;
+    let pending_changes: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM sync_change_log WHERE sync_status = 'pending'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let total_changes: i64 = conn
+        .query_row("SELECT COUNT(1) FROM sync_change_log", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    let last_change_at: Option<i64> = conn
+        .query_row(
+            "SELECT MAX(created_at) FROM sync_change_log",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut services_stmt = conn
+        .prepare(
+            "SELECT id, service_key, display_name, base_url, auth_mode, auth_token, enabled, metadata_json, created_at, updated_at
+             FROM sync_services
+             ORDER BY enabled DESC, display_name COLLATE NOCASE ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let services_rows = services_stmt
+        .query_map([], map_sync_service_row)
+        .map_err(|e| e.to_string())?;
+    let mut services = Vec::new();
+    for row in services_rows {
+        services.push(row.map_err(|e| e.to_string())?);
+    }
+
+    let mut changes_stmt = conn
+        .prepare(
+            "SELECT id, object_type, object_id, operation, object_version, summary, payload_json, sync_status, service_key, created_at, synced_at
+             FROM sync_change_log
+             ORDER BY created_at DESC
+             LIMIT 30",
+        )
+        .map_err(|e| e.to_string())?;
+    let changes_rows = changes_stmt
+        .query_map([], map_sync_change_log_row)
+        .map_err(|e| e.to_string())?;
+    let mut recent_changes = Vec::new();
+    for row in changes_rows {
+        recent_changes.push(row.map_err(|e| e.to_string())?);
+    }
+
+    let mut versions_stmt = conn
+        .prepare(
+            "SELECT object_type, COUNT(1), MAX(version)
+             FROM sync_object_versions
+             GROUP BY object_type
+             ORDER BY object_type ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let version_rows = versions_stmt
+        .query_map([], |row| {
+            Ok(SyncObjectVersionSummary {
+                object_type: row.get(0)?,
+                count: row.get(1)?,
+                max_version: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    let mut object_version_summary = Vec::new();
+    for row in version_rows {
+        object_version_summary.push(row.map_err(|e| e.to_string())?);
+    }
+
+    Ok(SyncOverview {
+        state,
+        pending_changes,
+        total_changes,
+        last_change_at,
+        services,
+        recent_changes,
+        protocol_version: "local-first/v1".to_string(),
+        strategy: "append-only change log with object versioning".to_string(),
+        object_version_summary,
+    })
+}
+
+#[tauri::command]
 pub fn sync_save_state(app_handle: AppHandle, state: SyncState) -> Result<SyncState, String> {
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
@@ -2203,7 +3401,157 @@ pub fn sync_save_state(app_handle: AppHandle, state: SyncState) -> Result<SyncSt
         ],
     )
     .map_err(|e| e.to_string())?;
+    record_change_log(
+        &conn,
+        "syncState",
+        state.state_key.as_str(),
+        "update",
+        "Updated sync state",
+        Some(json!(state.clone()).to_string()),
+        Some("local-first"),
+    )?;
     sync_get_state(app_handle)
+}
+
+#[tauri::command]
+pub fn sync_list_change_log(
+    app_handle: AppHandle,
+    status: Option<String>,
+    object_type: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<SyncChangeLogEntry>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let mut clauses = vec!["1 = 1".to_string()];
+    let mut params_vec: Vec<String> = Vec::new();
+
+    if let Some(status) = status.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+        clauses.push("sync_status = ?".to_string());
+        params_vec.push(status.to_string());
+    }
+    if let Some(object_type) = object_type.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+        clauses.push("object_type = ?".to_string());
+        params_vec.push(object_type.to_string());
+    }
+
+    let sql = format!(
+        "SELECT id, object_type, object_id, operation, object_version, summary, payload_json, sync_status, service_key, created_at, synced_at
+         FROM sync_change_log
+         WHERE {}
+         ORDER BY created_at DESC
+         LIMIT {}",
+        clauses.join(" AND "),
+        limit.unwrap_or(200)
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params_vec.iter()), map_sync_change_log_row)
+        .map_err(|e| e.to_string())?;
+
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn sync_mark_changes_synced(
+    app_handle: AppHandle,
+    change_ids: Vec<i64>,
+    service_key: Option<String>,
+) -> Result<usize, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let timestamp = now_ts();
+    let mut updated = 0usize;
+    for change_id in change_ids {
+        updated += conn
+            .execute(
+                "UPDATE sync_change_log
+                 SET sync_status = 'synced', service_key = COALESCE(?2, service_key), synced_at = ?3
+                 WHERE id = ?1",
+                params![change_id, service_key, timestamp],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn sync_list_services(app_handle: AppHandle) -> Result<Vec<SyncServiceConfig>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, service_key, display_name, base_url, auth_mode, auth_token, enabled, metadata_json, created_at, updated_at
+             FROM sync_services
+             ORDER BY enabled DESC, display_name COLLATE NOCASE ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], map_sync_service_row)
+        .map_err(|e| e.to_string())?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn sync_upsert_service(
+    app_handle: AppHandle,
+    service: SyncServiceConfig,
+) -> Result<SyncServiceConfig, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let created_at = if service.created_at == 0 {
+        now_ts()
+    } else {
+        service.created_at
+    };
+    let updated_at = now_ts();
+    conn.execute(
+        "INSERT INTO sync_services (
+            id, service_key, display_name, base_url, auth_mode, auth_token, enabled, metadata_json, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT(service_key) DO UPDATE SET
+            display_name = excluded.display_name,
+            base_url = excluded.base_url,
+            auth_mode = excluded.auth_mode,
+            auth_token = excluded.auth_token,
+            enabled = excluded.enabled,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at",
+        params![
+            service.id,
+            service.service_key,
+            service.display_name,
+            service.base_url,
+            service.auth_mode,
+            service.auth_token,
+            service.enabled as i64,
+            service.metadata_json,
+            created_at,
+            updated_at
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    record_change_log(
+        &conn,
+        "syncService",
+        service.service_key.as_str(),
+        "upsert",
+        "Upserted sync service configuration",
+        Some(json!(service.clone()).to_string()),
+        Some("local-first"),
+    )?;
+    Ok(SyncServiceConfig {
+        created_at,
+        updated_at,
+        ..service
+    })
 }
 
 #[tauri::command]

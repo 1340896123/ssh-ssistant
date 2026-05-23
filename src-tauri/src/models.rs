@@ -296,6 +296,24 @@ pub struct JobRun {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct JobRunArchive {
+    pub id: Option<i64>,
+    pub job_run_id: i64,
+    pub asset_id: Option<i64>,
+    pub session_id: Option<String>,
+    pub command: String,
+    pub status: String,
+    pub risk_level: String,
+    pub output: Option<String>,
+    pub summary: Option<String>,
+    pub archived_at: i64,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AuditEvent {
     pub id: Option<i64>,
     pub event_type: String,
@@ -311,6 +329,119 @@ pub struct AuditEvent {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct OpsMatchedAsset {
+    pub asset_id: i64,
+    pub asset_name: String,
+    pub host: String,
+    pub criticality: String,
+    pub environment_name: Option<String>,
+    pub health_summary: Option<String>,
+    pub match_reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsPlanStep {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub command: Option<String>,
+    pub target_asset_id: Option<i64>,
+    pub target_asset_name: Option<String>,
+    pub risk_level: String,
+    pub requires_confirmation: bool,
+    pub runbook: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsConsoleAnswer {
+    pub summary: String,
+    #[serde(default)]
+    pub matched_assets: Vec<OpsMatchedAsset>,
+    pub status_explanation: Option<String>,
+    #[serde(default)]
+    pub recommended_checks: Vec<String>,
+    #[serde(default)]
+    pub plan_steps: Vec<OpsPlanStep>,
+    #[serde(default)]
+    pub review_checklist: Vec<String>,
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobBatchPreviewTarget {
+    pub asset_id: i64,
+    pub asset_name: String,
+    pub host: String,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    pub environment_name: Option<String>,
+    pub risk_level: String,
+    pub match_reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobBatchPreview {
+    pub command: String,
+    pub scope_type: String,
+    pub scope_value: Option<String>,
+    pub risk_level: String,
+    pub target_count: usize,
+    #[serde(default)]
+    pub targets: Vec<JobBatchPreviewTarget>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    pub requires_confirmation: bool,
+    pub suggested_session_reuse: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobBatchRequest {
+    pub template_id: Option<i64>,
+    pub command_text: String,
+    pub scope_type: String,
+    pub scope_value: Option<String>,
+    #[serde(default)]
+    pub target_asset_ids: Vec<i64>,
+    pub risk_level: Option<String>,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobBatchResultItem {
+    pub asset_id: i64,
+    pub asset_name: String,
+    pub session_id: Option<String>,
+    pub job_run_id: Option<i64>,
+    pub status: String,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub risk_level: String,
+    pub used_existing_session: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobBatchResult {
+    pub total: usize,
+    pub completed: usize,
+    pub failed: usize,
+    pub started_at: i64,
+    pub completed_at: i64,
+    #[serde(default)]
+    pub items: Vec<JobBatchResultItem>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncState {
     pub id: Option<i64>,
     pub state_key: String,
@@ -321,6 +452,62 @@ pub struct SyncState {
     pub last_error: Option<String>,
     pub metadata_json: Option<String>,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncChangeLogEntry {
+    pub id: Option<i64>,
+    pub object_type: String,
+    pub object_id: String,
+    pub operation: String,
+    pub object_version: i64,
+    pub summary: String,
+    pub payload_json: Option<String>,
+    pub sync_status: String,
+    pub service_key: Option<String>,
+    pub created_at: i64,
+    pub synced_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncServiceConfig {
+    pub id: Option<i64>,
+    pub service_key: String,
+    pub display_name: String,
+    pub base_url: Option<String>,
+    pub auth_mode: String,
+    pub auth_token: Option<String>,
+    pub enabled: bool,
+    pub metadata_json: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncObjectVersionSummary {
+    pub object_type: String,
+    pub count: i64,
+    pub max_version: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncOverview {
+    pub state: SyncState,
+    pub pending_changes: i64,
+    pub total_changes: i64,
+    pub last_change_at: Option<i64>,
+    #[serde(default)]
+    pub services: Vec<SyncServiceConfig>,
+    #[serde(default)]
+    pub recent_changes: Vec<SyncChangeLogEntry>,
+    pub protocol_version: String,
+    pub strategy: String,
+    #[serde(default)]
+    pub object_version_summary: Vec<SyncObjectVersionSummary>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

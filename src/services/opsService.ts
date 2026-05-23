@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HostAsset, JobRun, JobTemplate } from "../types";
+import type {
+  HostAsset,
+  JobBatchPreview,
+  JobBatchRequest,
+  JobBatchResult,
+  JobRun,
+  JobRunArchive,
+  JobTemplate,
+  OpsConsoleAnswer,
+} from "../types";
 
 export const opsService = {
   listJobTemplates: () => invoke<JobTemplate[]>("ops_list_job_templates"),
@@ -9,6 +18,8 @@ export const opsService = {
     invoke("ops_delete_job_template", { id }),
   listJobRuns: (assetId?: number) =>
     invoke<JobRun[]>("ops_list_job_runs", { assetId }),
+  listJobArchives: (assetId?: number, limit?: number) =>
+    invoke<JobRunArchive[]>("ops_list_job_archives", { assetId, limit }),
   executeJob: (
     sessionId: string,
     commandText: string,
@@ -23,6 +34,12 @@ export const opsService = {
       riskLevel,
       source,
     }),
+  previewJobBatch: (request: JobBatchRequest) =>
+    invoke<JobBatchPreview>("ops_preview_job_batch", { request }),
+  executeJobBatch: (request: JobBatchRequest) =>
+    invoke<JobBatchResult>("ops_execute_job_batch", { request }),
+  opsConsoleQuery: (query: string, selectedAssetId?: number | null) =>
+    invoke<OpsConsoleAnswer>("ops_console_query", { query, selectedAssetId }),
   aiPlanAction: (asset: HostAsset, userRequest: string) =>
     invoke<string>("ai_plan_action", { asset, userRequest }),
   aiExplainState: (asset: HostAsset, observedState: string) =>

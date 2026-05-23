@@ -189,6 +189,22 @@ export interface JobRun {
   completedAt?: number | null;
 }
 
+export interface JobRunArchive {
+  id?: number;
+  jobRunId: number;
+  assetId?: number | null;
+  sessionId?: string | null;
+  command: string;
+  status: string;
+  riskLevel: AssetCriticality;
+  output?: string | null;
+  summary?: string | null;
+  archivedAt: number;
+  createdAt: number;
+  completedAt?: number | null;
+  source?: string | null;
+}
+
 export interface AuditEvent {
   id?: number;
   eventType: string;
@@ -202,6 +218,92 @@ export interface AuditEvent {
   createdAt: number;
 }
 
+export interface OpsMatchedAsset {
+  assetId: number;
+  assetName: string;
+  host: string;
+  criticality: AssetCriticality;
+  environmentName?: string | null;
+  healthSummary?: string | null;
+  matchReason: string;
+}
+
+export interface OpsPlanStep {
+  id: string;
+  title: string;
+  description: string;
+  command?: string | null;
+  targetAssetId?: number | null;
+  targetAssetName?: string | null;
+  riskLevel: AssetCriticality;
+  requiresConfirmation: boolean;
+  runbook?: string | null;
+}
+
+export interface OpsConsoleAnswer {
+  summary: string;
+  matchedAssets: OpsMatchedAsset[];
+  statusExplanation?: string | null;
+  recommendedChecks: string[];
+  planSteps: OpsPlanStep[];
+  reviewChecklist: string[];
+  sources: string[];
+}
+
+export interface JobBatchPreviewTarget {
+  assetId: number;
+  assetName: string;
+  host: string;
+  labels: string[];
+  environmentName?: string | null;
+  riskLevel: AssetCriticality;
+  matchReason: string;
+}
+
+export interface JobBatchPreview {
+  command: string;
+  scopeType: string;
+  scopeValue?: string | null;
+  riskLevel: AssetCriticality;
+  targetCount: number;
+  targets: JobBatchPreviewTarget[];
+  warnings: string[];
+  requiresConfirmation: boolean;
+  suggestedSessionReuse: number;
+}
+
+export interface JobBatchRequest {
+  templateId?: number | null;
+  commandText: string;
+  scopeType: string;
+  scopeValue?: string | null;
+  targetAssetIds: number[];
+  riskLevel?: AssetCriticality | null;
+  source?: string | null;
+}
+
+export interface JobBatchResultItem {
+  assetId: number;
+  assetName: string;
+  sessionId?: string | null;
+  jobRunId?: number | null;
+  status: string;
+  output?: string | null;
+  error?: string | null;
+  riskLevel: AssetCriticality;
+  usedExistingSession: boolean;
+}
+
+export interface JobBatchResult {
+  total: number;
+  completed: number;
+  failed: number;
+  startedAt: number;
+  completedAt: number;
+  items: JobBatchResultItem[];
+  warnings: string[];
+}
+
 export interface SyncState {
   id?: number;
   stateKey: string;
@@ -212,6 +314,51 @@ export interface SyncState {
   lastError?: string | null;
   metadataJson?: string | null;
   updatedAt: number;
+}
+
+export interface SyncChangeLogEntry {
+  id?: number;
+  objectType: string;
+  objectId: string;
+  operation: string;
+  objectVersion: number;
+  summary: string;
+  payloadJson?: string | null;
+  syncStatus: string;
+  serviceKey?: string | null;
+  createdAt: number;
+  syncedAt?: number | null;
+}
+
+export interface SyncServiceConfig {
+  id?: number;
+  serviceKey: string;
+  displayName: string;
+  baseUrl?: string | null;
+  authMode: string;
+  authToken?: string | null;
+  enabled: boolean;
+  metadataJson?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SyncObjectVersionSummary {
+  objectType: string;
+  count: number;
+  maxVersion: number;
+}
+
+export interface SyncOverview {
+  state: SyncState;
+  pendingChanges: number;
+  totalChanges: number;
+  lastChangeAt?: number | null;
+  services: SyncServiceConfig[];
+  recentChanges: SyncChangeLogEntry[];
+  protocolVersion: string;
+  strategy: string;
+  objectVersionSummary: SyncObjectVersionSummary[];
 }
 
 export type TunnelType = "local" | "remote" | "dynamic";

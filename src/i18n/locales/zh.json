@@ -13,6 +13,8 @@
   "workbench": {
     "connectionsSubtitle": "管理连接目录、收藏与最近连接历史",
     "tunnelsSubtitle": "统一管理端口转发和隧道状态",
+    "opsTitle": "运维工作台",
+    "opsSubtitle": "全局 Ops Console、作业执行、审计检索与同步就绪状态",
     "sessionsTitle": "会话",
     "sessionsSubtitle": "查看当前工作中的 SSH 会话",
     "collapseResourcePane": "收起资源区",

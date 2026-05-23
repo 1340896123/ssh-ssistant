@@ -18,9 +18,17 @@ import type {
   CredentialRef,
   Environment,
   HostAsset,
+  JobBatchPreview,
+  JobBatchRequest,
+  JobBatchResult,
   JobRun,
+  JobRunArchive,
   JobTemplate,
+  OpsConsoleAnswer,
   SavedAssetView,
+  SyncChangeLogEntry,
+  SyncOverview,
+  SyncServiceConfig,
   SyncState,
 } from "../types";
 
@@ -126,9 +134,16 @@ export const useAssetStore = defineStore("assets", {
     credentialRefs: [] as CredentialRef[],
     jobTemplates: [] as JobTemplate[],
     jobRuns: [] as JobRun[],
+    jobArchives: [] as JobRunArchive[],
     auditEvents: [] as AuditEvent[],
     syncState: null as SyncState | null,
+    syncOverview: null as SyncOverview | null,
+    syncChanges: [] as SyncChangeLogEntry[],
+    syncServices: [] as SyncServiceConfig[],
     accessHistory: [] as AssetAccessHistoryEntry[],
+    lastOpsConsoleAnswer: null as OpsConsoleAnswer | null,
+    lastJobBatchPreview: null as JobBatchPreview | null,
+    lastJobBatchResult: null as JobBatchResult | null,
     hasImportedLegacyClientState: false,
   }),
   getters: {
@@ -304,14 +319,17 @@ export const useAssetStore = defineStore("assets", {
       };
     },
     async refreshOpsData(assetId?: number) {
-      const [jobTemplates, jobRuns, auditEvents, accessHistory] = await Promise.all([
+      const [jobTemplates, jobRuns, jobArchives, auditEvents, accessHistory] =
+        await Promise.all([
         opsService.listJobTemplates(),
         opsService.listJobRuns(assetId),
+        opsService.listJobArchives(assetId, assetId ? 40 : 120),
         auditService.list(assetId),
         assetService.listAccessHistory(assetId, assetId ? 40 : 200),
-      ]);
+        ]);
       this.jobTemplates = jobTemplates;
       this.jobRuns = jobRuns;
+      this.jobArchives = jobArchives;
       this.auditEvents = auditEvents;
       if (assetId === undefined) {
         this.accessHistory = accessHistory.map((entry) => ({
@@ -322,6 +340,18 @@ export const useAssetStore = defineStore("assets", {
           source: mapHistorySource(entry.source),
         }));
       }
+    },
+    async loadSyncOverview() {
+      const [overview, services, changes] = await Promise.all([
+        syncService.getOverview(),
+        syncService.listServices(),
+        syncService.listChangeLog(undefined, undefined, 100),
+      ]);
+      this.syncOverview = overview;
+      this.syncState = overview.state;
+      this.syncServices = services;
+      this.syncChanges = changes;
+      return overview;
     },
     async addAsset(
       asset: HostAsset,
@@ -461,14 +491,30 @@ export const useAssetStore = defineStore("assets", {
       await this.refreshOpsData(assetId);
       return run;
     },
+    async previewJobBatch(request: JobBatchRequest) {
+      this.lastJobBatchPreview = await opsService.previewJobBatch(request);
+      return this.lastJobBatchPreview;
+    },
+    async executeJobBatch(request: JobBatchRequest) {
+      this.lastJobBatchResult = await opsService.executeJobBatch(request);
+      await Promise.all([this.refreshOpsData(), this.loadSyncOverview()]);
+      return this.lastJobBatchResult;
+    },
+    async runOpsConsoleQuery(query: string, selectedAssetId?: number | null) {
+      this.lastOpsConsoleAnswer = await opsService.opsConsoleQuery(
+        query,
+        selectedAssetId ?? null,
+      );
+      return this.lastOpsConsoleAnswer;
+    },
     async createJobTemplate(template: JobTemplate) {
       const created = await opsService.createJobTemplate(template);
-      await this.refreshOpsData();
+      await Promise.all([this.refreshOpsData(), this.loadSyncOverview()]);
       return created;
     },
     async deleteJobTemplate(id: number) {
       await opsService.removeJobTemplate(id);
-      await this.refreshOpsData();
+      await Promise.all([this.refreshOpsData(), this.loadSyncOverview()]);
     },
     async appendAuditEvent(event: AuditEvent) {
       const created = await auditService.create(event);
@@ -477,7 +523,27 @@ export const useAssetStore = defineStore("assets", {
     },
     async saveSyncState(state: SyncState) {
       this.syncState = await syncService.saveState(state);
+      await this.loadSyncOverview();
       return this.syncState;
+    },
+    async markSyncChangesSynced(changeIds: number[], serviceKey?: string | null) {
+      const updated = await syncService.markChangesSynced(changeIds, serviceKey);
+      await this.loadSyncOverview();
+      return updated;
+    },
+    async saveSyncService(service: SyncServiceConfig) {
+      const saved = await syncService.upsertService(service);
+      await this.loadSyncOverview();
+      return saved;
+    },
+    async searchAuditEvents(
+      query?: string,
+      severity?: string,
+      assetId?: number,
+      limit?: number,
+    ) {
+      this.auditEvents = await auditService.search(query, severity, assetId, limit);
+      return this.auditEvents;
     },
   },
 });
