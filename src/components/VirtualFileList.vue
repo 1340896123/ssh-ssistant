@@ -4,6 +4,7 @@ import { useVirtualizer } from '@tanstack/vue-virtual';
 import { useDebounceFn } from '@vueuse/core';
 import type { FileEntry, FileManagerViewMode, ColumnKey } from '../types';
 import { useFileIcon } from '../composables/useFileIcon';
+import { useI18n } from '../composables/useI18n';
 
 interface TreeNode {
     entry: FileEntry;
@@ -64,6 +65,7 @@ const virtualItems = computed(() => virtualizer.value.getVirtualItems());
 const totalSize = computed(() => virtualizer.value.getTotalSize());
 
 const { getFileIcon } = useFileIcon();
+const { t } = useI18n();
 const iconMap = shallowRef(new Map<string, string>());
 
 function scrollToIndex(index: number) {
@@ -217,7 +219,7 @@ function renderFileItem(item: FileEntry, index: number) {
                         'text-sm truncate',
                         isParentDir ? 'font-semibold' : ''
                     ], 
-                    title: isParentDir ? '回到上一级目录' : item.name
+                    title: isParentDir ? t('fileManager.parentDirectory') : item.name
                 }, item.name)
         ]),
         h('span', {
@@ -352,7 +354,7 @@ function renderTreeNode(node: TreeNode) {
                         'text-sm truncate',
                         isParentDir ? 'font-semibold' : ''
                     ], 
-                    title: isParentDir ? '回到上一级目录' : node.entry.name
+                    title: isParentDir ? t('fileManager.parentDirectory') : node.entry.name
                 }, node.entry.name)
         ]),
         h('span', {

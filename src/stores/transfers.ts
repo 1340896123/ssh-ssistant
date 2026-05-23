@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useNotificationStore } from './notifications';
+import { i18n } from '../i18n';
 
 export type TransferStatus = 'pending' | 'running' | 'paused' | 'completed' | 'error' | 'cancelled';
 
@@ -30,6 +31,12 @@ export const useTransferStore = defineStore('transfers', () => {
     const items = ref<TransferItem[]>([]);
     const active = ref(false);
     const maxConcurrent = 3;
+    const translate = computed(() => i18n?.global?.t?.bind(i18n.global));
+
+    function t(key: string, params?: Record<string, unknown>) {
+        const translator = translate.value;
+        return translator ? translator(key, params) : key;
+    }
 
     // Listen for progress events
     let unlisten: (() => void) | null = null;
@@ -180,7 +187,7 @@ export const useTransferStore = defineStore('transfers', () => {
         } catch (e) {
             console.error("Failed to sync transfers:", e);
             const notificationStore = useNotificationStore();
-            notificationStore.warning(`Transfer sync failed. Some transfers may not be visible.`);
+            notificationStore.warning(t('transfers.notifications.syncFailed'));
         }
     }
 

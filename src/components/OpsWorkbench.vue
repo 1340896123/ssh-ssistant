@@ -13,6 +13,7 @@ import {
 } from "lucide-vue-next";
 import { useAssetStore } from "../stores/assets";
 import { useNotificationStore } from "../stores/notifications";
+import { useI18n } from "../composables/useI18n";
 import type {
   HostAsset,
   JobBatchRequest,
@@ -26,6 +27,7 @@ const props = defineProps<{
 
 const assetStore = useAssetStore();
 const notificationStore = useNotificationStore();
+const { t } = useI18n();
 
 type OpsTab = "console" | "jobs" | "audit" | "sync";
 
@@ -132,7 +134,7 @@ async function ensureOpsDataLoaded() {
 
 async function runConsoleQuery() {
   if (!consoleQuery.value.trim()) {
-    notificationStore.warning("请输入 Ops Console 查询内容");
+    notificationStore.warning(t("opsWorkbench.notifications.consoleQueryRequired"));
     return;
   }
   isRunningConsole.value = true;
@@ -143,7 +145,7 @@ async function runConsoleQuery() {
     );
   } catch (error) {
     console.error(error);
-    notificationStore.error(`Ops Console 查询失败: ${error}`);
+    notificationStore.error(t("opsWorkbench.notifications.consoleQueryFailed", { error }));
   } finally {
     isRunningConsole.value = false;
   }
@@ -165,7 +167,7 @@ function applyTemplate(template: JobTemplate) {
 
 async function createTemplateFromForm() {
   if (!newTemplateName.value.trim() || !batchForm.value.commandText.trim()) {
-    notificationStore.warning("请先填写模板名称和命令");
+    notificationStore.warning(t("opsWorkbench.notifications.templateFieldsRequired"));
     return;
   }
   try {
@@ -180,16 +182,16 @@ async function createTemplateFromForm() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-    notificationStore.success("作业模板已创建");
+    notificationStore.success(t("opsWorkbench.notifications.templateCreated"));
   } catch (error) {
     console.error(error);
-    notificationStore.error(`创建模板失败: ${error}`);
+    notificationStore.error(t("opsWorkbench.notifications.templateCreateFailed", { error }));
   }
 }
 
 async function previewBatch() {
   if (!batchForm.value.commandText.trim()) {
-    notificationStore.warning("请输入要执行的命令");
+    notificationStore.warning(t("opsWorkbench.notifications.commandRequired"));
     return;
   }
   isPreviewingBatch.value = true;
@@ -201,7 +203,7 @@ async function previewBatch() {
     });
   } catch (error) {
     console.error(error);
-    notificationStore.error(`批量预览失败: ${error}`);
+    notificationStore.error(t("opsWorkbench.notifications.batchPreviewFailed", { error }));
   } finally {
     isPreviewingBatch.value = false;
   }
@@ -209,12 +211,14 @@ async function previewBatch() {
 
 async function executeBatch() {
   if (!batchPreview.value) {
-    notificationStore.warning("请先预览批量执行范围");
+    notificationStore.warning(t("opsWorkbench.notifications.batchPreviewRequired"));
     return;
   }
   if (batchPreview.value.requiresConfirmation) {
     const confirmed = window.confirm(
-      `将对 ${batchPreview.value.targetCount} 台资产执行命令，是否继续？`,
+      t("opsWorkbench.notifications.batchExecuteConfirm", {
+        count: batchPreview.value.targetCount,
+      }),
     );
     if (!confirmed) return;
   }
@@ -226,10 +230,10 @@ async function executeBatch() {
       commandText: batchForm.value.commandText.trim(),
       scopeValue: batchForm.value.scopeValue?.trim() || null,
     });
-    notificationStore.success("批量作业执行完成");
+    notificationStore.success(t("opsWorkbench.notifications.batchExecuted"));
   } catch (error) {
     console.error(error);
-    notificationStore.error(`批量执行失败: ${error}`);
+    notificationStore.error(t("opsWorkbench.notifications.batchExecuteFailed", { error }));
   } finally {
     isExecutingBatch.value = false;
   }
@@ -246,7 +250,7 @@ async function searchAudit() {
     );
   } catch (error) {
     console.error(error);
-    notificationStore.error(`审计检索失败: ${error}`);
+    notificationStore.error(t("opsWorkbench.notifications.auditSearchFailed", { error }));
   } finally {
     isSearchingAudit.value = false;
   }
@@ -261,10 +265,10 @@ async function saveSyncService() {
       authToken: syncServiceDraft.value.authToken?.trim() || null,
       metadataJson: syncServiceDraft.value.metadataJson?.trim() || null,
     });
-    notificationStore.success("同步服务配置已保存");
+    notificationStore.success(t("opsWorkbench.notifications.syncServiceSaved"));
   } catch (error) {
     console.error(error);
-    notificationStore.error(`保存同步服务失败: ${error}`);
+    notificationStore.error(t("opsWorkbench.notifications.syncServiceSaveFailed", { error }));
   } finally {
     isSavingSyncService.value = false;
   }
@@ -272,7 +276,7 @@ async function saveSyncService() {
 
 async function markPendingChangesSynced() {
   if (selectedPendingChangeIds.value.length === 0) {
-    notificationStore.info("当前没有待标记为已同步的变更");
+    notificationStore.info(t("opsWorkbench.notifications.noPendingChanges"));
     return;
   }
   isMarkingSynced.value = true;
@@ -281,10 +285,10 @@ async function markPendingChangesSynced() {
       selectedPendingChangeIds.value,
       syncServiceDraft.value.serviceKey,
     );
-    notificationStore.success("已标记最近待同步变更");
+    notificationStore.success(t("opsWorkbench.notifications.pendingChangesMarked"));
   } catch (error) {
     console.error(error);
-    notificationStore.error(`标记同步失败: ${error}`);
+    notificationStore.error(t("opsWorkbench.notifications.pendingChangesMarkFailed", { error }));
   } finally {
     isMarkingSynced.value = false;
   }
@@ -300,9 +304,9 @@ onMounted(async () => {
     <div class="border-b border-border-primary px-4 py-3">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-sm font-semibold text-text-primary">Ops Workbench</div>
+          <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.title') }}</div>
           <div class="mt-1 text-xs text-text-secondary">
-            Global console, jobs, audit trail, and sync readiness in one place
+            {{ t('opsWorkbench.subtitle') }}
           </div>
         </div>
         <button
@@ -310,104 +314,106 @@ onMounted(async () => {
           @click="ensureOpsDataLoaded"
         >
           <RefreshCw class="h-3.5 w-3.5" />
-          <span>Refresh</span>
+          <span>{{ t('common.refresh') }}</span>
         </button>
       </div>
 
       <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
         <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
-          Assets {{ assetStore.assets.length }}
+          {{ t('workbench.assetsCount', { count: assetStore.assets.length }) }}
         </span>
         <span class="rounded-full border border-error/30 bg-error/10 px-2.5 py-1 text-error">
-          Critical {{ criticalAssets.length }}
+          {{ t('workbench.criticalCount', { count: criticalAssets.length }) }}
         </span>
         <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
-          Job Runs {{ assetStore.jobRuns.length }}
+          {{ t('workbench.jobRunsCount', { count: assetStore.jobRuns.length }) }}
         </span>
         <span
           class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary"
         >
-          Pending Sync {{ syncOverview?.pendingChanges ?? 0 }}
+          {{ t('workbench.pendingSyncCount', { count: syncOverview?.pendingChanges ?? 0 }) }}
         </span>
       </div>
     </div>
 
-    <div class="flex h-11 items-center gap-2 border-b border-border-primary px-3">
+    <div class="border-b border-border-primary px-3">
+      <div class="no-scrollbar flex h-11 min-w-0 items-center gap-2 overflow-x-auto">
       <button
-        class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+        class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'console' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'console'"
       >
         <span class="inline-flex items-center gap-2">
           <Bot class="h-4 w-4" />
-          <span>Ops Console</span>
+          <span>{{ t('opsWorkbench.tabs.console') }}</span>
         </span>
       </button>
       <button
-        class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+        class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'jobs' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'jobs'"
       >
         <span class="inline-flex items-center gap-2">
           <Play class="h-4 w-4" />
-          <span>Jobs</span>
+          <span>{{ t('opsWorkbench.tabs.jobs') }}</span>
         </span>
       </button>
       <button
-        class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+        class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'audit' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'audit'"
       >
         <span class="inline-flex items-center gap-2">
           <History class="h-4 w-4" />
-          <span>Audit</span>
+          <span>{{ t('opsWorkbench.tabs.audit') }}</span>
         </span>
       </button>
       <button
-        class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+        class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'sync' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'sync'"
       >
         <span class="inline-flex items-center gap-2">
           <DatabaseZap class="h-4 w-4" />
-          <span>Sync</span>
+          <span>{{ t('opsWorkbench.tabs.sync') }}</span>
         </span>
       </button>
+      </div>
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
       <div v-if="activeTab === 'console'" class="space-y-4">
         <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
-          <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Ops Query</label>
+          <div class="grid gap-3">
+            <div class="min-w-0">
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.console.queryLabel') }}</label>
               <textarea
                 v-model="consoleQuery"
                 rows="3"
                 class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-                placeholder="例如：哪些 prod 标签资产最近磁盘风险高，并给我一个安全执行计划"
+                :placeholder="t('opsWorkbench.console.queryPlaceholder')"
               ></textarea>
             </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Focus Asset</label>
+            <div class="min-w-0">
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.console.focusAssetLabel') }}</label>
               <select
                 v-model="selectedAssetId"
                 class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
               >
-                <option :value="null">Auto match</option>
+                <option :value="null">{{ t('opsWorkbench.console.focusAssetAuto') }}</option>
                 <option v-for="asset in assetStore.assets" :key="asset.id" :value="asset.id">
                   {{ asset.name }}
                 </option>
               </select>
             </div>
-            <div class="flex items-end">
+            <div class="flex justify-end">
               <button
                 class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-accent px-4 text-sm text-white hover:opacity-90"
                 :disabled="isRunningConsole"
                 @click="runConsoleQuery"
               >
                 <Search class="h-4 w-4" />
-                <span>{{ isRunningConsole ? "Running..." : "Analyze" }}</span>
+                <span>{{ isRunningConsole ? t('opsWorkbench.console.runningAction') : t('opsWorkbench.console.runAction') }}</span>
               </button>
             </div>
           </div>
@@ -418,7 +424,7 @@ onMounted(async () => {
           class="space-y-4 rounded-xl border border-border-primary bg-bg-primary p-4"
         >
           <div>
-            <div class="text-sm font-semibold text-text-primary">Summary</div>
+            <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.console.summary') }}</div>
             <div class="mt-2 text-sm leading-6 text-text-secondary">
               {{ consoleAnswer.summary }}
             </div>
@@ -426,20 +432,20 @@ onMounted(async () => {
 
           <div v-if="consoleAnswer.statusExplanation" class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
             <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-              Status Explanation
+              {{ t('opsWorkbench.console.statusExplanation') }}
             </div>
             <div class="mt-2 text-sm text-text-primary">
               {{ consoleAnswer.statusExplanation }}
             </div>
           </div>
 
-          <div class="grid gap-4 xl:grid-cols-2">
+          <div class="grid gap-4">
             <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
               <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                Matched Assets
+                {{ t('opsWorkbench.console.matchedAssets') }}
               </div>
               <div v-if="consoleAnswer.matchedAssets.length === 0" class="mt-3 text-sm text-text-secondary">
-                No assets matched yet.
+                {{ t('opsWorkbench.console.matchedAssetsEmpty') }}
               </div>
               <div v-else class="mt-3 space-y-2">
                 <div
@@ -467,7 +473,7 @@ onMounted(async () => {
 
             <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
               <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                Recommended Checks
+                {{ t('opsWorkbench.console.recommendedChecks') }}
               </div>
               <div class="mt-3 space-y-2">
                 <div
@@ -482,9 +488,9 @@ onMounted(async () => {
           </div>
 
           <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-            <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-              Execution Plan
-            </div>
+              <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                {{ t('opsWorkbench.console.executionPlan') }}
+              </div>
             <div class="mt-3 space-y-3">
               <div
                 v-for="step in consoleAnswer.planSteps"
@@ -502,17 +508,17 @@ onMounted(async () => {
                   {{ step.command }}
                 </div>
                 <div class="mt-2 flex flex-wrap gap-2 text-[11px] text-text-secondary">
-                  <span v-if="step.targetAssetName">Target: {{ step.targetAssetName }}</span>
-                  <span>{{ step.requiresConfirmation ? "Requires confirmation" : "Read-only or safe step" }}</span>
+                    <span v-if="step.targetAssetName">{{ t('opsWorkbench.console.targetAsset', { name: step.targetAssetName }) }}</span>
+                    <span>{{ step.requiresConfirmation ? t('opsWorkbench.console.requiresConfirmation') : t('opsWorkbench.console.safeStep') }}</span>
                 </div>
               </div>
             </div>
           </div>
 
           <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-            <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-              Review Checklist
-            </div>
+              <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                {{ t('opsWorkbench.console.reviewChecklist') }}
+              </div>
             <div class="mt-3 flex flex-col gap-2">
               <div
                 v-for="item in consoleAnswer.reviewChecklist"
@@ -527,18 +533,18 @@ onMounted(async () => {
       </div>
 
       <div v-else-if="activeTab === 'jobs'" class="space-y-4">
-        <div class="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div class="grid gap-4">
           <div class="space-y-4">
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-sm font-semibold text-text-primary">Job Templates</div>
+                  <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.templatesTitle') }}</div>
                   <div class="mt-1 text-xs text-text-secondary">
-                    Reuse safe command packs for single-host or batch operations
+                    {{ t('opsWorkbench.jobs.templatesSubtitle') }}
                   </div>
                 </div>
                 <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-[11px] text-text-secondary">
-                  {{ assetStore.jobTemplates.length }} templates
+                  {{ t('opsWorkbench.jobs.templateCount', { count: assetStore.jobTemplates.length }) }}
                 </span>
               </div>
 
@@ -565,7 +571,7 @@ onMounted(async () => {
             </div>
 
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
-              <div class="text-sm font-semibold text-text-primary">Recent Results Archive</div>
+              <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.archiveTitle') }}</div>
               <div class="mt-3 space-y-2">
                 <div
                   v-for="archive in assetStore.jobArchives.slice(0, 8)"
@@ -587,62 +593,62 @@ onMounted(async () => {
           </div>
 
           <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
-            <div class="text-sm font-semibold text-text-primary">Batch Execution</div>
+            <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.batchExecutionTitle') }}</div>
             <div class="mt-1 text-xs text-text-secondary">
-              Preview by label/environment before execution, then confirm and archive results
+              {{ t('opsWorkbench.jobs.batchExecutionSubtitle') }}
             </div>
 
             <div class="mt-4 grid gap-3">
               <div>
-                <label class="mb-1 block text-xs uppercase text-text-secondary">Template Name</label>
+                <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.templateNameLabel') }}</label>
                 <input
                   v-model="newTemplateName"
                   class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-                  placeholder="例如：Prod disk inspection"
+                  :placeholder="t('opsWorkbench.jobs.templateNamePlaceholder')"
                 />
               </div>
 
               <div>
-                <label class="mb-1 block text-xs uppercase text-text-secondary">Command</label>
+                <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.commandLabel') }}</label>
                 <textarea
                   v-model="batchForm.commandText"
                   rows="3"
                   class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-accent"
-                  placeholder="df -h"
+                  :placeholder="t('opsWorkbench.jobs.commandPlaceholder')"
                 ></textarea>
               </div>
 
-              <div class="grid gap-3 md:grid-cols-3">
-                <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Scope</label>
+              <div class="grid gap-3">
+                <div class="min-w-0">
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.scopeLabel') }}</label>
                   <select
                     v-model="batchForm.scopeType"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   >
-                    <option value="tag">Tag</option>
-                    <option value="environment">Environment</option>
-                    <option value="asset">Asset Query</option>
-                    <option value="all">All Assets</option>
+                    <option value="tag">{{ t('opsWorkbench.jobs.scopeOptions.tag') }}</option>
+                    <option value="environment">{{ t('opsWorkbench.jobs.scopeOptions.environment') }}</option>
+                    <option value="asset">{{ t('opsWorkbench.jobs.scopeOptions.asset') }}</option>
+                    <option value="all">{{ t('opsWorkbench.jobs.scopeOptions.all') }}</option>
                   </select>
                 </div>
-                <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Scope Value</label>
+                <div class="min-w-0">
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.scopeValueLabel') }}</label>
                   <input
                     v-model="batchForm.scopeValue"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-                    placeholder="prod / api / owner"
+                    :placeholder="t('opsWorkbench.jobs.scopeValuePlaceholder')"
                   />
                 </div>
-                <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Risk</label>
+                <div class="min-w-0">
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.riskLabel') }}</label>
                   <select
                     v-model="batchForm.riskLevel"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   >
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                    <option value="critical">critical</option>
+                    <option value="low">{{ t('opsWorkbench.jobs.riskOptions.low') }}</option>
+                    <option value="medium">{{ t('opsWorkbench.jobs.riskOptions.medium') }}</option>
+                    <option value="high">{{ t('opsWorkbench.jobs.riskOptions.high') }}</option>
+                    <option value="critical">{{ t('opsWorkbench.jobs.riskOptions.critical') }}</option>
                   </select>
                 </div>
               </div>
@@ -653,7 +659,7 @@ onMounted(async () => {
                   type="checkbox"
                   class="rounded border-border-primary bg-bg-tertiary text-accent focus:ring-accent"
                 />
-                <span>Template requires confirmation</span>
+                <span>{{ t('opsWorkbench.jobs.requiresConfirmation') }}</span>
               </label>
 
               <div class="flex flex-wrap gap-2">
@@ -662,7 +668,7 @@ onMounted(async () => {
                   @click="createTemplateFromForm"
                 >
                   <ClipboardCheck class="h-4 w-4" />
-                  <span>Save Template</span>
+                  <span>{{ t('opsWorkbench.jobs.saveTemplate') }}</span>
                 </button>
                 <button
                   class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-accent px-4 text-sm text-white hover:opacity-90"
@@ -670,7 +676,7 @@ onMounted(async () => {
                   @click="previewBatch"
                 >
                   <Search class="h-4 w-4" />
-                  <span>{{ isPreviewingBatch ? "Previewing..." : "Preview Scope" }}</span>
+                  <span>{{ isPreviewingBatch ? t('opsWorkbench.jobs.previewingScope') : t('opsWorkbench.jobs.previewScope') }}</span>
                 </button>
                 <button
                   class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-warning px-4 text-sm text-text-primary hover:opacity-90"
@@ -678,16 +684,16 @@ onMounted(async () => {
                   @click="executeBatch"
                 >
                   <Play class="h-4 w-4" />
-                  <span>{{ isExecutingBatch ? "Running..." : "Execute Batch" }}</span>
+                  <span>{{ isExecutingBatch ? t('opsWorkbench.jobs.executingBatch') : t('opsWorkbench.jobs.executeBatch') }}</span>
                 </button>
               </div>
             </div>
 
             <div v-if="batchPreview" class="mt-5 rounded-xl border border-border-primary bg-bg-secondary p-4">
               <div class="flex items-center justify-between gap-3">
-                <div class="text-sm font-semibold text-text-primary">Batch Preview</div>
+                <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.batchPreviewTitle') }}</div>
                 <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary">
-                  {{ batchPreview.targetCount }} target(s)
+                  {{ t('opsWorkbench.jobs.batchPreviewTargets', { count: batchPreview.targetCount }) }}
                 </span>
               </div>
               <div class="mt-3 space-y-2">
@@ -707,8 +713,8 @@ onMounted(async () => {
                   </div>
                   <div class="mt-2 flex flex-wrap gap-2 text-[11px] text-text-secondary">
                     <span>{{ target.matchReason }}</span>
-                    <span v-if="target.environmentName">Env: {{ target.environmentName }}</span>
-                    <span v-if="target.labels.length > 0">Labels: {{ target.labels.join(", ") }}</span>
+                    <span v-if="target.environmentName">{{ t('opsWorkbench.jobs.environment', { name: target.environmentName }) }}</span>
+                    <span v-if="target.labels.length > 0">{{ t('opsWorkbench.jobs.labels', { labels: target.labels.join(", ") }) }}</span>
                   </div>
                 </div>
               </div>
@@ -725,9 +731,9 @@ onMounted(async () => {
 
             <div v-if="batchResult" class="mt-5 rounded-xl border border-border-primary bg-bg-secondary p-4">
               <div class="flex items-center justify-between gap-3">
-                <div class="text-sm font-semibold text-text-primary">Execution Review</div>
+                <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.executionReviewTitle') }}</div>
                 <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary">
-                  Success {{ batchResult.completed }} / Failed {{ batchResult.failed }}
+                  {{ t('opsWorkbench.jobs.executionReviewSummary', { completed: batchResult.completed, failed: batchResult.failed }) }}
                 </span>
               </div>
               <div class="mt-3 space-y-2">
@@ -740,7 +746,7 @@ onMounted(async () => {
                     <div class="min-w-0">
                       <div class="truncate text-sm text-text-primary">{{ item.assetName }}</div>
                       <div class="mt-1 text-[11px] text-text-secondary">
-                        {{ item.usedExistingSession ? "Reused existing session" : "Temporary session created" }}
+                        {{ item.usedExistingSession ? t('opsWorkbench.jobs.existingSession') : t('opsWorkbench.jobs.temporarySession') }}
                       </div>
                     </div>
                     <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="riskClass(item.riskLevel)">
@@ -758,47 +764,47 @@ onMounted(async () => {
 
       <div v-else-if="activeTab === 'audit'" class="space-y-4">
         <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
-          <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Search Audit</label>
+          <div class="grid gap-3">
+            <div class="min-w-0">
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.audit.searchLabel') }}</label>
               <input
                 v-model="auditQuery"
                 class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-                placeholder="事件、细节、metadata"
+                :placeholder="t('opsWorkbench.audit.searchPlaceholder')"
               />
             </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Severity</label>
+            <div class="min-w-0">
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.audit.severityLabel') }}</label>
               <select
                 v-model="auditSeverity"
                 class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
               >
-                <option value="">All</option>
-                <option value="info">info</option>
-                <option value="warning">warning</option>
-                <option value="error">error</option>
+                <option value="">{{ t('opsWorkbench.audit.severityOptions.all') }}</option>
+                <option value="info">{{ t('opsWorkbench.audit.severityOptions.info') }}</option>
+                <option value="warning">{{ t('opsWorkbench.audit.severityOptions.warning') }}</option>
+                <option value="error">{{ t('opsWorkbench.audit.severityOptions.error') }}</option>
               </select>
             </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Asset Filter</label>
+            <div class="min-w-0">
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.audit.assetFilterLabel') }}</label>
               <select
                 v-model="selectedAssetId"
                 class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
               >
-                <option :value="null">All assets</option>
+                <option :value="null">{{ t('opsWorkbench.audit.assetFilterAll') }}</option>
                 <option v-for="asset in assetStore.assets" :key="asset.id" :value="asset.id">
                   {{ asset.name }}
                 </option>
               </select>
             </div>
-            <div class="flex items-end">
+            <div class="flex justify-end">
               <button
                 class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-accent px-4 text-sm text-white hover:opacity-90"
                 :disabled="isSearchingAudit"
                 @click="searchAudit"
               >
                 <Search class="h-4 w-4" />
-                <span>{{ isSearchingAudit ? "Searching..." : "Search" }}</span>
+                <span>{{ isSearchingAudit ? t('opsWorkbench.audit.searchingAction') : t('opsWorkbench.audit.searchAction') }}</span>
               </button>
             </div>
           </div>
@@ -830,14 +836,14 @@ onMounted(async () => {
       </div>
 
       <div v-else class="space-y-4">
-        <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.9fr)]">
+        <div class="grid gap-4">
           <div class="space-y-4">
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-sm font-semibold text-text-primary">Sync Overview</div>
+                  <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.sync.overviewTitle') }}</div>
                   <div class="mt-1 text-xs text-text-secondary">
-                    Local-first protocol status, object versions, and recent change log
+                    {{ t('opsWorkbench.sync.overviewSubtitle') }}
                   </div>
                 </div>
                 <span class="rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-[11px] text-text-secondary">
@@ -845,21 +851,21 @@ onMounted(async () => {
                 </span>
               </div>
 
-              <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div class="mt-4 grid gap-3">
                 <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-                  <div class="text-xs text-text-secondary">State</div>
+                  <div class="text-xs text-text-secondary">{{ t('opsWorkbench.sync.stateLabel') }}</div>
                   <div class="mt-1 text-sm font-medium text-text-primary">{{ syncOverview?.state.status || "idle" }}</div>
                 </div>
                 <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-                  <div class="text-xs text-text-secondary">Pending</div>
+                  <div class="text-xs text-text-secondary">{{ t('opsWorkbench.sync.pendingLabel') }}</div>
                   <div class="mt-1 text-sm font-medium text-text-primary">{{ syncOverview?.pendingChanges || 0 }}</div>
                 </div>
                 <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-                  <div class="text-xs text-text-secondary">Total Changes</div>
+                  <div class="text-xs text-text-secondary">{{ t('opsWorkbench.sync.totalChangesLabel') }}</div>
                   <div class="mt-1 text-sm font-medium text-text-primary">{{ syncOverview?.totalChanges || 0 }}</div>
                 </div>
                 <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-                  <div class="text-xs text-text-secondary">Last Change</div>
+                  <div class="text-xs text-text-secondary">{{ t('opsWorkbench.sync.lastChangeLabel') }}</div>
                   <div class="mt-1 text-sm font-medium text-text-primary">{{ formatDateTime(syncOverview?.lastChangeAt) }}</div>
                 </div>
               </div>
@@ -868,7 +874,7 @@ onMounted(async () => {
                 <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
                   Object Versions
                 </div>
-                <div class="mt-3 grid gap-2 md:grid-cols-2">
+                <div class="mt-3 grid gap-2">
                   <div
                     v-for="item in syncOverview?.objectVersionSummary || []"
                     :key="item.objectType"
@@ -925,28 +931,28 @@ onMounted(async () => {
 
           <div class="space-y-4">
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
-              <div class="text-sm font-semibold text-text-primary">Sync Service Adapter</div>
+              <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.sync.serviceAdapterTitle') }}</div>
               <div class="mt-1 text-xs text-text-secondary">
-                Configurable central service interface for future push/pull integration
+                {{ t('opsWorkbench.sync.serviceAdapterSubtitle') }}
               </div>
 
               <div class="mt-4 grid gap-3">
                 <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Service Key</label>
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.sync.serviceKeyLabel') }}</label>
                   <input
                     v-model="syncServiceDraft.serviceKey"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   />
                 </div>
                 <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Display Name</label>
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.sync.displayNameLabel') }}</label>
                   <input
                     v-model="syncServiceDraft.displayName"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   />
                 </div>
                 <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Base URL</label>
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.sync.baseUrlLabel') }}</label>
                   <input
                     v-model="syncServiceDraft.baseUrl"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
@@ -954,30 +960,30 @@ onMounted(async () => {
                   />
                 </div>
                 <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Auth Mode</label>
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.sync.authModeLabel') }}</label>
                   <select
                     v-model="syncServiceDraft.authMode"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   >
-                    <option value="none">none</option>
-                    <option value="token">token</option>
+                    <option value="none">{{ t('opsWorkbench.sync.authModeOptions.none') }}</option>
+                    <option value="token">{{ t('opsWorkbench.sync.authModeOptions.token') }}</option>
                   </select>
                 </div>
                 <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Auth Token</label>
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.sync.authTokenLabel') }}</label>
                   <input
                     v-model="syncServiceDraft.authToken"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-                    placeholder="Optional"
+                    :placeholder="t('opsWorkbench.sync.authTokenPlaceholder')"
                   />
                 </div>
                 <div>
-                  <label class="mb-1 block text-xs uppercase text-text-secondary">Metadata JSON</label>
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.sync.metadataJsonLabel') }}</label>
                   <textarea
                     v-model="syncServiceDraft.metadataJson"
                     rows="3"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-accent"
-                    placeholder='{"supportsPush":true,"supportsPull":true}'
+                    :placeholder="t('opsWorkbench.sync.metadataJsonPlaceholder')"
                   ></textarea>
                 </div>
                 <label class="inline-flex items-center gap-2 text-sm text-text-secondary">
@@ -986,7 +992,7 @@ onMounted(async () => {
                     type="checkbox"
                     class="rounded border-border-primary bg-bg-tertiary text-accent focus:ring-accent"
                   />
-                  <span>Adapter enabled</span>
+                  <span>{{ t('opsWorkbench.sync.adapterEnabled') }}</span>
                 </label>
                 <button
                   class="inline-flex h-10 items-center justify-center gap-2 rounded border border-border-primary bg-accent px-4 text-sm text-white hover:opacity-90"
@@ -994,13 +1000,13 @@ onMounted(async () => {
                   @click="saveSyncService"
                 >
                   <UploadCloud class="h-4 w-4" />
-                  <span>{{ isSavingSyncService ? "Saving..." : "Save Adapter" }}</span>
+                  <span>{{ isSavingSyncService ? t('opsWorkbench.sync.savingAdapter') : t('opsWorkbench.sync.saveAdapter') }}</span>
                 </button>
               </div>
             </div>
 
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
-              <div class="text-sm font-semibold text-text-primary">Registered Services</div>
+              <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.sync.registeredServicesTitle') }}</div>
               <div class="mt-3 space-y-2">
                 <div
                   v-for="service in syncServices"

@@ -1,0 +1,488 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "refresh": "Refresh",
+    "search": "Search",
+    "confirm": "Confirm",
+    "none": "None",
+    "unknown": "Unknown",
+    "optional": "Optional",
+    "loading": "Loading...",
+    "running": "Running...",
+    "saving": "Saving...",
+    "updating": "Updating...",
+    "analyze": "Analyze",
+    "all": "All"
+  },
+  "dialogs": {
+    "yes": "Yes",
+    "no": "No"
+  },
+  "errors": {
+    "networkError": "Network error",
+    "permissionDenied": "Permission denied",
+    "notFound": "File or directory not found",
+    "sessionError": "Session error",
+    "timeout": "Operation timed out",
+    "unknownError": "Unknown error"
+  },
+  "app": {
+    "assetSaveFailed": "Failed to save asset. Please check the logs."
+  },
+  "workbench": {
+    "assetsCount": "Assets {count}",
+    "criticalCount": "Critical {count}",
+    "jobRunsCount": "Job Runs {count}",
+    "pendingSyncCount": "Pending Sync {count}"
+  },
+  "opsWorkbench": {
+    "title": "Ops Workbench",
+    "subtitle": "Keep the global console, jobs, audit, and sync status in one place.",
+    "tabs": {
+      "console": "Ops Console",
+      "jobs": "Jobs",
+      "audit": "Audit",
+      "sync": "Sync"
+    },
+    "console": {
+      "queryLabel": "Ops Query",
+      "queryPlaceholder": "Example: which prod-tagged assets recently showed high disk risk, and give me a safe execution plan",
+      "focusAssetLabel": "Focus Asset",
+      "focusAssetAuto": "Auto match",
+      "runAction": "Analyze",
+      "runningAction": "Running...",
+      "summary": "Summary",
+      "statusExplanation": "Status Explanation",
+      "matchedAssets": "Matched Assets",
+      "matchedAssetsEmpty": "No assets matched yet.",
+      "recommendedChecks": "Recommended Checks",
+      "executionPlan": "Execution Plan",
+      "reviewChecklist": "Review Checklist",
+      "targetAsset": "Target: {name}",
+      "requiresConfirmation": "Requires confirmation",
+      "safeStep": "Read-only or safe step"
+    },
+    "jobs": {
+      "templatesTitle": "Job Templates",
+      "templatesSubtitle": "Reuse safe command packs for single-host or batch execution.",
+      "templateCount": "{count} templates",
+      "archiveTitle": "Recent Results Archive",
+      "batchExecutionTitle": "Batch Execution",
+      "batchExecutionSubtitle": "Preview by label or environment before execution, then confirm and archive results.",
+      "templateNameLabel": "Template Name",
+      "templateNamePlaceholder": "Example: Prod disk inspection",
+      "commandLabel": "Command",
+      "commandPlaceholder": "df -h",
+      "scopeLabel": "Scope",
+      "scopeOptions": {
+        "tag": "Tag",
+        "environment": "Environment",
+        "asset": "Asset Query",
+        "all": "All Assets"
+      },
+      "scopeValueLabel": "Scope Value",
+      "scopeValuePlaceholder": "prod / api / owner",
+      "riskLabel": "Risk",
+      "riskOptions": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "critical": "Critical"
+      },
+      "requiresConfirmation": "Template requires confirmation",
+      "saveTemplate": "Save Template",
+      "previewScope": "Preview Scope",
+      "previewingScope": "Previewing...",
+      "executeBatch": "Execute Batch",
+      "executingBatch": "Running...",
+      "batchPreviewTitle": "Batch Preview",
+      "batchPreviewTargets": "{count} target(s)",
+      "environment": "Env: {name}",
+      "labels": "Labels: {labels}",
+      "executionReviewTitle": "Execution Review",
+      "executionReviewSummary": "Success {completed} / Failed {failed}",
+      "existingSession": "Reused existing session",
+      "temporarySession": "Temporary session created"
+    },
+    "audit": {
+      "searchLabel": "Search Audit",
+      "searchPlaceholder": "event, details, metadata",
+      "severityLabel": "Severity",
+      "severityOptions": {
+        "all": "All",
+        "info": "Info",
+        "warning": "Warning",
+        "error": "Error"
+      },
+      "assetFilterLabel": "Asset Filter",
+      "assetFilterAll": "All assets",
+      "searchAction": "Search",
+      "searchingAction": "Searching..."
+    },
+    "sync": {
+      "overviewTitle": "Sync Overview",
+      "overviewSubtitle": "Review local-first protocol status, object versions, and recent changes.",
+      "stateLabel": "State",
+      "pendingLabel": "Pending",
+      "totalChangesLabel": "Total Changes",
+      "lastChangeLabel": "Last Change",
+      "objectVersionsTitle": "Object Versions",
+      "objectVersionsSummary": "{count} object(s) · max version {maxVersion}",
+      "recentChangeLogTitle": "Recent Change Log",
+      "markRecentPending": "Mark Recent Pending as Synced",
+      "markRecentPendingUpdating": "Updating...",
+      "serviceAdapterTitle": "Sync Service Adapter",
+      "serviceAdapterSubtitle": "A configurable central service interface for future push/pull integration.",
+      "serviceKeyLabel": "Service Key",
+      "displayNameLabel": "Display Name",
+      "baseUrlLabel": "Base URL",
+      "authModeLabel": "Auth Mode",
+      "authModeOptions": {
+        "none": "None",
+        "token": "Token"
+      },
+      "authTokenLabel": "Auth Token",
+      "authTokenPlaceholder": "Optional",
+      "metadataJsonLabel": "Metadata JSON",
+      "metadataJsonPlaceholder": "{\"supportsPush\":true,\"supportsPull\":true}",
+      "adapterEnabled": "Adapter enabled",
+      "saveAdapter": "Save Adapter",
+      "savingAdapter": "Saving...",
+      "registeredServicesTitle": "Registered Services",
+      "serviceEnabled": "enabled",
+      "serviceDisabled": "disabled",
+      "serviceNoEndpoint": "No remote endpoint configured"
+    },
+    "notifications": {
+      "consoleQueryRequired": "Please enter an Ops Console query.",
+      "consoleQueryFailed": "Ops Console query failed: {error}",
+      "templateFieldsRequired": "Please fill in the template name and command first.",
+      "templateCreated": "Job template created.",
+      "templateCreateFailed": "Failed to create template: {error}",
+      "commandRequired": "Please enter a command to execute.",
+      "batchPreviewFailed": "Batch preview failed: {error}",
+      "batchPreviewRequired": "Please preview the batch scope first.",
+      "batchExecuteConfirm": "This will run the command on {count} assets. Continue?",
+      "batchExecuted": "Batch job execution completed.",
+      "batchExecuteFailed": "Batch execution failed: {error}",
+      "auditSearchFailed": "Audit search failed: {error}",
+      "syncServiceSaved": "Sync service configuration saved.",
+      "syncServiceSaveFailed": "Failed to save sync service: {error}",
+      "noPendingChanges": "There are no pending changes to mark as synced.",
+      "pendingChangesMarked": "Recent pending changes marked as synced.",
+      "pendingChangesMarkFailed": "Failed to mark sync changes: {error}"
+    }
+  },
+  "assetCenter": {
+    "title": "Asset Center",
+    "subtitle": "Host assets, environments, tags, favorites, and saved views",
+    "newFolderTitle": "New Folder",
+    "newFolderPrompt": "Enter the asset folder name",
+    "renameFolderPrompt": "Rename asset folder",
+    "deleteFolderConfirm": "Delete folder \"{name}\"?",
+    "deleteAssetConfirm": "Delete asset \"{name}\"?",
+    "assetDeleted": "Deleted asset {name}",
+    "newAsset": "New Asset",
+    "searchPlaceholder": "Search by host, owner, label, or environment",
+    "stats": {
+      "assets": "Assets {count}",
+      "folders": "Folders {count}",
+      "environments": "Environments {count}",
+      "activeSessions": "Active Sessions {count}",
+      "environmentsLabel": "Environments",
+      "tagsLabel": "Tags",
+      "savedViews": "Saved Views",
+      "criticalAssets": "Critical Assets"
+    },
+    "empty": {
+      "title": "No assets yet",
+      "description": "Create your first host asset to start using the ops workspace.",
+      "createAsset": "Create first asset",
+      "createFolder": "Create folder"
+    },
+    "searchEmpty": {
+      "title": "No matching assets",
+      "description": "Try another hostname, label, environment, or owner."
+    },
+    "favorites": "Favorites",
+    "recentAccess": "Recent Access",
+    "showMore": "Show More",
+    "showLess": "Show Less",
+    "filters": {
+      "all": "All",
+      "success": "Success",
+      "failed": "Failed"
+    },
+    "historyEmpty": "No access history yet",
+    "source": {
+      "favorite": "Favorite",
+      "history": "History",
+      "quick": "Quick",
+      "search": "Search",
+      "tree": "Tree"
+    },
+    "directoryTitle": "Asset Directory",
+    "directoryHint": "Use folders to organize host assets and access paths.",
+    "detailTitle": "Asset Detail",
+    "detailEmptyTitle": "Select an asset",
+    "detailEmptyDescription": "Review terminal, workspace, audit, and quick actions here.",
+    "fields": {
+      "environment": "Environment",
+      "risk": "Risk",
+      "workspace": "Workspace",
+      "defaultEndpoint": "Default Endpoint",
+      "recentAudit": "Recent Audit",
+      "owner": "Owner: {owner}",
+      "environmentValue": "Env: {environment}",
+      "unassigned": "Unassigned",
+      "noWorkspace": "No default workspace configured",
+      "noEndpoint": "No access endpoint configured",
+      "jumpVia": "Jump via {username}@{host}:{port}",
+      "noRecentAudit": "No recent audit events"
+    },
+    "actions": {
+      "openTerminal": "Open Terminal",
+      "openFiles": "Open Files",
+      "manageTunnels": "Manage Tunnels"
+    }
+  },
+  "connectionModal": {
+    "newTitle": "New Asset",
+    "editTitle": "Edit Asset",
+    "sections": {
+      "assetInfo": "Asset Info",
+      "defaultAccessEndpoint": "Default Access Endpoint"
+    },
+    "labels": {
+      "name": "Name",
+      "host": "Host",
+      "port": "Port",
+      "platform": "Platform",
+      "criticality": "Criticality",
+      "folder": "Folder",
+      "environment": "Environment",
+      "owner": "Owner",
+      "labels": "Labels",
+      "defaultWorkspace": "Default Workspace",
+      "bastionChainId": "Bastion Chain ID",
+      "healthSummary": "Health Summary",
+      "endpointUsername": "Endpoint Username",
+      "accessMethod": "Access Method",
+      "password": "Password",
+      "sshKey": "SSH Key",
+      "jumpHost": "Jump Host",
+      "jumpPort": "Jump Port",
+      "jumpUsername": "Jump Username"
+    },
+    "platformOptions": {
+      "linux": "Linux",
+      "windows": "Windows",
+      "macos": "macOS"
+    },
+    "criticalityOptions": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "noneOption": "None",
+    "selectKey": "Select a key",
+    "actions": {
+      "testConnection": "Test Connection"
+    },
+    "placeholders": {
+      "name": "Production API Node",
+      "host": "192.168.1.10",
+      "port": "22",
+      "owner": "platform-oncall",
+      "labels": "prod, api, shanghai",
+      "defaultWorkspace": "/srv/app/current",
+      "bastionChainId": "prod-bastion-chain",
+      "healthSummary": "Healthy, last checked 5m ago",
+      "endpointUsername": "root",
+      "password": "••••••",
+      "jumpHost": "jump.example.com",
+      "jumpUsername": "jumpuser"
+    },
+    "testResult": {
+      "hostRequired": "Host and endpoint username are required.",
+      "passwordRequired": "Password authentication requires a password.",
+      "sshKeyRequired": "Key authentication requires an SSH key.",
+      "success": "Connection successful!",
+      "failed": "Connection failed"
+    }
+  },
+  "tunnels": {
+    "reset": "Reset",
+    "emptyState": "No tunnels",
+    "startFailed": "Failed to start tunnel",
+    "stopFailed": "Failed to stop tunnel",
+    "saveFailed": "Failed to save tunnel",
+    "deleteFailed": "Failed to delete tunnel",
+    "editTitle": "Edit Tunnel",
+    "placeholderName": "My Tunnel",
+    "tooltipEdit": "Edit",
+    "tooltipDelete": "Delete"
+  },
+  "transferList": {
+    "summary": {
+      "running": "{count} running",
+      "failed": "{count} failed",
+      "items": "{count} items",
+      "hidden": " ({count} hidden)"
+    },
+    "actions": {
+      "batchPause": "Batch Pause",
+      "batchResume": "Batch Resume",
+      "batchCancel": "Batch Cancel",
+      "batchDelete": "Batch Delete",
+      "clearCompleted": "Clear Completed"
+    },
+    "directoryProgress": "{completed}/{total} files"
+  },
+  "terminalTabArea": {
+    "terminalTab": "Terminal",
+    "closeAllEditors": "Close All Editors"
+  },
+  "fileEditor": {
+    "modified": "Modified",
+    "save": "Save",
+    "notifications": {
+      "loadFailed": "Failed to load file: {error}",
+      "saveSuccess": "File saved successfully",
+      "saveFailed": "Failed to save file: {error}",
+      "initFailed": "Failed to initialize editor: {error}"
+    },
+    "unsaved": {
+      "title": "Unsaved Changes",
+      "description": "Do you want to save the changes to \"{name}\" before closing?",
+      "discard": "Don't Save",
+      "cancel": "Cancel",
+      "saveAndClose": "Save & Close"
+    }
+  },
+  "terminal": {
+    "aiSystemPrompt": "You are a Linux expert. The user will provide a Linux command. Return 3 to 5 possible completions. You must respond with a JSON array only, for example: [\"ls -la\", \"ls -lh\"]. Do not return anything else."
+  },
+  "fileManager": {
+    "parentDirectory": "Go to parent directory",
+    "status": {
+      "openingFile": "Opening..."
+    },
+    "workspace": {
+      "setAction": "Set as AI Workspace",
+      "setSuccess": "Workspace set to: {path}",
+      "setFailed": "Failed to set workspace: {error}"
+    },
+    "dialogs": {
+      "uploadFilesTitle": "Select file(s) to upload",
+      "uploadDirectoryTitle": "Select directory to upload",
+      "batchDownloadTitle": "Select download directory for batch download",
+      "downloadDirectoryTitle": "Select directory to save folder",
+      "saveFileAsTitle": "Save file as",
+      "changePermissionsPrompt": "Enter new permissions (e.g. 755, u+x):"
+    },
+    "notifications": {
+      "processDroppedItemFailed": "Failed to process {name}: {error}",
+      "uploadFailed": "Upload failed: {error}",
+      "uploadDirectoryFailed": "Upload directory failed: {error}",
+      "downloadFailed": "Download failed: {error}",
+      "changePermissionsFailed": "Failed to change permissions: {error}",
+      "deleteFailed": "Delete failed: {error}",
+      "treeLoadFailed": "Failed to load tree directory: {error}",
+      "directoryLoadFailed": "Failed to load directory: {error}",
+      "setWorkspaceFailed": "Failed to set workspace: {error}",
+      "processFileFailed": "Failed to process {name}: {error}"
+    }
+  },
+  "settings": {
+    "reconnectTitle": "Smart Reconnection Settings",
+    "reconnectEnabled": "Enable Auto Reconnect with Exponential Backoff",
+    "reconnectHint": "When enabled, failed connections will be retried with increasing delays. Permanent errors such as auth failures will not be retried.",
+    "reconnectMaxAttempts": "Max Reconnect Attempts",
+    "reconnectMaxAttemptsDesc": "Maximum number of reconnection attempts (default: 5)",
+    "reconnectInitialDelay": "Initial Delay (ms)",
+    "reconnectInitialDelayDesc": "Initial delay before the first retry (default: 1000ms)",
+    "reconnectMaxDelay": "Max Delay (ms)",
+    "reconnectMaxDelayDesc": "Maximum delay allowed between retries (default: 30000ms)",
+    "reconnectBackoffMultiplier": "Backoff Multiplier",
+    "reconnectBackoffMultiplierDesc": "Exponential backoff multiplier: delay = min(initial * multiplier^attempt, maxDelay) (default: 2.0)",
+    "heartbeatTitle": "Heartbeat Settings",
+    "heartbeatHint": "Layered heartbeat detection: TCP (fastest) -> SSH (middle) -> Application (most reliable). The system escalates actions based on failure count.",
+    "heartbeatTcpInterval": "TCP Keepalive Interval (seconds)",
+    "heartbeatTcpIntervalDesc": "TCP-level keepalive interval (default: 60s)",
+    "heartbeatSshInterval": "SSH Keepalive Interval (seconds)",
+    "heartbeatSshIntervalDesc": "SSH-level keepalive packet interval (default: 15s)",
+    "heartbeatAppInterval": "App Heartbeat Interval (seconds)",
+    "heartbeatAppIntervalDesc": "Application-level heartbeat interval by running the `echo` command (default: 30s)",
+    "heartbeatTimeout": "Heartbeat Timeout (seconds)",
+    "heartbeatTimeoutDesc": "Timeout for each heartbeat check (default: 5s)",
+    "heartbeatFailedBeforeAction": "Failed Heartbeats Before Action",
+    "heartbeatFailedBeforeActionDesc": "How many consecutive failures trigger reconnection (default: 3). Action order: SendKeepalive -> BackgroundReconnect -> NotifyUser -> ForceReconnect",
+    "poolHealthTitle": "Pool Health Check Settings",
+    "poolHealthHint": "The connection pool runs periodic health checks, warms up sessions, and automatically rebuilds unhealthy sessions. Scoring considers session age, failure count, and idle time.",
+    "poolHealthInterval": "Health Check Interval (seconds)",
+    "poolHealthIntervalDesc": "Pool health check interval (default: 60s)",
+    "poolHealthWarmupCount": "Session Warmup Count",
+    "poolHealthWarmupCountDesc": "Number of warmed background sessions (default: 1)",
+    "poolHealthMaxSessionAge": "Max Session Age (minutes)",
+    "poolHealthMaxSessionAgeDesc": "Sessions older than this are rotated (default: 60 minutes)",
+    "poolHealthUnhealthyThreshold": "Unhealthy Threshold",
+    "poolHealthUnhealthyThresholdDesc": "How many consecutive failures mark a session unhealthy (default: 3), after which it will be rebuilt automatically",
+    "networkAdaptiveTitle": "Network Adaptive Settings",
+    "networkAdaptiveHint": "Automatically adjust heartbeat interval, SFTP buffer size, and command timeout based on network conditions.",
+    "networkAdaptiveEnabled": "Enable Network Adaptive Mode",
+    "networkAdaptiveProfileHint": "When enabled, the system measures network latency and adjusts parameters automatically:\n- Excellent (<50ms): heartbeat 10s, SFTP 1MB, timeout 60s\n- Good (50-150ms): heartbeat 15s, SFTP 512KB, timeout 30s\n- Fair (150-300ms): heartbeat 20s, SFTP 256KB, timeout 45s\n- Poor (>300ms): heartbeat 30s, SFTP 64KB, timeout 120s",
+    "networkAdaptiveLatencyInterval": "Latency Check Interval (seconds)",
+    "networkAdaptiveLatencyIntervalDesc": "Network latency measurement interval (default: 30s)",
+    "networkAdaptiveHighLatencyThreshold": "High Latency Threshold (ms)",
+    "networkAdaptiveHighLatencyThresholdDesc": "Latency above this is considered high latency (default: 300ms)",
+    "networkAdaptiveLowBandwidthThreshold": "Low Bandwidth Threshold (KB/s)",
+    "networkAdaptiveLowBandwidthThresholdDesc": "Bandwidth below this is considered low bandwidth (default: 100 KB/s)",
+    "deleteKeyConfirm": "Are you sure you want to delete this SSH key?"
+  },
+  "aiAssistant": {
+    "actions": {
+      "cancelEdit": "Cancel edit",
+      "saveAndResend": "Save and resend",
+      "editAndResend": "Edit and resend",
+      "send": "Send",
+      "stop": "Stop"
+    },
+    "inputPlaceholder": "Ask AI to help...",
+    "warning": "AI can execute commands. Exercise caution.",
+    "copyMessage": "Copy Markdown",
+    "messages": {
+      "requestStopped": "Request stopped by user.",
+      "dangerousCommandConfirm": "DANGEROUS COMMAND DETECTED!\n\nAre you sure you want to execute:\n\n{command}",
+      "commandExecutionCancelled": "Command execution cancelled by user.",
+      "noOutput": "(No output)",
+      "emptyFile": "(Empty file or no data)",
+      "readFileError": "Error reading file: {error}",
+      "writeFileConfirm": "This action will write to {path} on the remote host.\n\nDo you want to continue?",
+      "writeFileCancelledAuditTitle": "AI write file cancelled",
+      "writeFileCancelled": "Write to {path} cancelled by user.",
+      "writeFileCompleted": "Write to {path} completed (mode={mode}).",
+      "writeFileError": "Error writing file: {error}",
+      "searchFilesNoMatches": "(No matches)",
+      "searchFilesError": "Error searching files: {error}",
+      "commandCopied": "Command copied to clipboard",
+      "commandCopyFailed": "Failed to copy command: {error}",
+      "messageCopied": "Markdown copied to clipboard",
+      "messageCopyFailed": "Failed to copy Markdown: {error}",
+      "genericError": "Error: {error}"
+    }
+  },
+  "connections": {
+    "contextMenu": {
+      "newSubGroupTitle": "New Subgroup"
+    },
+    "tree": {
+      "emptyGroup": "(Empty)"
+    }
+  }
+}

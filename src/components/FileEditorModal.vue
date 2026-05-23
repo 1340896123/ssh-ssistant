@@ -4,6 +4,7 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { X, Save, Loader2 } from "lucide-vue-next";
 import { useNotificationStore } from "../stores/notifications";
+import { useI18n } from "../composables/useI18n";
 
 const props = defineProps<{
   show: boolean;
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 const editorContainer = ref<HTMLElement | null>(null);
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 const notificationStore = useNotificationStore();
+const { t } = useI18n();
 const isLoading = ref(false);
 const isSaving = ref(false);
 const originalContent = ref("");
@@ -242,7 +244,7 @@ async function loadFile() {
     }
   } catch (e) {
     console.error('Failed to load file:', e);
-    notificationStore.error(`Failed to load file: ${e}`);
+    notificationStore.error(t("fileEditor.notifications.loadFailed", { error: e }));
     emit("close");
   } finally {
     isLoading.value = false;
@@ -272,10 +274,10 @@ async function saveFile() {
       isDirty: false
     });
 
-    notificationStore.success("File saved successfully");
+    notificationStore.success(t("fileEditor.notifications.saveSuccess"));
     emit("save");
   } catch (e) {
-    notificationStore.error(`Failed to save file: ${e}`);
+    notificationStore.error(t("fileEditor.notifications.saveFailed", { error: e }));
   } finally {
     isSaving.value = false;
   }
@@ -324,7 +326,7 @@ async function initEditor() {
     console.log('Editor initialized successfully');
   } catch (e) {
     console.error('Failed to initialize editor:', e);
-    notificationStore.error(`Failed to initialize editor: ${e}`);
+    notificationStore.error(t("fileEditor.notifications.initFailed", { error: e }));
   }
 }
 
@@ -432,12 +434,12 @@ defineExpose({
 </script>
 
 <template>
-  <div v-if="show" class="h-full w-full flex flex-col bg-bg-primary text-text-primary">
+  <div v-if="show" class="flex h-full w-full min-h-0 flex-col bg-bg-primary text-text-primary">
     <!-- Header -->
     <div class="h-12 border-b border-border-primary flex items-center justify-between px-4 bg-bg-secondary flex-shrink-0">
       <div class="flex items-center space-x-4">
         <span class="font-bold text-sm text-text-primary">{{ fileName }}</span>
-        <span v-if="isDirty" class="text-xs text-warning italic">(Modified)</span>
+        <span v-if="isDirty" class="text-xs text-warning italic">({{ t('fileEditor.modified') }})</span>
         <span class="text-xs text-text-muted">{{ filePath }}</span>
       </div>
       <div class="flex items-center space-x-2">
@@ -452,7 +454,7 @@ defineExpose({
           class="flex items-center px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-white">
           <Loader2 v-if="isSaving" class="w-4 h-4 mr-2 animate-spin" />
           <Save v-else class="w-4 h-4 mr-2" />
-          Save
+          {{ t('fileEditor.save') }}
         </button>
         <button @click="handleClose"
           class="p-1.5 hover:bg-bg-tertiary rounded text-text-muted hover:text-text-primary transition-colors">
@@ -462,7 +464,7 @@ defineExpose({
     </div>
 
     <!-- Editor Body -->
-    <div class="flex-1 relative overflow-hidden">
+    <div class="relative min-h-0 flex-1 overflow-hidden">
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-bg-primary z-10">
         <Loader2 class="w-8 h-8 text-accent animate-spin" />
       </div>
@@ -472,23 +474,23 @@ defineExpose({
     <!-- Confirmation Dialog -->
     <div v-if="showConfirmDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div class="bg-bg-elevated text-text-primary rounded-lg p-6 max-w-md mx-4">
-        <h3 class="text-lg font-semibold mb-4">Unsaved Changes</h3>
+        <h3 class="text-lg font-semibold mb-4">{{ t('fileEditor.unsaved.title') }}</h3>
         <p class="text-text-secondary mb-6">
-          Do you want to save the changes to "{{ fileName }}" before closing?
+          {{ t('fileEditor.unsaved.description', { name: fileName }) }}
         </p>
         <div class="flex justify-end space-x-3">
           <button @click="confirmCloseWithoutSave"
             class="px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-tertiary/80 rounded transition-colors">
-            Don't Save
+            {{ t('fileEditor.unsaved.discard') }}
           </button>
           <button @click="cancelClose"
             class="px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-tertiary/80 rounded transition-colors">
-            Cancel
+            {{ t('fileEditor.unsaved.cancel') }}
           </button>
           <button @click="saveAndClose" :disabled="isSaving"
             class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors flex items-center text-white">
             <Loader2 v-if="isSaving" class="w-4 h-4 mr-2 animate-spin" />
-            Save & Close
+            {{ t('fileEditor.unsaved.saveAndClose') }}
           </button>
         </div>
       </div>

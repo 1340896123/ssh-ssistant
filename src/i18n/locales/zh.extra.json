@@ -1,0 +1,488 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "close": "关闭",
+    "delete": "删除",
+    "edit": "编辑",
+    "refresh": "刷新",
+    "search": "搜索",
+    "confirm": "确认",
+    "none": "无",
+    "unknown": "未知",
+    "optional": "可选",
+    "loading": "加载中...",
+    "running": "运行中...",
+    "saving": "保存中...",
+    "updating": "更新中...",
+    "analyze": "分析",
+    "all": "全部"
+  },
+  "dialogs": {
+    "yes": "是",
+    "no": "否"
+  },
+  "errors": {
+    "networkError": "网络错误",
+    "permissionDenied": "权限不足",
+    "notFound": "未找到文件或目录",
+    "sessionError": "会话异常",
+    "timeout": "操作超时",
+    "unknownError": "未知错误"
+  },
+  "app": {
+    "assetSaveFailed": "保存资产失败，请检查日志。"
+  },
+  "workbench": {
+    "assetsCount": "资产 {count}",
+    "criticalCount": "高风险 {count}",
+    "jobRunsCount": "作业 {count}",
+    "pendingSyncCount": "待同步 {count}"
+  },
+  "opsWorkbench": {
+    "title": "Ops 工作台",
+    "subtitle": "把全局控制台、作业、审计和同步状态放在一个面板里",
+    "tabs": {
+      "console": "Ops Console",
+      "jobs": "作业",
+      "audit": "审计",
+      "sync": "同步"
+    },
+    "console": {
+      "queryLabel": "Ops 查询",
+      "queryPlaceholder": "例如：哪些 prod 标签资产最近磁盘风险高，并给我一个安全执行计划",
+      "focusAssetLabel": "聚焦资产",
+      "focusAssetAuto": "自动匹配",
+      "runAction": "分析",
+      "runningAction": "运行中...",
+      "summary": "摘要",
+      "statusExplanation": "状态说明",
+      "matchedAssets": "命中资产",
+      "matchedAssetsEmpty": "暂时没有匹配到资产。",
+      "recommendedChecks": "建议检查项",
+      "executionPlan": "执行计划",
+      "reviewChecklist": "复核清单",
+      "targetAsset": "目标：{name}",
+      "requiresConfirmation": "需要确认",
+      "safeStep": "只读或安全步骤"
+    },
+    "jobs": {
+      "templatesTitle": "作业模板",
+      "templatesSubtitle": "复用适合单机或批量执行的安全命令模板",
+      "templateCount": "{count} 个模板",
+      "archiveTitle": "最近结果归档",
+      "batchExecutionTitle": "批量执行",
+      "batchExecutionSubtitle": "按标签或环境预览范围，确认后执行并归档结果",
+      "templateNameLabel": "模板名称",
+      "templateNamePlaceholder": "例如：Prod disk inspection",
+      "commandLabel": "命令",
+      "commandPlaceholder": "df -h",
+      "scopeLabel": "范围",
+      "scopeOptions": {
+        "tag": "标签",
+        "environment": "环境",
+        "asset": "资产查询",
+        "all": "全部资产"
+      },
+      "scopeValueLabel": "范围值",
+      "scopeValuePlaceholder": "prod / api / owner",
+      "riskLabel": "风险等级",
+      "riskOptions": {
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "critical": "严重"
+      },
+      "requiresConfirmation": "模板需要确认",
+      "saveTemplate": "保存模板",
+      "previewScope": "预览范围",
+      "previewingScope": "预览中...",
+      "executeBatch": "执行批量作业",
+      "executingBatch": "运行中...",
+      "batchPreviewTitle": "批量预览",
+      "batchPreviewTargets": "{count} 个目标",
+      "environment": "环境：{name}",
+      "labels": "标签：{labels}",
+      "executionReviewTitle": "执行复盘",
+      "executionReviewSummary": "成功 {completed} / 失败 {failed}",
+      "existingSession": "复用已有会话",
+      "temporarySession": "已创建临时会话"
+    },
+    "audit": {
+      "searchLabel": "搜索审计",
+      "searchPlaceholder": "事件、细节、metadata",
+      "severityLabel": "严重级别",
+      "severityOptions": {
+        "all": "全部",
+        "info": "信息",
+        "warning": "警告",
+        "error": "错误"
+      },
+      "assetFilterLabel": "资产筛选",
+      "assetFilterAll": "全部资产",
+      "searchAction": "搜索",
+      "searchingAction": "搜索中..."
+    },
+    "sync": {
+      "overviewTitle": "同步概览",
+      "overviewSubtitle": "查看本地优先协议状态、对象版本和最近变更",
+      "stateLabel": "状态",
+      "pendingLabel": "待处理",
+      "totalChangesLabel": "总变更",
+      "lastChangeLabel": "最近变更",
+      "objectVersionsTitle": "对象版本",
+      "objectVersionsSummary": "{count} 个对象 · 最大版本 {maxVersion}",
+      "recentChangeLogTitle": "最近变更日志",
+      "markRecentPending": "标记最近待同步项",
+      "markRecentPendingUpdating": "更新中...",
+      "serviceAdapterTitle": "同步服务适配器",
+      "serviceAdapterSubtitle": "为未来 push/pull 集成预留的可配置中心服务接口",
+      "serviceKeyLabel": "服务键",
+      "displayNameLabel": "显示名称",
+      "baseUrlLabel": "基础地址",
+      "authModeLabel": "认证方式",
+      "authModeOptions": {
+        "none": "无",
+        "token": "令牌"
+      },
+      "authTokenLabel": "认证令牌",
+      "authTokenPlaceholder": "可选",
+      "metadataJsonLabel": "元数据 JSON",
+      "metadataJsonPlaceholder": "{\"supportsPush\":true,\"supportsPull\":true}",
+      "adapterEnabled": "启用适配器",
+      "saveAdapter": "保存适配器",
+      "savingAdapter": "保存中...",
+      "registeredServicesTitle": "已注册服务",
+      "serviceEnabled": "已启用",
+      "serviceDisabled": "已禁用",
+      "serviceNoEndpoint": "尚未配置远程端点"
+    },
+    "notifications": {
+      "consoleQueryRequired": "请输入 Ops Console 查询内容",
+      "consoleQueryFailed": "Ops Console 查询失败：{error}",
+      "templateFieldsRequired": "请先填写模板名称和命令",
+      "templateCreated": "作业模板已创建",
+      "templateCreateFailed": "创建模板失败：{error}",
+      "commandRequired": "请输入要执行的命令",
+      "batchPreviewFailed": "批量预览失败：{error}",
+      "batchPreviewRequired": "请先预览批量执行范围",
+      "batchExecuteConfirm": "将对 {count} 台资产执行命令，是否继续？",
+      "batchExecuted": "批量作业执行完成",
+      "batchExecuteFailed": "批量执行失败：{error}",
+      "auditSearchFailed": "审计检索失败：{error}",
+      "syncServiceSaved": "同步服务配置已保存",
+      "syncServiceSaveFailed": "保存同步服务失败：{error}",
+      "noPendingChanges": "当前没有待标记为已同步的变更",
+      "pendingChangesMarked": "已标记最近待同步变更",
+      "pendingChangesMarkFailed": "标记同步失败：{error}"
+    }
+  },
+  "assetCenter": {
+    "title": "资产中心",
+    "subtitle": "主机资产、环境、标签、收藏和保存视图",
+    "newFolderTitle": "新建文件夹",
+    "newFolderPrompt": "输入资产文件夹名称",
+    "renameFolderPrompt": "重命名资产文件夹",
+    "deleteFolderConfirm": "删除文件夹“{name}”？",
+    "deleteAssetConfirm": "删除资产“{name}”？",
+    "assetDeleted": "已删除资产 {name}",
+    "newAsset": "新建资产",
+    "searchPlaceholder": "按主机、负责人、标签或环境搜索",
+    "stats": {
+      "assets": "资产 {count}",
+      "folders": "文件夹 {count}",
+      "environments": "环境 {count}",
+      "activeSessions": "活动会话 {count}",
+      "environmentsLabel": "环境",
+      "tagsLabel": "标签",
+      "savedViews": "保存视图",
+      "criticalAssets": "高风险资产"
+    },
+    "empty": {
+      "title": "还没有资产",
+      "description": "创建第一个主机资产后，就可以开始使用运维工作台。",
+      "createAsset": "创建首个资产",
+      "createFolder": "创建文件夹"
+    },
+    "searchEmpty": {
+      "title": "没有匹配的资产",
+      "description": "试试其他主机名、标签、环境或负责人。"
+    },
+    "favorites": "收藏",
+    "recentAccess": "最近访问",
+    "showMore": "显示更多",
+    "showLess": "收起",
+    "filters": {
+      "all": "全部",
+      "success": "成功",
+      "failed": "失败"
+    },
+    "historyEmpty": "还没有访问记录",
+    "source": {
+      "favorite": "收藏",
+      "history": "历史",
+      "quick": "快捷",
+      "search": "搜索",
+      "tree": "目录"
+    },
+    "directoryTitle": "资产目录",
+    "directoryHint": "使用文件夹整理你的主机资产和访问路径",
+    "detailTitle": "资产详情",
+    "detailEmptyTitle": "选择一个资产",
+    "detailEmptyDescription": "在这里查看终端、工作区、审计和快捷操作。",
+    "fields": {
+      "environment": "环境",
+      "risk": "风险",
+      "workspace": "工作区",
+      "defaultEndpoint": "默认端点",
+      "recentAudit": "最近审计",
+      "owner": "负责人：{owner}",
+      "environmentValue": "环境：{environment}",
+      "unassigned": "未分配",
+      "noWorkspace": "未配置默认工作区",
+      "noEndpoint": "未配置访问端点",
+      "jumpVia": "通过 {username}@{host}:{port} 跳转",
+      "noRecentAudit": "暂无最近审计事件"
+    },
+    "actions": {
+      "openTerminal": "打开终端",
+      "openFiles": "打开文件",
+      "manageTunnels": "管理隧道"
+    }
+  },
+  "connectionModal": {
+    "newTitle": "新建资产",
+    "editTitle": "编辑资产",
+    "sections": {
+      "assetInfo": "资产信息",
+      "defaultAccessEndpoint": "默认访问端点"
+    },
+    "labels": {
+      "name": "名称",
+      "host": "主机",
+      "port": "端口",
+      "platform": "平台",
+      "criticality": "风险等级",
+      "folder": "文件夹",
+      "environment": "环境",
+      "owner": "负责人",
+      "labels": "标签",
+      "defaultWorkspace": "默认工作区",
+      "bastionChainId": "堡垒链路 ID",
+      "healthSummary": "健康摘要",
+      "endpointUsername": "端点用户名",
+      "accessMethod": "访问方式",
+      "password": "密码",
+      "sshKey": "SSH 密钥",
+      "jumpHost": "跳板机主机",
+      "jumpPort": "跳板机端口",
+      "jumpUsername": "跳板机用户名"
+    },
+    "platformOptions": {
+      "linux": "Linux",
+      "windows": "Windows",
+      "macos": "macOS"
+    },
+    "criticalityOptions": {
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "critical": "严重"
+    },
+    "noneOption": "无",
+    "selectKey": "选择一个密钥",
+    "actions": {
+      "testConnection": "测试连接"
+    },
+    "placeholders": {
+      "name": "Production API Node",
+      "host": "192.168.1.10",
+      "port": "22",
+      "owner": "platform-oncall",
+      "labels": "prod, api, shanghai",
+      "defaultWorkspace": "/srv/app/current",
+      "bastionChainId": "prod-bastion-chain",
+      "healthSummary": "Healthy, last checked 5m ago",
+      "endpointUsername": "root",
+      "password": "••••••",
+      "jumpHost": "jump.example.com",
+      "jumpUsername": "jumpuser"
+    },
+    "testResult": {
+      "hostRequired": "主机和端点用户名为必填项",
+      "passwordRequired": "密码认证需要填写密码",
+      "sshKeyRequired": "密钥认证需要选择 SSH 密钥",
+      "success": "连接成功！",
+      "failed": "连接失败"
+    }
+  },
+  "tunnels": {
+    "reset": "重置",
+    "emptyState": "暂无隧道",
+    "startFailed": "启动隧道失败",
+    "stopFailed": "停止隧道失败",
+    "saveFailed": "保存隧道失败",
+    "deleteFailed": "删除隧道失败",
+    "editTitle": "编辑隧道",
+    "placeholderName": "My Tunnel",
+    "tooltipEdit": "编辑",
+    "tooltipDelete": "删除"
+  },
+  "transferList": {
+    "summary": {
+      "running": "{count} 个运行中",
+      "failed": "{count} 个失败",
+      "items": "{count} 项",
+      "hidden": "（另有 {count} 项已隐藏）"
+    },
+    "actions": {
+      "batchPause": "批量暂停",
+      "batchResume": "批量恢复",
+      "batchCancel": "批量取消",
+      "batchDelete": "批量删除",
+      "clearCompleted": "清理已完成"
+    },
+    "directoryProgress": "{completed}/{total} 个文件"
+  },
+  "terminalTabArea": {
+    "terminalTab": "终端",
+    "closeAllEditors": "关闭全部编辑器"
+  },
+  "fileEditor": {
+    "modified": "已修改",
+    "save": "保存",
+    "notifications": {
+      "loadFailed": "加载文件失败：{error}",
+      "saveSuccess": "文件保存成功",
+      "saveFailed": "保存文件失败：{error}",
+      "initFailed": "初始化编辑器失败：{error}"
+    },
+    "unsaved": {
+      "title": "有未保存更改",
+      "description": "关闭前要保存“{name}”的更改吗？",
+      "discard": "不保存",
+      "cancel": "取消",
+      "saveAndClose": "保存并关闭"
+    }
+  },
+  "terminal": {
+    "aiSystemPrompt": "你是一名 Linux 专家。用户会提供一个 Linux 命令，请给出 3 到 5 个可能的补全结果。你必须直接返回 JSON 数组，例如：[\"ls -la\", \"ls -lh\"]，绝对不要返回其他内容。"
+  },
+  "fileManager": {
+    "parentDirectory": "回到上一级目录",
+    "status": {
+      "openingFile": "正在打开..."
+    },
+    "workspace": {
+      "setAction": "设为 AI 工作区",
+      "setSuccess": "工作区已设置为：{path}",
+      "setFailed": "设置工作区失败：{error}"
+    },
+    "dialogs": {
+      "uploadFilesTitle": "选择要上传的文件",
+      "uploadDirectoryTitle": "选择要上传的目录",
+      "batchDownloadTitle": "选择批量下载目录",
+      "downloadDirectoryTitle": "选择保存文件夹的目录",
+      "saveFileAsTitle": "文件另存为",
+      "changePermissionsPrompt": "输入新权限（例如 755、u+x）："
+    },
+    "notifications": {
+      "processDroppedItemFailed": "处理 {name} 失败：{error}",
+      "uploadFailed": "上传失败：{error}",
+      "uploadDirectoryFailed": "上传目录失败：{error}",
+      "downloadFailed": "下载失败：{error}",
+      "changePermissionsFailed": "修改权限失败：{error}",
+      "deleteFailed": "删除失败：{error}",
+      "treeLoadFailed": "加载树状目录失败：{error}",
+      "directoryLoadFailed": "加载目录失败：{error}",
+      "setWorkspaceFailed": "设置工作区失败：{error}",
+      "processFileFailed": "处理 {name} 失败：{error}"
+    }
+  },
+  "settings": {
+    "reconnectTitle": "智能重连设置",
+    "reconnectEnabled": "启用指数退避自动重连",
+    "reconnectHint": "启用后，失败连接会按递增延迟重试；认证失败等永久性错误不会重试。",
+    "reconnectMaxAttempts": "最大重连次数",
+    "reconnectMaxAttemptsDesc": "最大重连次数（默认：5）",
+    "reconnectInitialDelay": "初始延迟（毫秒）",
+    "reconnectInitialDelayDesc": "首次重试前的延迟（默认：1000ms）",
+    "reconnectMaxDelay": "最大延迟（毫秒）",
+    "reconnectMaxDelayDesc": "两次重试之间允许的最大延迟（默认：30000ms）",
+    "reconnectBackoffMultiplier": "退避倍数",
+    "reconnectBackoffMultiplierDesc": "指数退避倍数：delay = min(initial * multiplier^attempt, maxDelay)（默认：2.0）",
+    "heartbeatTitle": "心跳设置",
+    "heartbeatHint": "分层心跳检测：TCP（最快）-> SSH（居中）-> 应用层（最可靠）。系统会根据失败次数逐步升级处理动作。",
+    "heartbeatTcpInterval": "TCP Keepalive 间隔（秒）",
+    "heartbeatTcpIntervalDesc": "TCP 层 keepalive 间隔（默认：60s）",
+    "heartbeatSshInterval": "SSH Keepalive 间隔（秒）",
+    "heartbeatSshIntervalDesc": "SSH 层 keepalive 包间隔（默认：15s）",
+    "heartbeatAppInterval": "应用心跳间隔（秒）",
+    "heartbeatAppIntervalDesc": "通过执行 `echo` 命令的应用层心跳间隔（默认：30s）",
+    "heartbeatTimeout": "心跳超时（秒）",
+    "heartbeatTimeoutDesc": "单次心跳检测超时时间（默认：5s）",
+    "heartbeatFailedBeforeAction": "触发动作前允许的失败次数",
+    "heartbeatFailedBeforeActionDesc": "连续失败多少次后开始触发重连（默认：3）。处理顺序：SendKeepalive -> BackgroundReconnect -> NotifyUser -> ForceReconnect",
+    "poolHealthTitle": "连接池健康检查设置",
+    "poolHealthHint": "连接池会定期做健康检查、预热会话，并自动重建不健康会话。评分依据包括会话年龄、失败次数和空闲时长。",
+    "poolHealthInterval": "健康检查间隔（秒）",
+    "poolHealthIntervalDesc": "连接池健康检查间隔（默认：60s）",
+    "poolHealthWarmupCount": "会话预热数量",
+    "poolHealthWarmupCountDesc": "预热的后台会话数量（默认：1）",
+    "poolHealthMaxSessionAge": "会话最大存活时间（分钟）",
+    "poolHealthMaxSessionAgeDesc": "超过该时间后会强制轮换会话（默认：60 分钟）",
+    "poolHealthUnhealthyThreshold": "不健康阈值",
+    "poolHealthUnhealthyThresholdDesc": "连续失败多少次后判定为不健康（默认：3），并自动重建会话",
+    "networkAdaptiveTitle": "网络自适应设置",
+    "networkAdaptiveHint": "根据网络条件自动调整心跳间隔、SFTP 缓冲区和命令超时。",
+    "networkAdaptiveEnabled": "启用网络自适应模式",
+    "networkAdaptiveProfileHint": "启用后，系统会自动测量网络延迟并调整参数：\n- 极佳（<50ms）：心跳 10s，SFTP 1MB，超时 60s\n- 良好（50-150ms）：心跳 15s，SFTP 512KB，超时 30s\n- 一般（150-300ms）：心跳 20s，SFTP 256KB，超时 45s\n- 较差（>300ms）：心跳 30s，SFTP 64KB，超时 120s",
+    "networkAdaptiveLatencyInterval": "延迟检测间隔（秒）",
+    "networkAdaptiveLatencyIntervalDesc": "网络延迟测量间隔（默认：30s）",
+    "networkAdaptiveHighLatencyThreshold": "高延迟阈值（毫秒）",
+    "networkAdaptiveHighLatencyThresholdDesc": "超过该值视为高延迟网络（默认：300ms）",
+    "networkAdaptiveLowBandwidthThreshold": "低带宽阈值（KB/s）",
+    "networkAdaptiveLowBandwidthThresholdDesc": "低于该值视为低带宽网络（默认：100 KB/s）",
+    "deleteKeyConfirm": "确定要删除这把 SSH 密钥吗？"
+  },
+  "aiAssistant": {
+    "actions": {
+      "cancelEdit": "取消编辑",
+      "saveAndResend": "保存并重新发送",
+      "editAndResend": "编辑并重新发送",
+      "send": "发送",
+      "stop": "停止"
+    },
+    "inputPlaceholder": "让 AI 帮你处理...",
+    "warning": "AI 可以执行命令，请谨慎操作。",
+    "copyMessage": "复制 Markdown",
+    "messages": {
+      "requestStopped": "请求已由用户停止。",
+      "dangerousCommandConfirm": "检测到危险命令！\n\n确认要执行以下命令吗？\n\n{command}",
+      "commandExecutionCancelled": "命令执行已被用户取消。",
+      "noOutput": "（无输出）",
+      "emptyFile": "（空文件或无数据）",
+      "readFileError": "读取文件失败：{error}",
+      "writeFileConfirm": "该操作将会向远程主机上的 {path} 写入内容。\n\n要继续吗？",
+      "writeFileCancelledAuditTitle": "AI 写文件已取消",
+      "writeFileCancelled": "向 {path} 写入的操作已被用户取消。",
+      "writeFileCompleted": "已完成向 {path} 的写入（模式：{mode}）。",
+      "writeFileError": "写入文件失败：{error}",
+      "searchFilesNoMatches": "（没有匹配结果）",
+      "searchFilesError": "搜索文件失败：{error}",
+      "commandCopied": "命令已复制到剪贴板",
+      "commandCopyFailed": "复制命令失败：{error}",
+      "messageCopied": "Markdown 已复制到剪贴板",
+      "messageCopyFailed": "复制 Markdown 失败：{error}",
+      "genericError": "错误：{error}"
+    }
+  },
+  "connections": {
+    "contextMenu": {
+      "newSubGroupTitle": "新建子分组"
+    },
+    "tree": {
+      "emptyGroup": "（空）"
+    }
+  }
+}

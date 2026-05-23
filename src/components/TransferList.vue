@@ -4,11 +4,13 @@ import { useSessionStore } from '../stores/sessions';
 import { X, Pause, RefreshCw, Trash2, FileUp, FileDown, ChevronUp, ChevronDown, Folder, Play, Square } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import { useVirtualizer } from '@tanstack/vue-virtual';
+import { useI18n } from '../composables/useI18n';
 
 const store = useTransferStore();
 const sessionStore = useSessionStore();
 const isExpanded = ref(false);
 const virtualizerContainerRef = ref<HTMLElement>();
+const { t } = useI18n();
 
 // 限制显示的项目数量以优化性能
 const MAX_VISIBLE_ITEMS = 100;
@@ -35,10 +37,10 @@ const summary = computed(() => {
     const failed = sessionItems.value.filter(i => i.status === 'error').length;
     const hidden = Math.max(0, total - MAX_VISIBLE_ITEMS);
     let result = '';
-    if (running > 0) result = `${running} running`;
-    else if (failed > 0) result = `${failed} failed`;
-    else result = `${total} items`;
-    if (hidden > 0) result += ` (${hidden} hidden)`;
+    if (running > 0) result = t('transferList.summary.running', { count: running });
+    else if (failed > 0) result = t('transferList.summary.failed', { count: failed });
+    else result = t('transferList.summary.items', { count: total });
+    if (hidden > 0) result += t('transferList.summary.hidden', { count: hidden });
     return result;
 });
 
@@ -79,25 +81,25 @@ function toggleExpand() {
             <div class="flex items-center space-x-2 text-xs text-text-secondary">
                  <ChevronDown v-if="isExpanded" class="w-4 h-4" />
                  <ChevronUp v-else class="w-4 h-4" />
-                 <span class="font-bold">Transfers</span>
+                 <span class="font-bold">{{ t('transfers.title') }}</span>
                  <span class="bg-bg-tertiary px-1.5 rounded-full text-[10px]">{{ summary }}</span>
             </div>
             <div class="flex space-x-2" @click.stop>
                 <!-- 批量操作按钮 -->
-                <button v-if="isExpanded && canBatchPause" @click="store.batchPause(sessionStore.activeSessionId!)" title="Batch Pause" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
+                <button v-if="isExpanded && canBatchPause" @click="store.batchPause(sessionStore.activeSessionId!)" :title="t('transferList.actions.batchPause')" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
                     <Pause class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchResume" @click="store.batchResume(sessionStore.activeSessionId!)" title="Batch Resume" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
+                <button v-if="isExpanded && canBatchResume" @click="store.batchResume(sessionStore.activeSessionId!)" :title="t('transferList.actions.batchResume')" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
                     <Play class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel(sessionStore.activeSessionId!)" title="Batch Cancel" class="p-0.5 hover:bg-bg-tertiary rounded text-warning">
+                <button v-if="isExpanded && canBatchCancel" @click="store.batchCancel(sessionStore.activeSessionId!)" :title="t('transferList.actions.batchCancel')" class="p-0.5 hover:bg-bg-tertiary rounded text-warning">
                     <Square class="w-3 h-3" />
                 </button>
-                <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete(sessionStore.activeSessionId!)" title="Batch Delete" class="p-0.5 hover:bg-bg-tertiary rounded text-error">
+                <button v-if="isExpanded && canBatchDelete" @click="store.batchDelete(sessionStore.activeSessionId!)" :title="t('transferList.actions.batchDelete')" class="p-0.5 hover:bg-bg-tertiary rounded text-error">
                     <Trash2 class="w-3 h-3" />
                 </button>
                 <!-- 原有的清除已完成按钮 -->
-                <button v-if="isExpanded" @click="store.clearHistory(sessionStore.activeSessionId!)" title="Clear Completed" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
+                <button v-if="isExpanded" @click="store.clearHistory(sessionStore.activeSessionId!)" :title="t('transferList.actions.clearCompleted')" class="p-0.5 hover:bg-bg-tertiary rounded text-text-muted">
                     <Trash2 class="w-3 h-3" />
                 </button>
             </div>
@@ -127,10 +129,10 @@ function toggleExpand() {
                                 <FileDown v-else-if="!visibleItems[virtualItem.index].isDirectory" class="w-3 h-3 text-success" />
                                 <Folder v-else class="w-3 h-3 text-warning" />
                                 <span class="truncate font-medium text-text-primary" :title="visibleItems[virtualItem.index].name">{{ visibleItems[virtualItem.index].name }}</span>
-                                <span v-if="visibleItems[virtualItem.index].isDirectory" class="text-xs text-text-muted">({{ visibleItems[virtualItem.index].completedFiles || 0 }}/{{ visibleItems[virtualItem.index].childFiles || 0 }} files)</span>
+                                <span v-if="visibleItems[virtualItem.index].isDirectory" class="text-xs text-text-muted">({{ t('transferList.directoryProgress', { completed: visibleItems[virtualItem.index].completedFiles || 0, total: visibleItems[virtualItem.index].childFiles || 0 }) }})</span>
                             </div>
                             <span class="text-text-muted whitespace-nowrap ml-2">
-                                {{ visibleItems[virtualItem.index].status }}
+                                {{ t(`transfers.status.${visibleItems[virtualItem.index].status}`) }}
                             </span>
                         </div>
                         
@@ -151,16 +153,16 @@ function toggleExpand() {
                         <div class="flex items-center justify-between text-text-muted">
                             <span>{{ formatSize(visibleItems[virtualItem.index].transferred) }} / {{ formatSize(visibleItems[virtualItem.index].size) }}</span>
                             <div class="flex items-center space-x-1">
-                                <button v-if="visibleItems[virtualItem.index].status === 'running' && !visibleItems[virtualItem.index].isDirectory" @click="store.pauseTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-white" title="Pause">
+                                <button v-if="visibleItems[virtualItem.index].status === 'running' && !visibleItems[virtualItem.index].isDirectory" @click="store.pauseTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-white" :title="t('transfers.pause')">
                                     <Pause class="w-3 h-3" />
                                 </button>
-                                <button v-if="(visibleItems[virtualItem.index].status === 'paused' || visibleItems[virtualItem.index].status === 'error' || visibleItems[virtualItem.index].status === 'cancelled') && !visibleItems[virtualItem.index].isDirectory" @click="store.resumeTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-white" title="Resume/Retry">
+                                <button v-if="(visibleItems[virtualItem.index].status === 'paused' || visibleItems[virtualItem.index].status === 'error' || visibleItems[virtualItem.index].status === 'cancelled') && !visibleItems[virtualItem.index].isDirectory" @click="store.resumeTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-white" :title="t('transfers.resumeRetry')">
                                     <RefreshCw class="w-3 h-3" />
                                 </button>
-                                <button v-if="['running', 'paused', 'pending'].includes(visibleItems[virtualItem.index].status) && !visibleItems[virtualItem.index].isDirectory" @click="store.cancelTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-error" title="Cancel">
+                                <button v-if="['running', 'paused', 'pending'].includes(visibleItems[virtualItem.index].status) && !visibleItems[virtualItem.index].isDirectory" @click="store.cancelTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-error" :title="t('transfers.cancel')">
                                     <X class="w-3 h-3" />
                                 </button>
-                                <button v-if="['completed', 'cancelled', 'error'].includes(visibleItems[virtualItem.index].status)" @click="store.removeTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-error" title="Remove">
+                                <button v-if="['completed', 'cancelled', 'error'].includes(visibleItems[virtualItem.index].status)" @click="store.removeTransfer(visibleItems[virtualItem.index].id)" class="p-1 hover:text-error" :title="t('transfers.remove')">
                                      <X class="w-3 h-3" />
                                 </button>
                             </div>

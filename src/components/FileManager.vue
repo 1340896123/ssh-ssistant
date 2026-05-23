@@ -1109,7 +1109,7 @@ async function handleTauriFileDrop(paths: string[]) {
             }
         } catch (e) {
             console.error('Error processing dropped item:', name, e);
-            notificationStore.error(`Failed to process ${name}: ${e}`);
+            notificationStore.error(t('fileManager.notifications.processFileFailed', { name, error: e }));
         }
     }
 
@@ -1430,7 +1430,7 @@ async function handleUpload() {
     try {
         const selected = await open({
             multiple: true,
-            title: 'Select file to upload'
+            title: t('fileManager.dialogs.uploadFilesTitle')
         });
         if (!selected) return;
         const selectedFiles = Array.isArray(selected) ? selected : [selected];
@@ -1458,7 +1458,7 @@ async function handleUpload() {
         // loadFiles(currentPath.value);
     } catch (e) {
         console.error(e);
-        notificationStore.error("Upload failed: " + e);
+        notificationStore.error(t('fileManager.notifications.uploadFailed', { error: e }));
     }
 }
 
@@ -1499,7 +1499,7 @@ async function handleUploadDirectory() {
         const selected = await open({
             directory: true,
             multiple: false,
-            title: 'Select directory to upload'
+            title: t('fileManager.dialogs.uploadDirectoryTitle')
         });
 
         if (selected && typeof selected === 'string') {
@@ -1517,7 +1517,7 @@ async function handleUploadDirectory() {
         }
     } catch (e) {
         console.error(e);
-        notificationStore.error("Upload directory failed: " + e);
+        notificationStore.error(t('fileManager.notifications.uploadDirectoryFailed', { error: e }));
     }
 }
 
@@ -1536,13 +1536,13 @@ async function handleSetWorkspace() {
 
     try {
         await sessionStore.setSessionWorkspace(props.sessionId, path);
-        useNotificationStore().success(`Workspace set to: ${path}`);
+        useNotificationStore().success(t('fileManager.workspace.setSuccess', { path }));
         // Switch to AI tab?
         sessionStore.setActiveTab('ai');
         //await message(`Workspace set to: ${path}`, { title: 'Success', kind: 'info' });
 
     } catch (e) {
-        notificationStore.error(`Failed to set workspace: ${e}`);
+        notificationStore.error(t('fileManager.workspace.setFailed', { error: e }));
     }
     closeContextMenu();
 }
@@ -1728,10 +1728,10 @@ async function handleDownload(file?: FileEntry) {
 
         if (isMultiSelect) {
             // Batch download for multiple selected files
-            const selectedDirectory = await open({
-                directory: true,
-                title: 'Select download directory for batch download'
-            });
+                const selectedDirectory = await open({
+                    directory: true,
+                    title: t('fileManager.dialogs.batchDownloadTitle')
+                });
 
             if (selectedDirectory && typeof selectedDirectory === 'string') {
                 const targets = Array.from(selectedFiles.value);
@@ -1773,7 +1773,7 @@ async function handleDownload(file?: FileEntry) {
                 // Directory download - ask for local directory
                 const selectedDirectory = await open({
                     directory: true,
-                    title: 'Select directory to save folder'
+                    title: t('fileManager.dialogs.downloadDirectoryTitle')
                 });
 
                 if (selectedDirectory && typeof selectedDirectory === 'string') {
@@ -1791,7 +1791,7 @@ async function handleDownload(file?: FileEntry) {
                 // Single file download
                 const savePath = await save({
                     defaultPath: targetFile.name,
-                    title: 'Save file as'
+                    title: t('fileManager.dialogs.saveFileAsTitle')
                 });
 
                 if (savePath) {
@@ -1816,14 +1816,14 @@ async function handleDownload(file?: FileEntry) {
         }
     } catch (e) {
         console.error(e);
-        notificationStore.error("Download failed: " + e);
+        notificationStore.error(t('fileManager.notifications.downloadFailed', { error: e }));
     }
     closeContextMenu();
 }
 
 async function handleChangePermissions(file: FileEntry) {
     if (!file) return;
-    const newPerms = prompt("Enter new permissions (e.g., 755, u+x):", file.permissions ? file.permissions.toString() : '');
+    const newPerms = prompt(t('fileManager.dialogs.changePermissionsPrompt'), file.permissions ? file.permissions.toString() : '');
     if (newPerms) {
         try {
             const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
@@ -1836,7 +1836,7 @@ async function handleChangePermissions(file: FileEntry) {
             });
             await loadFiles(currentPath.value);
         } catch (e) {
-            notificationStore.error("Failed to change permissions: " + e);
+            notificationStore.error(t('fileManager.notifications.changePermissionsFailed', { error: e }));
         }
     }
     closeContextMenu();
@@ -1873,7 +1873,7 @@ async function performDelete(skipConfirm: boolean) {
         }
         await loadFiles(currentPath.value);
     } catch (e) {
-        notificationStore.error("Delete failed: " + e);
+        notificationStore.error(t('fileManager.notifications.deleteFailed', { error: e }));
     }
     closeContextMenu();
 }
@@ -2182,7 +2182,7 @@ function formatSize(size: number): string {
 </script>
 
 <template>
-    <div ref="containerRef" tabindex="0" class="h-full bg-bg-primary text-text-primary p-2 flex flex-col outline-none" @click="handleContainerClick">
+    <div ref="containerRef" tabindex="0" class="flex h-full min-h-0 min-w-0 flex-col bg-bg-primary p-2 text-text-primary outline-none" @click="handleContainerClick">
         <!-- Toolbar -->
         <div class="flex flex-col space-y-2 mb-2 bg-bg-secondary p-2 rounded border border-subtle hover:border-primary/30 transition-all duration-fast">
             <!-- Path Bar -->
@@ -2281,7 +2281,7 @@ function formatSize(size: number): string {
         </div>
 
         <!-- File List -->
-        <div ref="fileListScrollRef" class="flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
+        <div ref="fileListScrollRef" class="min-h-0 flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
             @scroll="handleFileListScroll"
             @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu="handleContainerContextMenu">
             <!-- Header -->
@@ -2349,7 +2349,7 @@ function formatSize(size: number): string {
         <!-- Opening File Indicator -->
         <div v-if="isOpeningFile"
             class="fixed bottom-4 right-4 bg-bg-secondary/90 text-text-primary text-xs px-3 py-2 rounded shadow-lg border border-subtle z-50 backdrop-blur-sm ">
-            姝ｅ湪鎵撳紑...
+            {{ t('fileManager.status.openingFile') }}
         </div>
 
         <!-- Context Menu -->
@@ -2389,7 +2389,7 @@ function formatSize(size: number): string {
                 <button @click.stop="handleSetWorkspace()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center text-primary transition-all duration-fast ">
                     <Briefcase class="w-4 h-4 mr-2" />
-                    Set as AI Workspace
+                    {{ t('fileManager.workspace.setAction') }}
                 </button>
                 <button @click.stop="copyCurrentPath()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center transition-all duration-fast">
@@ -2400,7 +2400,7 @@ function formatSize(size: number): string {
                 <button @click.stop="handleSwitchToTerminalPath()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center transition-all duration-fast">
                     <TerminalIcon class="w-4 h-4 mr-2 text-text-tertiary" />
-                    {{ t('fileManager.contextMenu.switchToTerminalPath') || '在终端打开' }}
+                    {{ t('fileManager.contextMenu.switchToTerminalPath') }}
                 </button>
             </template>
 
@@ -2439,7 +2439,7 @@ function formatSize(size: number): string {
                 <button v-if="contextMenu.file?.isDir" @click.stop="handleSetWorkspace()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center text-primary  transition-all duration-fast">
                     <Briefcase class="w-4 h-4 mr-2" />
-                    Set as AI Workspace
+                    {{ t('fileManager.workspace.setAction') }}
                 </button>
                 <button @click.stop="copyPath(contextMenu.file!)"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">{{
@@ -2455,7 +2455,7 @@ function formatSize(size: number): string {
                 <button v-if="contextMenu.file?.isDir" @click.stop="handleSwitchToTerminalPath()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center">
                     <TerminalIcon class="w-4 h-4 mr-2 text-text-muted" />
-                    {{ t('fileManager.contextMenu.switchToTerminalPath') || '在终端打开' }}
+                    {{ t('fileManager.contextMenu.switchToTerminalPath') }}
                 </button>
             </template>
         </div>

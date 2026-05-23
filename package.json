@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "i18n:check": "node scripts/i18n-check.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "version": "npm version --no-git-tag-version",

@@ -110,7 +110,7 @@ async function generateKey() {
 }
 
 async function deleteKey(id: number) {
-  if (confirm('Are you sure you want to delete this SSH key?')) {
+  if (confirm(t('settings.deleteKeyConfirm'))) {
     await sshKeyStore.deleteKey(id);
   }
 }
@@ -133,7 +133,7 @@ const tabs = [
 
 <template>
   <div v-if="show" class="fixed inset-0 z-modal flex items-center justify-center bg-bg-overlay backdrop-blur-sm">
-    <div class="bg-bg-elevated rounded-lg w-[700px] border border-border-primary flex flex-col max-h-[85vh]">
+    <div class="flex max-h-[85vh] w-[700px] min-h-0 min-w-0 flex-col rounded-lg border border-border-primary bg-bg-elevated">
       <div class="flex items-center justify-between p-4 border-b border-border-primary">
         <h2 class="text-lg font-semibold text-text-primary">{{ t('settings.title') }}</h2>
         <button @click="$emit('close')" class="text-text-secondary hover:text-text-primary transition-colors-fast">
@@ -141,7 +141,7 @@ const tabs = [
         </button>
       </div>
 
-      <div class="flex-grow flex flex-col overflow-hidden">
+      <div class="flex min-h-0 flex-grow flex-col overflow-hidden">
         <div class="border-b border-border-primary py-2">
           <nav class="flex space-x-2 px-4 overflow-x-auto no-scrollbar" aria-label="Tabs">
             <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id" :class="[
@@ -155,7 +155,7 @@ const tabs = [
           </nav>
         </div>
 
-        <div class="p-6 overflow-y-auto custom-scrollbar">
+        <div class="min-h-0 overflow-y-auto p-6 custom-scrollbar">
           <!-- General Tab -->
           <div v-if="activeTab === 'general'" class="space-y-6">
             <section>
@@ -330,160 +330,152 @@ const tabs = [
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-text-primary mb-4">Smart Reconnection Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.reconnectTitle') }}</h3>
               <div class="space-y-4">
                 <div class="flex items-center">
                   <input v-model="form.reconnect.enableAutoReconnect" type="checkbox"
                     class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
-                  <span class="ml-2 text-sm text-secondary">Enable Auto Reconnect with Exponential Backoff</span>
+                  <span class="ml-2 text-sm text-secondary">{{ t('settings.reconnectEnabled') }}</span>
                 </div>
                 <p class="text-xs text-text-secondary">
-                  When enabled, failed connections will be retried with increasing delays. Permanent errors (auth failures) will not be retried.
+                  {{ t('settings.reconnectHint') }}
                 </p>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Max Reconnect Attempts</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.reconnectMaxAttempts') }}</label>
                   <input v-model.number="form.reconnect.maxReconnectAttempts" type="number" min="1" max="10"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Maximum number of reconnection attempts (default: 5)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.reconnectMaxAttemptsDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Initial Delay (ms)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.reconnectInitialDelay') }}</label>
                   <input v-model.number="form.reconnect.initialDelayMs" type="number" min="500" max="5000" step="100"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Initial delay before first retry (default: 1000ms)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.reconnectInitialDelayDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Max Delay (ms)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.reconnectMaxDelay') }}</label>
                   <input v-model.number="form.reconnect.maxDelayMs" type="number" min="5000" max="60000" step="1000"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Maximum delay between retries (default: 30000ms)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.reconnectMaxDelayDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Backoff Multiplier</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.reconnectBackoffMultiplier') }}</label>
                   <input v-model.number="form.reconnect.backoffMultiplier" type="number" min="1.5" max="3.0" step="0.1"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
                   <p class="text-xs text-text-secondary mt-1">
-                    Delay multiplier for exponential backoff: delay = min(initial * multiplier^attempt, maxDelay) (default: 2.0)
+                    {{ t('settings.reconnectBackoffMultiplierDesc') }}
                   </p>
                 </div>
               </div>
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-text-primary mb-4">Heartbeat Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.heartbeatTitle') }}</h3>
               <div class="space-y-4">
                 <p class="text-xs text-text-secondary">
-                  Layered heartbeat detection: TCP (fastest) -> SSH (medium) -> Application (most reliable).
-                  The system progressively checks connection health and takes action based on failure count.
+                  {{ t('settings.heartbeatHint') }}
                 </p>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">TCP Keepalive Interval (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.heartbeatTcpInterval') }}</label>
                   <input v-model.number="form.heartbeat.tcpKeepaliveIntervalSecs" type="number" min="30" max="300"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">TCP-level keepalive interval (default: 60s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.heartbeatTcpIntervalDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">SSH Keepalive Interval (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.heartbeatSshInterval') }}</label>
                   <input v-model.number="form.heartbeat.sshKeepaliveIntervalSecs" type="number" min="5" max="60"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">SSH-level keepalive packet interval (default: 15s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.heartbeatSshIntervalDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">App Heartbeat Interval (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.heartbeatAppInterval') }}</label>
                   <input v-model.number="form.heartbeat.appHeartbeatIntervalSecs" type="number" min="10" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Application-level heartbeat by executing 'echo' command (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.heartbeatAppIntervalDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Heartbeat Timeout (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.heartbeatTimeout') }}</label>
                   <input v-model.number="form.heartbeat.heartbeatTimeoutSecs" type="number" min="2" max="30"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Timeout for each heartbeat check (default: 5s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.heartbeatTimeoutDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Failed Heartbeats Before Action</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.heartbeatFailedBeforeAction') }}</label>
                   <input v-model.number="form.heartbeat.failedHeartbeatsBeforeAction" type="number" min="1" max="10"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
                   <p class="text-xs text-text-secondary mt-1">
-                    Number of consecutive failures before triggering reconnection (default: 3).
-                    Action progression: SendKeepalive -> BackgroundReconnect -> NotifyUser -> ForceReconnect
+                    {{ t('settings.heartbeatFailedBeforeActionDesc') }}
                   </p>
                 </div>
               </div>
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-text-primary mb-4">Pool Health Check Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.poolHealthTitle') }}</h3>
               <div class="space-y-4">
                 <p class="text-xs text-text-secondary">
-                  Connection pool health monitoring: periodic health checks, session warmup, and automatic rebuild of unhealthy sessions.
-                  Sessions are scored based on age, failure count, and idle time.
+                  {{ t('settings.poolHealthHint') }}
                 </p>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Health Check Interval (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.poolHealthInterval') }}</label>
                   <input v-model.number="form.poolHealth.healthCheckIntervalSecs" type="number" min="30" max="300"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Interval between pool health checks (default: 60s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.poolHealthIntervalDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Session Warmup Count</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.poolHealthWarmupCount') }}</label>
                   <input v-model.number="form.poolHealth.sessionWarmupCount" type="number" min="0" max="5"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Number of pre-warmed background sessions (default: 1)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.poolHealthWarmupCountDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Max Session Age (minutes)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.poolHealthMaxSessionAge') }}</label>
                   <input v-model.number="form.poolHealth.maxSessionAgeMinutes" type="number" min="10" max="480"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Maximum session lifetime before forced rotation (default: 60 min)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.poolHealthMaxSessionAgeDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Unhealthy Threshold</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.poolHealthUnhealthyThreshold') }}</label>
                   <input v-model.number="form.poolHealth.unhealthyThreshold" type="number" min="1" max="10"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
                   <p class="text-xs text-text-secondary mt-1">
-                    Consecutive failures before marking session as unhealthy (default: 3).
-                    Unhealthy sessions will be automatically rebuilt.
+                    {{ t('settings.poolHealthUnhealthyThresholdDesc') }}
                   </p>
                 </div>
               </div>
             </section>
 
             <section>
-              <h3 class="text-lg font-semibold text-text-primary mb-4">Network Adaptive Settings</h3>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.networkAdaptiveTitle') }}</h3>
               <div class="space-y-4">
                 <p class="text-xs text-text-secondary">
-                  Adaptive network optimization: automatically adjusts heartbeat interval, SFTP buffer size, and command timeout based on network conditions.
+                  {{ t('settings.networkAdaptiveHint') }}
                 </p>
                 <div class="flex items-center">
                   <input v-model="form.networkAdaptive.enableAdaptive" type="checkbox"
                     class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
-                  <span class="ml-2 text-sm text-secondary">Enable Network Adaptive Mode</span>
+                  <span class="ml-2 text-sm text-secondary">{{ t('settings.networkAdaptiveEnabled') }}</span>
                 </div>
                 <p class="text-xs text-text-secondary">
-                  When enabled, the system will automatically measure network latency and adjust parameters:
-                  <br/>- Excellent (&lt;50ms): Heartbeat 10s, SFTP Buffer 1MB, Timeout 60s
-                  <br/>- Good (50-150ms): Heartbeat 15s, SFTP Buffer 512KB, Timeout 30s
-                  <br/>- Fair (150-300ms): Heartbeat 20s, SFTP Buffer 256KB, Timeout 45s
-                  <br/>- Poor (&gt;300ms): Heartbeat 30s, SFTP Buffer 64KB, Timeout 120s
+                  {{ t('settings.networkAdaptiveProfileHint') }}
                 </p>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Latency Check Interval (seconds)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.networkAdaptiveLatencyInterval') }}</label>
                   <input v-model.number="form.networkAdaptive.latencyCheckIntervalSecs" type="number" min="10" max="120"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Interval for measuring network latency (default: 30s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.networkAdaptiveLatencyIntervalDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">High Latency Threshold (ms)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.networkAdaptiveHighLatencyThreshold') }}</label>
                   <input v-model.number="form.networkAdaptive.highLatencyThresholdMs" type="number" min="100" max="1000"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Latency threshold to consider as high latency (default: 300ms)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.networkAdaptiveHighLatencyThresholdDesc') }}</p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-secondary mb-1">Low Bandwidth Threshold (KB/s)</label>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.networkAdaptiveLowBandwidthThreshold') }}</label>
                   <input v-model.number="form.networkAdaptive.lowBandwidthThresholdKbps" type="number" min="10" max="500"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                  <p class="text-xs text-text-secondary mt-1">Bandwidth threshold to consider as low bandwidth (default: 100 KB/s)</p>
+                  <p class="text-xs text-text-secondary mt-1">{{ t('settings.networkAdaptiveLowBandwidthThresholdDesc') }}</p>
                 </div>
               </div>
             </section>

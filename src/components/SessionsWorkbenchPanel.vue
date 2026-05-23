@@ -39,6 +39,16 @@ function closeOtherSessions(sessionId: string) {
     .forEach((session) => sessionStore.closeSession(session.id));
 }
 
+function activateSession(sessionId: string) {
+  sessionStore.setActiveSession(sessionId);
+}
+
+function handleSessionCardKeydown(event: KeyboardEvent, sessionId: string) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  activateSession(sessionId);
+}
+
 function closeDisconnectedSessions() {
   sessionStore.sessions
     .filter((session) => session.status === "disconnected")
@@ -204,16 +214,19 @@ function formatDuration(timestamp: number) {
       </div>
 
       <div v-else class="space-y-2">
-        <button
+        <div
           v-for="session in sessions"
           :key="session.id"
-          class="group w-full rounded-xl border px-3 py-3 text-left transition-colors"
+          role="button"
+          tabindex="0"
+          class="group w-full rounded-xl border px-3 py-3 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary"
           :class="
             session.id === sessionStore.activeSessionId
               ? 'border-accent bg-bg-elevated'
               : 'border-border-primary bg-bg-primary hover:bg-bg-elevated'
           "
-          @click="sessionStore.setActiveSession(session.id)"
+          @click="activateSession(session.id)"
+          @keydown="handleSessionCardKeydown($event, session.id)"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
@@ -268,7 +281,7 @@ function formatDuration(timestamp: number) {
               </div>
             </div>
 
-            <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
               <button
                 class="rounded-md p-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary"
                 :title="t('sessionsPane.closeOther')"
@@ -301,7 +314,7 @@ function formatDuration(timestamp: number) {
               </button>
             </div>
           </div>
-        </button>
+        </div>
       </div>
     </div>
   </div>

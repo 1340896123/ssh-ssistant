@@ -10,6 +10,7 @@ import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from "lucide-vue-next";
 import { useAssetStore } from "../stores/assets";
 import { useSshKeyStore } from "../stores/sshKeys";
 import { sessionService } from "../services";
+import { useI18n } from "../composables/useI18n";
 
 const props = defineProps<{
   show: boolean;
@@ -32,6 +33,7 @@ const emit = defineEmits<{
 
 const assetStore = useAssetStore();
 const sshKeyStore = useSshKeyStore();
+const { t } = useI18n();
 
 const formAsset = ref<HostAsset>({
   name: "",
@@ -108,7 +110,7 @@ function resetForms() {
       props.endpointToEdit?.name ??
       (props.assetToEdit?.name
         ? `${props.assetToEdit.name} default endpoint`
-        : "Default endpoint"),
+        : t("assetCenter.fields.defaultEndpoint")),
     host: props.endpointToEdit?.host ?? props.assetToEdit?.host ?? "",
     port: props.endpointToEdit?.port ?? props.assetToEdit?.port ?? 22,
     username:
@@ -132,7 +134,7 @@ function resetForms() {
       props.credentialRefToEdit?.name ??
       (props.assetToEdit?.name
         ? `${props.assetToEdit.name} credential`
-        : "Default credential"),
+        : `${t("connectionModal.editTitle")} credential`),
     credentialKind:
       props.credentialRefToEdit?.credentialKind ??
       (formEndpoint.value.authType === "key" ? "sshKey" : "password"),
@@ -207,7 +209,7 @@ function buildPayload() {
     username: formEndpoint.value.username.trim(),
     name:
       formEndpoint.value.name.trim() ||
-      `${asset.name || "Asset"} default endpoint`,
+      `${asset.name || t("connectionModal.newTitle")} ${t("assetCenter.fields.defaultEndpoint")}`,
     authType: formEndpoint.value.authType ?? "password",
     jumpHost: formEndpoint.value.jumpHost?.trim() || null,
     jumpPort: formEndpoint.value.jumpHost ? Number(formEndpoint.value.jumpPort || 22) : null,
@@ -221,7 +223,7 @@ function buildPayload() {
           ...formCredentialRef.value,
           name:
             formCredentialRef.value.name.trim() ||
-            `${asset.name || "Asset"} credential`,
+            `${asset.name || t("connectionModal.newTitle")} credential`,
           credentialKind: (endpoint.authType === "key" ? "sshKey" : "password") as CredentialKind,
           username: endpoint.username,
           secret:
@@ -252,7 +254,7 @@ async function testConnection() {
   if (!payload.asset.host.trim() || !payload.endpoint.username.trim()) {
     testResult.value = {
       success: false,
-      message: "Host and endpoint username are required",
+      message: t("connectionModal.testResult.hostRequired"),
     };
     return;
   }
@@ -263,7 +265,7 @@ async function testConnection() {
   ) {
     testResult.value = {
       success: false,
-      message: "Password is required for password authentication",
+      message: t("connectionModal.testResult.passwordRequired"),
     };
     return;
   }
@@ -274,7 +276,7 @@ async function testConnection() {
   ) {
     testResult.value = {
       success: false,
-      message: "SSH key is required for key authentication",
+      message: t("connectionModal.testResult.sshKeyRequired"),
     };
     return;
   }
@@ -302,9 +304,9 @@ async function testConnection() {
       osType: payload.asset.platform ?? "Linux",
       platform: payload.asset.platform ?? "Linux",
     });
-    testResult.value = { success: true, message: "Connection successful!" };
+    testResult.value = { success: true, message: t("connectionModal.testResult.success") };
   } catch (error: any) {
-    testResult.value = { success: false, message: error?.toString() ?? "Connection failed" };
+    testResult.value = { success: false, message: error?.toString() ?? t("connectionModal.testResult.failed") };
   } finally {
     isTesting.value = false;
   }
@@ -325,90 +327,90 @@ function save() {
       class="max-h-[90vh] w-[680px] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary"
     >
       <h2 class="mb-4 text-xl font-bold text-text-primary">
-        {{ assetToEdit ? "Edit Asset" : "New Asset" }}
+        {{ assetToEdit ? t('connectionModal.editTitle') : t('connectionModal.newTitle') }}
       </h2>
 
       <div class="space-y-5">
         <section class="space-y-4">
           <div class="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-            Asset Info
+            {{ t('connectionModal.sections.assetInfo') }}
           </div>
 
           <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">Name</label>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.name') }}</label>
             <input
               v-model="formAsset.name"
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              placeholder="Production API Node"
+              :placeholder="t('connectionModal.placeholders.name')"
             />
           </div>
 
           <div class="grid grid-cols-4 gap-4">
             <div class="col-span-3">
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Host</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.host') }}</label>
               <input
                 v-model="formAsset.host"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="192.168.1.10"
+                :placeholder="t('connectionModal.placeholders.host')"
               />
             </div>
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Port</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.port') }}</label>
               <input
                 v-model.number="formAsset.port"
                 type="number"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="22"
+                :placeholder="t('connectionModal.placeholders.port')"
               />
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Platform</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.platform') }}</label>
               <select
                 v-model="formAsset.platform"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               >
-                <option value="Linux">Linux</option>
-                <option value="Windows">Windows</option>
-                <option value="macOS">macOS</option>
+                <option value="Linux">{{ t('connectionModal.platformOptions.linux') }}</option>
+                <option value="Windows">{{ t('connectionModal.platformOptions.windows') }}</option>
+                <option value="macOS">{{ t('connectionModal.platformOptions.macos') }}</option>
               </select>
             </div>
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Criticality</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.criticality') }}</label>
               <select
                 v-model="formAsset.criticality"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
+                <option value="low">{{ t('connectionModal.criticalityOptions.low') }}</option>
+                <option value="medium">{{ t('connectionModal.criticalityOptions.medium') }}</option>
+                <option value="high">{{ t('connectionModal.criticalityOptions.high') }}</option>
+                <option value="critical">{{ t('connectionModal.criticalityOptions.critical') }}</option>
               </select>
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Folder</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.folder') }}</label>
               <select
                 v-model="formAsset.folderId"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               >
-                <option :value="null">None</option>
+                <option :value="null">{{ t('connectionModal.noneOption') }}</option>
                 <option v-for="folder in assetStore.folders" :key="folder.id" :value="folder.id">
                   {{ folder.name }}
                 </option>
               </select>
             </div>
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Environment</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.environment') }}</label>
               <select
                 v-model="formAsset.envId"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               >
-                <option :value="null">None</option>
+                <option :value="null">{{ t('connectionModal.noneOption') }}</option>
                 <option v-for="env in assetStore.environments" :key="env.id" :value="env.id">
                   {{ env.name }}
                 </option>
@@ -418,68 +420,68 @@ function save() {
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Owner</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.owner') }}</label>
               <input
                 v-model="formAsset.owner"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="platform-oncall"
+                :placeholder="t('connectionModal.placeholders.owner')"
               />
             </div>
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Labels</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.labels') }}</label>
               <input
                 v-model="labelsInput"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="prod, api, shanghai"
+                :placeholder="t('connectionModal.placeholders.labels')"
               />
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Default Workspace</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.defaultWorkspace') }}</label>
               <input
                 v-model="formAsset.defaultWorkspacePath"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="/srv/app/current"
+                :placeholder="t('connectionModal.placeholders.defaultWorkspace')"
               />
             </div>
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Bastion Chain ID</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.bastionChainId') }}</label>
               <input
                 v-model="formAsset.bastionChainId"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="prod-bastion-chain"
+                :placeholder="t('connectionModal.placeholders.bastionChainId')"
               />
             </div>
           </div>
 
           <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">Health Summary</label>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.healthSummary') }}</label>
             <input
               v-model="formAsset.healthSummary"
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              placeholder="Healthy, last checked 5m ago"
+              :placeholder="t('connectionModal.placeholders.healthSummary')"
             />
           </div>
         </section>
 
         <section class="space-y-4 border-t border-border-primary pt-4">
           <div class="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-            Default Access Endpoint
+            {{ t('connectionModal.sections.defaultAccessEndpoint') }}
           </div>
 
           <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">Endpoint Username</label>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.endpointUsername') }}</label>
             <input
               v-model="formEndpoint.username"
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              placeholder="root"
+              :placeholder="t('connectionModal.placeholders.endpointUsername')"
             />
           </div>
 
           <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">Access Method</label>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.accessMethod') }}</label>
             <div class="flex items-center gap-4">
               <label class="flex cursor-pointer items-center gap-2">
                 <input
@@ -488,7 +490,7 @@ function save() {
                   value="password"
                   class="border-border-primary bg-bg-tertiary text-accent focus:ring-accent"
                 />
-                <span class="text-sm">Password</span>
+                <span class="text-sm">{{ t('connectionModal.labels.password') }}</span>
               </label>
               <label class="flex cursor-pointer items-center gap-2">
                 <input
@@ -497,19 +499,19 @@ function save() {
                   value="key"
                   class="border-border-primary bg-bg-tertiary text-accent focus:ring-accent"
                 />
-                <span class="text-sm">SSH Key</span>
+                <span class="text-sm">{{ t('connectionModal.labels.sshKey') }}</span>
               </label>
             </div>
           </div>
 
           <div v-if="formEndpoint.authType === 'password'">
-            <label class="mb-1 block text-xs uppercase text-text-secondary">Password</label>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.password') }}</label>
             <div class="relative">
               <input
                 v-model="formCredentialRef!.secret"
                 :type="showPassword ? 'text' : 'password'"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
-                placeholder="••••••"
+                :placeholder="t('connectionModal.placeholders.password')"
               />
               <button
                 class="absolute right-2 top-2 text-text-secondary hover:text-text-primary"
@@ -522,12 +524,12 @@ function save() {
           </div>
 
           <div v-else>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">SSH Key</label>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.sshKey') }}</label>
             <select
               v-model="formCredentialRef!.sshKeyId"
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
             >
-              <option :value="null" disabled>Select a key</option>
+              <option :value="null" disabled>{{ t('connectionModal.selectKey') }}</option>
               <option v-for="key in sshKeyStore.keys" :key="key.id" :value="key.id">
                 {{ key.name }}
               </option>
@@ -536,30 +538,30 @@ function save() {
 
           <div class="grid grid-cols-4 gap-4">
             <div class="col-span-3">
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Jump Host</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpHost') }}</label>
               <input
                 v-model="formEndpoint.jumpHost"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="jump.example.com"
+                :placeholder="t('connectionModal.placeholders.jumpHost')"
               />
             </div>
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">Jump Port</label>
+              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpPort') }}</label>
               <input
                 v-model.number="formEndpoint.jumpPort"
                 type="number"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                placeholder="22"
+                :placeholder="t('connectionModal.placeholders.port')"
               />
             </div>
           </div>
 
           <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">Jump Username</label>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpUsername') }}</label>
             <input
               v-model="formEndpoint.jumpUsername"
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              placeholder="jumpuser"
+              :placeholder="t('connectionModal.placeholders.jumpUsername')"
             />
           </div>
         </section>
@@ -582,7 +584,7 @@ function save() {
           @click="testConnection"
         >
           <Loader2 v-if="isTesting" class="h-4 w-4 animate-spin" />
-          <span>Test Connection</span>
+          <span>{{ t('connectionModal.actions.testConnection') }}</span>
         </button>
 
         <div class="flex gap-2">
@@ -590,13 +592,13 @@ function save() {
             class="rounded bg-bg-tertiary px-4 py-2 text-sm text-text-primary hover:bg-bg-elevated"
             @click="emit('close')"
           >
-            Cancel
+            {{ t('common.cancel') }}
           </button>
           <button
             class="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/80"
             @click="save"
           >
-            Save
+            {{ t('common.save') }}
           </button>
         </div>
       </div>

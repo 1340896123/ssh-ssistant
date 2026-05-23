@@ -350,6 +350,124 @@ code, kbd, samp {
   color: var(--color-primary);
 }
 
+.input-retro {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-fast);
+}
+
+.input-retro:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-dim);
+  outline: none;
+}
+
+.btn-retro {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.btn-retro:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-accent);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-text-tertiary {
+  color: var(--text-muted);
+}
+
+.bg-subtle {
+  background: var(--border-subtle);
+}
+
+.hover\:bg-primary-hover:hover {
+  background: var(--color-primary-light);
+}
+
+.hover\:bg-bg-hover:hover {
+  background: var(--bg-elevated);
+}
+
+.transition-all-fast {
+  transition: all var(--transition-fast);
+}
+
+.transition-colors-fast {
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    text-decoration-color var(--transition-fast),
+    fill var(--transition-fast),
+    stroke var(--transition-fast);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-tertiary) var(--bg-secondary);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-full);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  border: 2px solid var(--bg-secondary);
+}
+
+.hover\:bg-error\/80:hover {
+  background: color-mix(in srgb, var(--color-error) 80%, transparent);
+}
+
+.hover\:bg-success\/80:hover {
+  background: color-mix(in srgb, var(--color-success) 80%, transparent);
+}
+
+.text-primary {
+  color: var(--color-primary);
+}
+
+.fade-in {
+  animation: fade-in 0.25s ease-out;
+}
+
 /* Input - Frosted */
 .input {
   width: 100%;
@@ -502,6 +620,10 @@ code, kbd, samp {
   box-shadow: var(--shadow-md);
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+:root {
+  --shadow-inner-glow: var(--shadow-inner);
 }
 
 /* ========================================

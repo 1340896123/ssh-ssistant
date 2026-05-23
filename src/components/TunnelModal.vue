@@ -165,7 +165,7 @@ async function stopTunnel(tunnel: Tunnel) {
         <div class="border border-border-secondary rounded p-4">
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-semibold text-text-primary">{{ t('tunnels.new') }}</h3>
-            <button @click="resetForm" class="text-xs text-text-muted hover:text-text-primary">Reset</button>
+            <button @click="resetForm" class="text-xs text-text-muted hover:text-text-primary">{{ t('tunnels.reset') }}</button>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
@@ -173,7 +173,7 @@ async function stopTunnel(tunnel: Tunnel) {
               <label class="block text-xs text-text-secondary uppercase mb-1">{{ t('tunnels.name') }}</label>
               <input v-model="form.name"
                 class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none"
-                placeholder="My Tunnel" />
+                :placeholder="t('tunnels.placeholderName')" />
             </div>
 
             <div>
@@ -286,10 +286,10 @@ async function stopTunnel(tunnel: Tunnel) {
                   <Square class="w-4 h-4" />
                 </button>
 
-                <button @click="editTunnel(tunnel)" class="p-1 text-text-muted hover:text-info" title="Edit">
+                <button @click="editTunnel(tunnel)" class="p-1 text-text-muted hover:text-info" :title="t('tunnels.tooltipEdit')">
                   <Pencil class="w-4 h-4" />
                 </button>
-                <button @click="deleteTunnel(tunnel)" class="p-1 text-text-muted hover:text-error" title="Delete">
+                <button @click="deleteTunnel(tunnel)" class="p-1 text-text-muted hover:text-error" :title="t('tunnels.tooltipDelete')">
                   <Trash2 class="w-4 h-4" />
                 </button>
               </div>
@@ -297,7 +297,7 @@ async function stopTunnel(tunnel: Tunnel) {
           </div>
 
           <div v-if="tunnelStore.tunnels.length === 0" class="text-xs text-text-muted">
-            {{ t('tunnels.new') }}
+            {{ t('tunnels.emptyState') }}
           </div>
         </div>
       </div>

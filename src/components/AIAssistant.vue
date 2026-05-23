@@ -3,6 +3,7 @@ import { ref, nextTick, computed, onMounted, onUnmounted, watch } from "vue";
 import { useSettingsStore } from "../stores/settings";
 import { useSessionStore } from "../stores/sessions";
 import { useAssetStore } from "../stores/assets";
+import { useNotificationStore } from "../stores/notifications";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
@@ -47,6 +48,7 @@ const emit = defineEmits(["refresh-context", "context-meta-change"]);
 const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
 const assetStore = useAssetStore();
+const notificationStore = useNotificationStore();
 const { t } = useI18n();
 
 const activeWorkspace = computed(() => {
@@ -91,7 +93,7 @@ interface CommandOutputEventPayload {
   done?: boolean;
 }
 
-const STOPPED_MESSAGE = "Command execution stopped by user.";
+const STOPPED_MESSAGE = t("aiAssistant.messages.commandExecutionCancelled");
 
 const contextPaths = ref<ContextPath[]>([]);
 const input = ref("");
@@ -238,7 +240,7 @@ const displayMessages = computed(() => {
 
     if (msg.role === "assistant" && msg.tool_calls) {
       const toolExecutions = msg.tool_calls.map((tc: any) => {
-        let command = "Unknown command";
+        let command = t("common.unknown");
         try {
           command = JSON.parse(tc.function.arguments).command;
         } catch (e) {}
@@ -580,7 +582,7 @@ function stopMessage() {
 
     messages.value.push({
       role: "assistant",
-      content: `Request stopped by user.`,
+      content: t("aiAssistant.messages.requestStopped"),
     });
     scrollToBottom();
   }
@@ -806,14 +808,16 @@ ${activeWorkspace.value.context}
           // --- DANGER ZONE ---
           if (isDangerous(cmd)) {
             const confirmed = await confirm(
-              `DANGEROUS COMMAND DETECTED!\n\nAre you sure you want to execute:\n\n${cmd}`,
+              t("aiAssistant.messages.dangerousCommandConfirm", {
+                command: cmd,
+              }),
             );
             if (!confirmed) {
               messages.value.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
                 name: toolCall.function.name,
-                content: `Command execution cancelled by user.`,
+                content: t("aiAssistant.messages.commandExecutionCancelled"),
               });
               continue; // Skip to next tool call
             }
@@ -867,7 +871,7 @@ ${activeWorkspace.value.context}
               activeAsset.value?.criticality ?? "medium",
               "ai-tool",
             );
-            result = jobRun.output || "(No output)";
+            result = jobRun.output || t("aiAssistant.messages.noOutput");
             const activeSession = sessionStore.sessions.find(
               (session) => session.id === props.sessionId,
             );
@@ -886,7 +890,7 @@ ${activeWorkspace.value.context}
                 role: "tool",
                 tool_call_id: toolCall.id,
                 name: toolCall.function.name,
-                content: result || "(No output)",
+                content: result || t("aiAssistant.messages.noOutput"),
               });
             }
           } catch (e: any) {
@@ -929,14 +933,14 @@ ${activeWorkspace.value.context}
               role: "tool",
               tool_call_id: toolCall.id,
               name,
-              content: result || "(Empty file or no data)",
+              content: result || t("aiAssistant.messages.emptyFile"),
             });
           } catch (e) {
             messages.value.push({
               role: "tool",
               tool_call_id: toolCall.id,
               name,
-              content: `Error reading file: ${e}`,
+              content: t("aiAssistant.messages.readFileError", { error: e }),
             });
           }
         } else if (name === "write_file") {
@@ -947,7 +951,7 @@ ${activeWorkspace.value.context}
           };
           try {
             const confirmed = await confirm(
-              `This action will write to ${args.path} on the remote host.\n\nDo you want to continue?`,
+              t("aiAssistant.messages.writeFileConfirm", { path: args.path }),
             );
             if (!confirmed) {
               await assetStore.appendAuditEvent({
@@ -955,7 +959,7 @@ ${activeWorkspace.value.context}
                 assetId: activeAsset.value?.id ?? null,
                 sessionId: props.sessionId,
                 jobRunId: null,
-                title: "AI write file cancelled",
+                title: t("aiAssistant.messages.writeFileCancelledAuditTitle"),
                 detail: args.path,
                 severity: "warning",
                 metadataJson: JSON.stringify({ mode: args.mode ?? "overwrite" }),
@@ -965,7 +969,9 @@ ${activeWorkspace.value.context}
                 role: "tool",
                 tool_call_id: toolCall.id,
                 name,
-                content: `Write to ${args.path} cancelled by user.`,
+                content: t("aiAssistant.messages.writeFileCancelled", {
+                  path: args.path,
+                }),
               });
               continue;
             }
@@ -979,14 +985,17 @@ ${activeWorkspace.value.context}
               role: "tool",
               tool_call_id: toolCall.id,
               name,
-              content: `Write to ${args.path} completed (mode=${args.mode ?? "overwrite"}).`,
+              content: t("aiAssistant.messages.writeFileCompleted", {
+                path: args.path,
+                mode: args.mode ?? "overwrite",
+              }),
             });
           } catch (e) {
             messages.value.push({
               role: "tool",
               tool_call_id: toolCall.id,
               name,
-              content: `Error writing file: ${e}`,
+              content: t("aiAssistant.messages.writeFileError", { error: e }),
             });
           }
         } else if (name === "search_files") {
@@ -1006,14 +1015,14 @@ ${activeWorkspace.value.context}
               role: "tool",
               tool_call_id: toolCall.id,
               name,
-              content: result || "(No matches)",
+              content: result || t("aiAssistant.messages.searchFilesNoMatches"),
             });
           } catch (e) {
             messages.value.push({
               role: "tool",
               tool_call_id: toolCall.id,
               name,
-              content: `Error searching files: ${e}`,
+              content: t("aiAssistant.messages.searchFilesError", { error: e }),
             });
           }
         }
@@ -1035,7 +1044,10 @@ ${activeWorkspace.value.context}
       console.log("Fetch aborted by user");
     } else {
       console.error(e);
-      messages.value.push({ role: "assistant", content: `Error: ${e}` });
+      messages.value.push({
+        role: "assistant",
+        content: t("aiAssistant.messages.genericError", { error: e }),
+      });
     }
   } finally {
     // Only reset state if the controller hasn't changed (i.e., we are still the active request)
@@ -1086,15 +1098,33 @@ function removeContextPath(pathToRemove: string) {
   );
 }
 
+function canCopyMessageContent(content: string) {
+  return content.trim().length > 0;
+}
+
+function copyMessageMarkdown(content: string) {
+  navigator.clipboard
+    .writeText(content)
+    .then(() => {
+      notificationStore.success(t("aiAssistant.messages.messageCopied"));
+    })
+    .catch((err) => {
+      notificationStore.error(
+        t("aiAssistant.messages.messageCopyFailed", { error: err }),
+      );
+    });
+}
+
 function copyCommand(command: string) {
   navigator.clipboard
     .writeText(command)
     .then(() => {
-      // Optional: Show a brief success message
-      console.log("Command copied to clipboard");
+      notificationStore.success(t("aiAssistant.messages.commandCopied"));
     })
     .catch((err) => {
-      console.error("Failed to copy command:", err);
+      notificationStore.error(
+        t("aiAssistant.messages.commandCopyFailed", { error: err }),
+      );
     });
 }
 
@@ -1119,7 +1149,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-bg-primary text-text-primary">
+  <div class="flex h-full min-h-0 flex-col bg-bg-primary text-text-primary">
     <!-- Header -->
     <div v-if="props.showHeader" class="flex flex-col bg-bg-secondary border-b border-subtle">
       <div class="flex items-center justify-between px-4 py-2">
@@ -1162,7 +1192,7 @@ onUnmounted(() => {
 
     <!-- Messages Area -->
     <div
-      class="shadow-interactive flex-1 overflow-y-auto p-4 space-y-4"
+      class="shadow-interactive min-h-0 flex-1 overflow-y-auto p-4 space-y-4"
       ref="messagesContainer"
       @scroll="handleMessagesScroll"
     >
@@ -1217,7 +1247,7 @@ onUnmounted(() => {
                 <button
                   @click="cancelEditingMessage()"
                   class="p-1 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors"
-                  title="Cancel edit"
+                  :title="t('aiAssistant.actions.cancelEdit')"
                 >
                   <X class="w-3.5 h-3.5" />
                 </button>
@@ -1225,7 +1255,7 @@ onUnmounted(() => {
                   @click="resendEditedMessage()"
                   :disabled="!editingMessageDraft.trim() || isLoading"
                   class="p-1 text-text-muted hover:text-success hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Save and resend"
+                  :title="t('aiAssistant.actions.saveAndResend')"
                 >
                   <Check class="w-3.5 h-3.5" />
                 </button>
@@ -1235,9 +1265,32 @@ onUnmounted(() => {
                 @click="startEditingMessage(msg.sourceIndex, msg.content)"
                 :disabled="isLoading"
                 class="p-1 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Edit and resend"
+                :title="t('aiAssistant.actions.editAndResend')"
               >
                 <Pencil class="w-3.5 h-3.5" />
+              </button>
+              <button
+                v-if="
+                  editingMessageIndex !== msg.sourceIndex &&
+                  canCopyMessageContent(msg.content)
+                "
+                @click="copyMessageMarkdown(msg.content)"
+                class="p-1 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded transition-colors"
+                :title="t('aiAssistant.copyMessage')"
+              >
+                <ClipboardPlus class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div
+              v-else-if="msg.role === 'assistant' && canCopyMessageContent(msg.content)"
+              class="mb-2 flex items-center justify-end gap-1"
+            >
+              <button
+                @click="copyMessageMarkdown(msg.content)"
+                class="p-1 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded transition-colors"
+                :title="t('aiAssistant.copyMessage')"
+              >
+                <ClipboardPlus class="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -1394,39 +1447,39 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="relative flex items-center">
+          <div class="flex items-end gap-2">
             <button
               @click="emit('refresh-context')"
-              class="absolute left-3 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-primary transition-colors"
+              class="btn-retro h-11 shrink-0 px-3 text-text-muted hover:text-primary"
               :title="t('aiAssistant.importTerminalContext')"
             >
-              <ClipboardPlus class="w-5 h-5" />
+              <ClipboardPlus class="w-4 h-4" />
             </button>
             <textarea
               v-model="input"
               @keydown.enter.exact.prevent="sendMessage"
-              class="input-retro w-full rounded-lg pl-12 pr-12 py-3 resize-none"
-              placeholder="Ask AI to help..."
+              class="input-retro min-h-[44px] flex-1 resize-none px-4 py-3"
+              :placeholder="t('aiAssistant.inputPlaceholder')"
               rows="1"
               :disabled="isLoading"
             ></textarea>
             <button
               @click="isLoading ? stopMessage() : sendMessage()"
               :disabled="!isLoading && !input.trim()"
-              class="absolute right-2 top-1/2 -translate-y-1/2 btn-retro p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="btn-retro h-11 shrink-0 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
               :class="{
                 'text-error hover:text-error hover:border-error': isLoading,
               }"
-              :title="isLoading ? 'Stop' : 'Send'"
+              :title="isLoading ? t('aiAssistant.actions.stop') : t('aiAssistant.actions.send')"
             >
-              <Square v-if="isLoading" class="w-5 h-5 fill-current" />
-              <Send v-else class="w-5 h-5" />
+              <Square v-if="isLoading" class="w-4 h-4 fill-current" />
+              <Send v-else class="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
       <div class="mt-2 text-xs text-text-muted text-center">
-        AI can execute commands. Exercise caution.
+        {{ t("aiAssistant.warning") }}
       </div>
     </div>
   </div>

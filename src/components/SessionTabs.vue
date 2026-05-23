@@ -16,6 +16,16 @@ function closeOtherSessions(sessionId: string) {
     .forEach((session) => sessionStore.closeSession(session.id));
 }
 
+function activateSession(sessionId: string) {
+  sessionStore.setActiveSession(sessionId);
+}
+
+function handleSessionKeydown(event: KeyboardEvent, sessionId: string) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  activateSession(sessionId);
+}
+
 function formatDuration(timestamp: number) {
   const minutes = Math.max(1, Math.floor((Date.now() - timestamp) / 60000));
   if (minutes < 60) return `${minutes}m`;
@@ -33,16 +43,19 @@ function formatDuration(timestamp: number) {
     </div>
 
     <div class="scrollbar-hide flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2">
-      <button
+      <div
         v-for="session in sessions"
         :key="session.id"
-        class="group flex h-[34px] min-w-[180px] max-w-[240px] items-center gap-2 rounded-lg border px-3 text-left transition-colors"
+        role="button"
+        tabindex="0"
+        class="group flex h-[34px] min-w-[180px] max-w-[240px] items-center gap-2 rounded-lg border px-3 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary"
         :class="
           session.id === sessionStore.activeSessionId
             ? 'border-accent bg-bg-elevated'
             : 'border-transparent bg-bg-secondary hover:border-border-primary hover:bg-bg-elevated'
         "
-        @click="sessionStore.setActiveSession(session.id)"
+        @click="activateSession(session.id)"
+        @keydown="handleSessionKeydown($event, session.id)"
       >
         <Loader2
           v-if="session.status === 'connecting'"
@@ -78,7 +91,7 @@ function formatDuration(timestamp: number) {
           {{ t("sessionsPane.current") }}
         </span>
 
-        <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <button
             class="rounded-md p-1 text-text-secondary hover:bg-bg-primary hover:text-text-primary"
             :title="t('sessionsPane.closeOther')"
@@ -94,7 +107,7 @@ function formatDuration(timestamp: number) {
             <X class="h-3.5 w-3.5" />
           </button>
         </div>
-      </button>
+      </div>
     </div>
   </div>
 </template>

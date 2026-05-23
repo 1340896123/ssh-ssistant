@@ -497,7 +497,7 @@ async function handleSaveConnection(payload: {
     editingCredentialRef.value = null;
   } catch (error) {
     console.error("Failed to save asset", error);
-    notificationStore.error("Failed to save asset. Please check the logs.");
+    notificationStore.error(t("app.assetSaveFailed"));
   }
 }
 
@@ -809,7 +809,7 @@ onUnmounted(() => {
 
 <template>
   <div class="h-screen w-screen overflow-hidden bg-bg-primary text-text-primary">
-    <div ref="shellViewportRef" class="flex h-full w-full overflow-hidden">
+    <div ref="shellViewportRef" class="flex h-full w-full min-w-0 overflow-hidden">
       <aside
         class="flex h-full w-14 shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
       >
@@ -832,7 +832,7 @@ onUnmounted(() => {
             :title="t('app.connections')"
             @click="activateActivity('connections')"
           >
-            <Monitor class="h-4.5 w-4.5" />
+            <Monitor class="h-[18px] w-[18px]" />
           </button>
           <button
             class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
@@ -844,7 +844,7 @@ onUnmounted(() => {
             :title="t('app.tunnels')"
             @click="activateActivity('tunnels')"
           >
-            <Cable class="h-4.5 w-4.5" />
+            <Cable class="h-[18px] w-[18px]" />
           </button>
           <button
             class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
@@ -856,7 +856,7 @@ onUnmounted(() => {
             :title="t('workbench.opsTitle')"
             @click="activateActivity('ops')"
           >
-            <ClipboardCheck class="h-4.5 w-4.5" />
+            <ClipboardCheck class="h-[18px] w-[18px]" />
           </button>
           <button
             class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
@@ -868,7 +868,7 @@ onUnmounted(() => {
             :title="t('workbench.sessionsTitle')"
             @click="activateActivity('sessions')"
           >
-            <Rows3 class="h-4.5 w-4.5" />
+            <Rows3 class="h-[18px] w-[18px]" />
           </button>
         </div>
 
@@ -878,12 +878,12 @@ onUnmounted(() => {
             :title="t('app.settings')"
             @click="showSettingsModal = true"
           >
-            <Settings class="h-4.5 w-4.5" />
+            <Settings class="h-[18px] w-[18px]" />
           </button>
         </div>
       </aside>
 
-      <div class="relative flex min-w-0 flex-1 overflow-hidden">
+      <div class="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <aside
           v-if="shouldShowInlineResourcePane"
           class="flex h-full shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
@@ -939,7 +939,7 @@ onUnmounted(() => {
           @mousedown.prevent="startResize('resource')"
         ></div>
 
-        <main class="flex min-w-0 flex-1 flex-col bg-bg-primary">
+        <main class="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-primary">
           <div class="flex h-10 items-center justify-between border-b border-border-primary px-3">
             <div class="flex items-center gap-2">
               <button
@@ -1313,7 +1313,7 @@ onUnmounted(() => {
 
         <aside
           v-if="shouldShowResourceDrawer"
-          class="absolute inset-y-0 left-0 z-40 flex w-[320px] max-w-[calc(100%-56px)] flex-col border-r border-border-primary bg-bg-secondary shadow-xl"
+          class="absolute inset-y-0 left-0 z-40 flex w-[320px] max-w-[calc(100%-56px)] min-h-0 flex-col border-r border-border-primary bg-bg-secondary shadow-xl"
         >
           <div
             v-if="activeActivity !== 'sessions'"
@@ -1360,7 +1360,7 @@ onUnmounted(() => {
 
         <aside
           v-if="shouldShowContextDrawer"
-          class="absolute inset-y-0 right-0 z-40 flex w-[min(420px,100%-56px)] flex-col border-l border-border-primary bg-bg-secondary shadow-xl"
+          class="absolute inset-y-0 right-0 z-40 flex w-[min(420px,calc(100%-56px))] min-h-0 flex-col border-l border-border-primary bg-bg-secondary shadow-xl"
         >
           <div class="border-b border-border-primary px-4 py-3">
             <div class="flex items-start justify-between gap-3">

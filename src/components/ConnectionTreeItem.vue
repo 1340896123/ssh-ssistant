@@ -180,7 +180,7 @@ function toggleFavorite() {
                     <Star class="w-3 h-3" :class="isFavorite ? 'fill-current text-warning' : ''" />
                 </button>
                 <button v-if="isGroup" @click.stop="handleCreateSubGroup"
-                    class="p-1 text-text-muted hover:text-success cursor-pointer mr-1" title="New Subgroup">
+                    class="p-1 text-text-muted hover:text-success cursor-pointer mr-1" :title="t('connections.contextMenu.newSubGroupTitle')">
                     <Plus class="w-3 h-3" />
                 </button>
                 <button @click.stop="handleEdit" class="p-1 text-text-muted hover:text-info cursor-pointer mr-1"
@@ -205,7 +205,7 @@ function toggleFavorite() {
             </div>
             <div v-if="!(item as ConnectionGroup).children?.length" class="text-xs text-text-muted py-1"
                 :style="{ paddingLeft: `${(level + 1) * 16 + 24}px` }">
-                (Empty)
+                {{ t('connections.tree.emptyGroup') }}
             </div>
         </div>
     </div>

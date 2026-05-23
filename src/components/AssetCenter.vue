@@ -18,6 +18,7 @@ import {
 import { useAssetStore } from "../stores/assets";
 import { useSessionStore } from "../stores/sessions";
 import { useNotificationStore } from "../stores/notifications";
+import { useI18n } from "../composables/useI18n";
 import type {
   AssetFolder,
   ConnectionHistoryEntry,
@@ -36,6 +37,7 @@ const emit = defineEmits<{
 const assetStore = useAssetStore();
 const sessionStore = useSessionStore();
 const notificationStore = useNotificationStore();
+const { t } = useI18n();
 
 const searchQuery = ref("");
 const historyFilter = ref<HistoryFilter>("all");
@@ -143,15 +145,15 @@ function formatRecentTime(timestamp: number) {
 function sourceLabel(source: ConnectionHistorySource | "favorite") {
   switch (source) {
     case "favorite":
-      return "Favorite";
+      return t("assetCenter.source.favorite");
     case "history":
-      return "History";
+      return t("assetCenter.source.history");
     case "quick":
-      return "Quick";
+      return t("assetCenter.source.quick");
     case "search":
-      return "Search";
+      return t("assetCenter.source.search");
     default:
-      return "Tree";
+      return t("assetCenter.source.tree");
   }
 }
 
@@ -170,28 +172,28 @@ async function toggleFavorite(asset: HostAsset) {
 }
 
 async function createFolder(parentId?: number) {
-  const name = prompt("New asset folder name");
+  const name = prompt(t("assetCenter.newFolderPrompt"));
   if (!name?.trim()) return;
   await assetStore.addFolder({ name: name.trim(), parentId: parentId ?? null });
 }
 
 async function editFolder(folder: AssetFolder) {
-  const name = prompt("Rename asset folder", folder.name);
+  const name = prompt(t("assetCenter.renameFolderPrompt"), folder.name);
   if (!name?.trim() || name === folder.name) return;
   await assetStore.updateFolder({ ...folder, name: name.trim() });
 }
 
 async function deleteFolder(folder: AssetFolder) {
   if (!folder.id) return;
-  if (!window.confirm(`Delete folder "${folder.name}"?`)) return;
+  if (!window.confirm(t("assetCenter.deleteFolderConfirm", { name: folder.name }))) return;
   await assetStore.deleteFolder(folder.id);
 }
 
 async function deleteAsset(asset: HostAsset) {
   if (!asset.id) return;
-  if (!window.confirm(`Delete asset "${asset.name}"?`)) return;
+  if (!window.confirm(t("assetCenter.deleteAssetConfirm", { name: asset.name }))) return;
   await assetStore.deleteAsset(asset.id);
-  notificationStore.success(`Deleted asset ${asset.name}`);
+  notificationStore.success(t("assetCenter.assetDeleted", { name: asset.name }));
 }
 
 function selectAsset(asset: HostAsset) {
@@ -207,15 +209,15 @@ function selectAsset(asset: HostAsset) {
     <div class="border-b border-border-primary bg-bg-secondary/95 px-3 py-3 backdrop-blur">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <div class="text-sm font-semibold text-text-primary">Asset Center</div>
+          <div class="text-sm font-semibold text-text-primary">{{ t('assetCenter.title') }}</div>
           <div class="mt-1 truncate text-xs text-text-secondary">
-            Host assets, environments, tags, favorites and saved views
+            {{ t('assetCenter.subtitle') }}
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <button
             class="flex h-9 w-9 items-center justify-center rounded border border-border-primary bg-bg-tertiary text-text-primary transition-all hover:bg-bg-elevated"
-            title="New folder"
+            :title="t('assetCenter.newFolderTitle')"
             @click.stop="createFolder()"
           >
             <FolderPlus class="h-4 w-4" />
@@ -225,7 +227,7 @@ function selectAsset(asset: HostAsset) {
             @click.stop="editAsset()"
           >
             <Plus class="h-3.5 w-3.5" />
-            <span class="whitespace-nowrap">New Asset</span>
+            <span class="whitespace-nowrap">{{ t('assetCenter.newAsset') }}</span>
           </button>
         </div>
       </div>
@@ -236,7 +238,7 @@ function selectAsset(asset: HostAsset) {
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search by host, owner, label or environment"
+            :placeholder="t('assetCenter.searchPlaceholder')"
             class="h-9 w-full rounded border border-border-primary bg-bg-tertiary pl-8 pr-3 text-sm text-text-primary outline-none focus:border-accent"
           />
         </div>
@@ -244,16 +246,16 @@ function selectAsset(asset: HostAsset) {
 
       <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
         <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
-          Assets {{ assets.length }}
+          {{ t('assetCenter.stats.assets', { count: assets.length }) }}
         </span>
         <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
-          Folders {{ folders.length }}
+          {{ t('assetCenter.stats.folders', { count: folders.length }) }}
         </span>
         <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
-          Environments {{ environments.length }}
+          {{ t('assetCenter.stats.environments', { count: environments.length }) }}
         </span>
         <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
-          Active Sessions {{ activeSessions }}
+          {{ t('assetCenter.stats.activeSessions', { count: activeSessions }) }}
         </span>
       </div>
     </div>
@@ -263,23 +265,23 @@ function selectAsset(asset: HostAsset) {
         <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-bg-tertiary text-accent">
           <HardDrive class="h-6 w-6" />
         </div>
-        <div class="text-sm font-medium text-text-primary">No assets yet</div>
+        <div class="text-sm font-medium text-text-primary">{{ t('assetCenter.empty.title') }}</div>
         <div class="mt-1 text-xs leading-5 text-text-secondary">
-          Create your first host asset and start using the ops workspace.
+          {{ t('assetCenter.empty.description') }}
         </div>
         <div class="mt-4 flex items-center justify-center gap-2">
           <button
             class="h-9 rounded border border-border-primary bg-accent px-3 text-sm text-white transition-all hover:opacity-90"
             @click.stop="editAsset()"
           >
-            Create first asset
+            {{ t('assetCenter.empty.createAsset') }}
           </button>
           <button
             class="flex h-9 items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-all hover:bg-bg-elevated"
             @click.stop="createFolder()"
           >
             <FolderPlus class="h-3.5 w-3.5" />
-            <span>Create folder</span>
+            <span>{{ t('assetCenter.empty.createFolder') }}</span>
           </button>
         </div>
       </div>
@@ -290,9 +292,9 @@ function selectAsset(asset: HostAsset) {
         <div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg-tertiary text-text-secondary">
           <Search class="h-5 w-5" />
         </div>
-        <div class="text-sm font-medium text-text-primary">No matching assets</div>
+        <div class="text-sm font-medium text-text-primary">{{ t('assetCenter.searchEmpty.title') }}</div>
         <div class="mt-1 text-xs text-text-secondary">
-          Try another hostname, label, environment or owner.
+          {{ t('assetCenter.searchEmpty.description') }}
         </div>
       </div>
 
@@ -309,7 +311,7 @@ function selectAsset(asset: HostAsset) {
                 <span
                   class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary"
                 >
-                  {{ asset.platform ?? "Linux" }}
+                  {{ asset.platform ?? t('connectionModal.platformOptions.linux') }}
                 </span>
                 <span
                   v-if="asset.criticality"
@@ -327,8 +329,8 @@ function selectAsset(asset: HostAsset) {
               </div>
               <div class="mt-1 truncate text-xs text-text-secondary">{{ endpointLabel(asset) }}</div>
               <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-text-secondary">
-                <span v-if="asset.owner">Owner: {{ asset.owner }}</span>
-                <span v-if="asset.envId && environmentMap.get(asset.envId)">Env: {{ environmentMap.get(asset.envId) }}</span>
+                <span v-if="asset.owner">{{ t('assetCenter.fields.owner', { owner: asset.owner }) }}</span>
+                <span v-if="asset.envId && environmentMap.get(asset.envId)">{{ t('assetCenter.fields.environmentValue', { environment: environmentMap.get(asset.envId) }) }}</span>
                 <span v-if="asset.healthSummary">{{ asset.healthSummary }}</span>
               </div>
             </button>
@@ -345,34 +347,34 @@ function selectAsset(asset: HostAsset) {
       </div>
     </div>
 
-    <div v-else class="flex min-h-0 flex-1 flex-col">
+    <div v-else class="min-h-0 flex-1 overflow-y-auto">
       <div class="shrink-0 space-y-3 border-b border-border-primary bg-bg-secondary/35 px-3 py-3">
         <div class="grid grid-cols-2 gap-2 text-xs">
           <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
             <div class="flex items-center gap-2 text-text-secondary">
               <Layers3 class="h-3.5 w-3.5" />
-              <span>Environments</span>
+              <span>{{ t('assetCenter.stats.environmentsLabel') }}</span>
             </div>
             <div class="mt-2 text-lg font-semibold text-text-primary">{{ environments.length }}</div>
           </div>
           <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
             <div class="flex items-center gap-2 text-text-secondary">
               <Tags class="h-3.5 w-3.5" />
-              <span>Tags</span>
+              <span>{{ t('assetCenter.stats.tagsLabel') }}</span>
             </div>
             <div class="mt-2 text-lg font-semibold text-text-primary">{{ tags.length }}</div>
           </div>
           <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
             <div class="flex items-center gap-2 text-text-secondary">
               <BookMarked class="h-3.5 w-3.5" />
-              <span>Saved Views</span>
+              <span>{{ t('assetCenter.stats.savedViews') }}</span>
             </div>
             <div class="mt-2 text-lg font-semibold text-text-primary">{{ savedViews.length }}</div>
           </div>
           <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
             <div class="flex items-center gap-2 text-text-secondary">
               <ShieldAlert class="h-3.5 w-3.5" />
-              <span>Critical Assets</span>
+              <span>{{ t('assetCenter.stats.criticalAssets') }}</span>
             </div>
             <div class="mt-2 text-lg font-semibold text-text-primary">
               {{ assets.filter((asset) => asset.criticality === "critical").length }}
@@ -384,14 +386,14 @@ function selectAsset(asset: HostAsset) {
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
               <Star class="h-3.5 w-3.5" />
-              <span>Favorites</span>
+              <span>{{ t('assetCenter.favorites') }}</span>
             </div>
             <button
               v-if="favoriteAssets.length > 4"
               class="text-xs text-accent transition-colors hover:text-accent/80"
               @click="isFavoritesExpanded = !isFavoritesExpanded"
             >
-              {{ isFavoritesExpanded ? "Show Less" : "Show More" }}
+              {{ isFavoritesExpanded ? t("assetCenter.showLess") : t("assetCenter.showMore") }}
             </button>
           </div>
 
@@ -421,25 +423,25 @@ function selectAsset(asset: HostAsset) {
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
               <History class="h-3.5 w-3.5" />
-              <span>Recent Access</span>
+              <span>{{ t('assetCenter.recentAccess') }}</span>
             </div>
             <button
               v-if="historyItems.length > 4"
               class="text-xs text-accent transition-colors hover:text-accent/80"
               @click="isHistoryExpanded = !isHistoryExpanded"
             >
-              {{ isHistoryExpanded ? "Show Less" : "Show More" }}
+              {{ isHistoryExpanded ? t("assetCenter.showLess") : t("assetCenter.showMore") }}
             </button>
           </div>
 
           <div class="flex items-center gap-1 rounded-full bg-bg-primary p-1 text-[11px]">
-            <button class="rounded-full px-2 py-1" :class="historyFilter === 'all' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'all'">All</button>
-            <button class="rounded-full px-2 py-1" :class="historyFilter === 'success' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'success'">Success</button>
-            <button class="rounded-full px-2 py-1" :class="historyFilter === 'failed' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'failed'">Failed</button>
+            <button class="rounded-full px-2 py-1" :class="historyFilter === 'all' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'all'">{{ t('assetCenter.filters.all') }}</button>
+            <button class="rounded-full px-2 py-1" :class="historyFilter === 'success' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'success'">{{ t('assetCenter.filters.success') }}</button>
+            <button class="rounded-full px-2 py-1" :class="historyFilter === 'failed' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'" @click="historyFilter = 'failed'">{{ t('assetCenter.filters.failed') }}</button>
           </div>
 
           <div v-if="visibleHistoryItems.length === 0" class="rounded-lg border border-dashed border-border-primary bg-bg-primary px-3 py-4 text-center text-xs text-text-secondary">
-            No access history yet
+            {{ t('assetCenter.historyEmpty') }}
           </div>
 
           <div v-else class="space-y-2">
@@ -468,15 +470,15 @@ function selectAsset(asset: HostAsset) {
         </div>
       </div>
 
-      <div class="min-h-0 flex-1 px-3 py-3">
-        <div class="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.9fr)]">
-          <div class="flex min-h-0 flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
+      <div class="px-3 py-3">
+        <div class="grid gap-3">
+          <div class="flex min-h-[260px] flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
           <div class="flex items-center justify-between gap-3 border-b border-border-primary px-3 py-2.5 text-xs">
             <div class="flex items-center gap-1.5 font-medium uppercase tracking-wide text-text-secondary">
               <FolderTree class="h-3.5 w-3.5" />
-              <span>Asset Directory</span>
+              <span>{{ t('assetCenter.directoryTitle') }}</span>
             </div>
-            <span class="text-text-secondary">Folders group your host assets and access paths</span>
+            <span class="text-text-secondary">{{ t('assetCenter.directoryHint') }}</span>
           </div>
 
           <div class="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -503,10 +505,10 @@ function selectAsset(asset: HostAsset) {
           </div>
         </div>
 
-          <div class="flex min-h-0 flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
+          <div class="flex min-h-[240px] flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
             <div class="border-b border-border-primary px-4 py-3">
               <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                Asset Detail
+                {{ t('assetCenter.detailTitle') }}
               </div>
               <div v-if="selectedAsset" class="mt-2">
                 <div class="text-sm font-semibold text-text-primary">
@@ -520,33 +522,33 @@ function selectAsset(asset: HostAsset) {
 
             <div v-if="selectedAsset" class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               <div class="space-y-4">
-                <div class="grid grid-cols-2 gap-2 text-xs">
+                <div class="grid gap-2 text-xs sm:grid-cols-2">
                   <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2">
-                    <div class="text-text-secondary">Environment</div>
+                    <div class="text-text-secondary">{{ t('assetCenter.fields.environment') }}</div>
                     <div class="mt-1 text-text-primary">
-                      {{ (selectedAsset.envId && environmentMap.get(selectedAsset.envId)) || "Unassigned" }}
+                      {{ (selectedAsset.envId && environmentMap.get(selectedAsset.envId)) || t('assetCenter.fields.unassigned') }}
                     </div>
                   </div>
                   <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2">
-                    <div class="text-text-secondary">Risk</div>
+                    <div class="text-text-secondary">{{ t('assetCenter.fields.risk') }}</div>
                     <div class="mt-1 text-text-primary">{{ selectedAsset.criticality }}</div>
                   </div>
                 </div>
 
                 <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3 text-xs text-text-secondary">
-                  <div class="font-medium text-text-primary">Workspace</div>
+                  <div class="font-medium text-text-primary">{{ t('assetCenter.fields.workspace') }}</div>
                   <div class="mt-1">
-                    {{ selectedAsset.defaultWorkspacePath || "No default workspace configured" }}
+                    {{ selectedAsset.defaultWorkspacePath || t('assetCenter.fields.noWorkspace') }}
                   </div>
                 </div>
 
                 <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3 text-xs text-text-secondary">
-                  <div class="font-medium text-text-primary">Default Endpoint</div>
+                  <div class="font-medium text-text-primary">{{ t('assetCenter.fields.defaultEndpoint') }}</div>
                   <div class="mt-1">
-                    {{ selectedEndpoint ? `${selectedEndpoint.username}@${selectedEndpoint.host}:${selectedEndpoint.port}` : "No access endpoint configured" }}
+                    {{ selectedEndpoint ? `${selectedEndpoint.username}@${selectedEndpoint.host}:${selectedEndpoint.port}` : t('assetCenter.fields.noEndpoint') }}
                   </div>
                   <div v-if="selectedEndpoint?.jumpHost" class="mt-1">
-                    Jump via {{ selectedEndpoint.jumpUsername || "user" }}@{{ selectedEndpoint.jumpHost }}:{{ selectedEndpoint.jumpPort || 22 }}
+                    {{ t('assetCenter.fields.jumpVia', { username: selectedEndpoint.jumpUsername || 'user', host: selectedEndpoint.jumpHost, port: selectedEndpoint.jumpPort || 22 }) }}
                   </div>
                 </div>
 
@@ -555,7 +557,7 @@ function selectAsset(asset: HostAsset) {
                     class="rounded border border-border-primary bg-accent px-3 py-2 text-sm text-white hover:opacity-90"
                     @click="selectAsset(selectedAsset); connect(selectedAsset, 'quick')"
                   >
-                    Open Terminal
+                    {{ t('assetCenter.actions.openTerminal') }}
                   </button>
                   <button
                     class="rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary hover:bg-bg-elevated"
@@ -565,21 +567,21 @@ function selectAsset(asset: HostAsset) {
                       sessionStore.setActiveTab('files');
                     "
                   >
-                    Open Files
+                    {{ t('assetCenter.actions.openFiles') }}
                   </button>
                   <button
                     class="inline-flex items-center gap-1 rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary hover:bg-bg-elevated"
                     @click="emit('tunnels', selectedAsset)"
                   >
                     <Cable class="h-3.5 w-3.5" />
-                    <span>Manage Tunnels</span>
+                    <span>{{ t('assetCenter.actions.manageTunnels') }}</span>
                   </button>
                 </div>
 
                 <div class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3 text-xs text-text-secondary">
-                  <div class="font-medium text-text-primary">Recent Audit</div>
+                  <div class="font-medium text-text-primary">{{ t('assetCenter.fields.recentAudit') }}</div>
                   <div v-if="selectedAuditEvents.length === 0" class="mt-2">
-                    No recent audit events
+                    {{ t('assetCenter.fields.noRecentAudit') }}
                   </div>
                   <div v-else class="mt-2 space-y-2">
                     <div
@@ -599,9 +601,9 @@ function selectAsset(asset: HostAsset) {
 
             <div v-else class="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
               <div>
-                <div class="text-sm font-medium text-text-primary">Select an asset</div>
+                <div class="text-sm font-medium text-text-primary">{{ t('assetCenter.detailEmptyTitle') }}</div>
                 <div class="mt-1 text-xs text-text-secondary">
-                  Review endpoint, workspace, audit and quick actions here.
+                  {{ t('assetCenter.detailEmptyDescription') }}
                 </div>
               </div>
             </div>

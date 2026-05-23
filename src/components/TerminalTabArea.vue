@@ -3,6 +3,7 @@ import { ref, computed, nextTick } from 'vue';
 import TerminalView from './TerminalView.vue';
 import FileEditorModal from './FileEditorModal.vue';
 import { Terminal, FileText, X } from 'lucide-vue-next';
+import { useI18n } from '../composables/useI18n';
 
 defineProps<{
   sessionId: string;
@@ -13,6 +14,7 @@ const editorFiles = ref<Array<{ id: string; name: string; path: string; fileName
 const activeEditorId = ref<string | null>(null);
 const terminalViewRef = ref<any>(null);
 const fileEditorModalRef = ref<any>(null);
+const { t } = useI18n();
 
 const activeEditorFile = computed(() => {
   if (!activeEditorId.value) return null;
@@ -120,6 +122,17 @@ function handleEditorSave() {
   // This can be used for additional UI updates if needed
 }
 
+function activateEditor(fileId: string) {
+  activeTab.value = 'editor';
+  activeEditorId.value = fileId;
+}
+
+function handleEditorTabKeydown(event: KeyboardEvent, fileId: string) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  activateEditor(fileId);
+}
+
 async function switchToPath(path: string) {
   activeTab.value = 'terminal';
   await nextTick();
@@ -139,11 +152,11 @@ defineExpose({
 </script>
 
 <template>
-  <div class="h-full w-full flex flex-col bg-bg-primary">
+  <div class="flex h-full w-full min-h-0 flex-col bg-bg-primary">
     <!-- Tab Headers -->
-    <div class="bg-bg-secondary border-b border-subtle flex-shrink-0">
+    <div class="flex shrink-0 items-start border-b border-subtle bg-bg-secondary">
       <!-- Wrappable Tab Container -->
-      <div class="flex flex-wrap items-center min-h-8">
+      <div class="flex min-w-0 flex-1 flex-wrap items-center min-h-8">
         <!-- Terminal Tab -->
         <button @click="activeTab = 'terminal'" :class="[
           'flex items-center px-3 py-1 text-xs border-r border-subtle transition-all duration-normal whitespace-nowrap flex-shrink-0',
@@ -152,13 +165,19 @@ defineExpose({
             : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
         ]">
           <Terminal class="w-3 h-3 mr-1" />
-          Terminal
+          {{ t('terminalTabArea.terminalTab') }}
         </button>
 
         <!-- Editor Tabs -->
-        <button v-for="file in editorFiles" :key="file.id" @click="activeTab = 'editor'; activeEditorId = file.id"
+        <div
+          v-for="file in editorFiles"
+          :key="file.id"
+          role="button"
+          tabindex="0"
+          @click="activateEditor(file.id)"
+          @keydown="handleEditorTabKeydown($event, file.id)"
           :class="[
-            'flex items-center px-2 py-1 text-xs border-r border-subtle transition-all duration-normal group whitespace-nowrap flex-shrink-0 max-w-[200px]',
+            'group flex max-w-[200px] flex-shrink-0 items-center border-r border-subtle px-2 py-1 text-xs transition-all duration-normal whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary',
             activeTab === 'editor' && activeEditorId === file.id
               ? 'bg-bg-tertiary text-text-primary border-l border-l-primary'
               : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
@@ -166,25 +185,25 @@ defineExpose({
           <FileText class="w-3 h-3 mr-1 flex-shrink-0" />
           <span class="truncate">{{ file.name }}</span>
           <button @click.stop="closeEditor(file.id)"
-            class="ml-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-bg-elevated transition-all duration-normal flex-shrink-0"
+            class="ml-1 flex-shrink-0 rounded p-0.5 opacity-0 transition-all duration-normal group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-bg-elevated"
             :class="activeTab === 'editor' && activeEditorId === file.id ? 'opacity-100' : ''">
             <X class="w-3 h-3" />
           </button>
-        </button>
+        </div>
       </div>
 
       <!-- Close All Editors Button (on the right, aligned to last row) -->
-      <div v-if="editorFiles.length > 0" class="flex-shrink-0 ml-auto border-l border-subtle">
+      <div v-if="editorFiles.length > 0" class="ml-auto shrink-0 border-l border-subtle">
         <button @click="closeAllEditors"
           class="px-2 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-all duration-normal"
-          title="Close All Editors">
-          Close All
+          :title="t('terminalTabArea.closeAllEditors')">
+          {{ t('terminalTabArea.closeAllEditors') }}
         </button>
       </div>
     </div>
 
     <!-- Tab Content -->
-    <div class="flex-1 overflow-hidden">
+    <div class="min-h-0 flex-1 overflow-hidden">
       <!-- Terminal View -->
       <div v-show="activeTab === 'terminal'" class="h-full w-full">
         <TerminalView ref="terminalViewRef" :sessionId="sessionId" />
