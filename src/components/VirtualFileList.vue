@@ -37,6 +37,8 @@ interface Props {
     renamingPath?: string | null;
     renameInput?: string;
     currentPath?: string;
+    onDragStart?: (event: DragEvent, item: FileEntry | TreeNode, index: number) => void;
+    onDragEnd?: () => void;
 }
 
 const emit = defineEmits<{
@@ -158,6 +160,7 @@ function renderFileItem(item: FileEntry, index: number) {
     return h('div', {
         key: item.name,
         'data-file-item': 'true',
+        draggable: item.name !== '..',
         class: [
             'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {
@@ -166,7 +169,9 @@ function renderFileItem(item: FileEntry, index: number) {
                 'text-text-muted': isParentDir // Special styling for parent directory
             }
         ],
-        onClick: (e: MouseEvent) => props.onSelection(e, item, index),
+    onClick: (e: MouseEvent) => props.onSelection(e, item, index),
+        onDragstart: (e: DragEvent) => props.onDragStart?.(e, item, index),
+        onDragend: () => props.onDragEnd?.(),
         onDblclick: () => props.onNavigate(item),
         onContextmenu: (e: MouseEvent) => props.onContextMenu(e, item)
     }, [
@@ -280,6 +285,7 @@ function renderTreeNode(node: TreeNode) {
     return h('div', {
         key: node.path,
         'data-file-item': 'true',
+        draggable: !isParentDir,
         class: [
             'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
             {

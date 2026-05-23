@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, shallowRef, triggerRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { join, tempDir } from '@tauri-apps/api/path';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy, MessageSquareQuote, Terminal as TerminalIcon } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
-import { readDir, mkdir, stat } from '@tauri-apps/plugin-fs';
+import { readDir, mkdir, remove, stat } from '@tauri-apps/plugin-fs';
+import { startDrag } from '@crabnebula/tauri-plugin-drag';
 import type { FileEntry, FileManagerViewMode, FilePageResponse } from '../types';
 import { useSessionStore } from '../stores/sessions'; // Import session store
 import { useNotificationStore } from '../stores/notifications';
@@ -35,6 +37,234 @@ interface TreePageState {
     nextCursor: number | null;
     hasMore: boolean;
     loading: boolean;
+}
+
+interface DownloadTarget {
+    remotePath: string;
+    name: string;
+    isDir: boolean;
+    size: number;
+}
+
+const DRAG_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9qvS8AAAAASUVORK5CYII=';
+const WINDOWS_RESERVED_NAMES = new Set([
+    'CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+]);
+
+function normalizeRemotePath(path: string) {
+    return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/+$/g, '');
+}
+
+function sanitizeLocalName(name: string) {
+    let value = name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').trim();
+    if (!value || value === '.' || value === '..') {
+        value = 'download';
+    }
+
+    const base = value.split('.')[0]?.toUpperCase();
+    if (base && WINDOWS_RESERVED_NAMES.has(base)) {
+        value = `_${value}`;
+    }
+
+    return value;
+}
+
+function splitLocalName(name: string) {
+    const dot = name.lastIndexOf('.');
+    if (dot > 0) {
+        return [name.slice(0, dot), name.slice(dot)] as const;
+    }
+    return [name, ''] as const;
+}
+
+function uniqueLocalName(name: string, usedNames: Set<string>) {
+    const sanitized = sanitizeLocalName(name);
+    const makeKey = (value: string) => value.toLowerCase();
+
+    if (!usedNames.has(makeKey(sanitized))) {
+        usedNames.add(makeKey(sanitized));
+        return sanitized;
+    }
+
+    const [stem, ext] = splitLocalName(sanitized);
+    let index = 2;
+    while (usedNames.has(makeKey(`${stem} (${index})${ext}`))) {
+        index++;
+    }
+
+    const unique = `${stem} (${index})${ext}`;
+    usedNames.add(makeKey(unique));
+    return unique;
+}
+
+function isDescendantPath(childPath: string, parentPath: string) {
+    const child = normalizeRemotePath(childPath);
+    const parent = normalizeRemotePath(parentPath);
+    if (!child || !parent || child === parent) {
+        return false;
+    }
+    return child.startsWith(`${parent}/`);
+}
+
+function pruneNestedTargets(targets: DownloadTarget[]) {
+    return targets.filter((target) =>
+        !targets.some((other) => other.isDir && other.remotePath !== target.remotePath && isDescendantPath(target.remotePath, other.remotePath))
+    );
+}
+
+function createTransferId() {
+    return typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).substring(2);
+}
+
+function getTreeSelectionTargets(preferredNode?: TreeNode) {
+    const paths = selectedTreePaths.value.size > 0
+        ? Array.from(selectedTreePaths.value)
+        : (preferredNode ? [preferredNode.path] : contextMenu.value.treePath ? [contextMenu.value.treePath] : []);
+
+    const targets = paths
+        .map((path) => {
+            const node = treeNodes.value.get(path);
+            if (!node || isLoadMoreNode(node)) return null;
+            return {
+                remotePath: path,
+                name: node.entry.name,
+                isDir: node.entry.isDir,
+                size: node.entry.size
+            } satisfies DownloadTarget;
+        })
+        .filter((item): item is DownloadTarget => item !== null);
+
+    return pruneNestedTargets(targets);
+}
+
+function getFlatSelectionTargets(preferredFile?: FileEntry) {
+    const names = selectedFiles.value.size > 0
+        ? Array.from(selectedFiles.value)
+        : (preferredFile ? [preferredFile.name] : contextMenu.value.file ? [contextMenu.value.file.name] : []);
+
+    return names
+        .map((name) => {
+            const entry = files.value.find((file) => file.name === name);
+            if (!entry) return null;
+            return {
+                remotePath: pathUtils.value.join(currentPath.value, entry.name),
+                name: entry.name,
+                isDir: entry.isDir,
+                size: entry.size
+            } satisfies DownloadTarget;
+        })
+        .filter((item): item is DownloadTarget => item !== null);
+}
+
+function resolveDownloadTargets(file?: FileEntry) {
+    return isTreeMode.value
+        ? getTreeSelectionTargets(file ? { entry: file, path: contextMenu.value.treePath || file.name, depth: 0, parentPath: null, childrenLoaded: false, loading: false } : undefined)
+        : getFlatSelectionTargets(file);
+}
+
+function isTreeNode(item: FileEntry | TreeNode): item is TreeNode {
+    return 'entry' in item;
+}
+
+function resolveDragTargets(item: FileEntry | TreeNode) {
+    if (isTreeNode(item)) {
+        if (item.entry.name === '..') return [];
+        const selected = selectedTreePaths.value.has(item.path)
+            ? getTreeSelectionTargets(item)
+            : [{
+                remotePath: item.path,
+                name: item.entry.name,
+                isDir: item.entry.isDir,
+                size: item.entry.size
+            }];
+        return pruneNestedTargets(selected);
+    }
+
+    if (item.name === '..') return [];
+    const selected = selectedFiles.value.has(item.name)
+        ? getFlatSelectionTargets(item)
+        : [{
+            remotePath: pathUtils.value.join(currentPath.value, item.name),
+            name: item.name,
+            isDir: item.isDir,
+            size: item.size
+        }];
+    return selected;
+}
+
+async function downloadTargetToDirectory(target: DownloadTarget, destinationDir: string, usedNames: Set<string>) {
+    const localName = uniqueLocalName(target.name, usedNames);
+    const localPath = await join(destinationDir, localName);
+
+    if (target.isDir) {
+        await downloadDirectory(target.remotePath, localPath, props.sessionId);
+        return localPath;
+    }
+
+    await mkdir(destinationDir, { recursive: true });
+    const transferId = createTransferId();
+    transferStore.addTransfer({
+        id: transferId,
+        type: 'download',
+        name: target.name,
+        localPath,
+        remotePath: target.remotePath,
+        size: target.size,
+        transferred: 0,
+        progress: 0,
+        status: 'pending',
+        sessionId: props.sessionId
+    });
+    await waitForFileCompletion(transferId);
+    return localPath;
+}
+
+async function downloadTargetsToDirectory(targets: DownloadTarget[], destinationDir: string) {
+    const usedNames = new Set<string>();
+    const localPaths: string[] = [];
+    for (const target of targets) {
+        localPaths.push(await downloadTargetToDirectory(target, destinationDir, usedNames));
+    }
+    return localPaths;
+}
+
+async function downloadTargetsAsDrag(targets: DownloadTarget[]) {
+    if (targets.length === 0) return;
+
+    const tempBaseDir = await tempDir();
+    const dragRoot = await join(tempBaseDir, 'ssh-star-drag-downloads', props.sessionId, createTransferId());
+    await mkdir(dragRoot, { recursive: true });
+
+    try {
+        const localPaths = await downloadTargetsToDirectory(targets, dragRoot);
+        await startDrag({
+            item: localPaths,
+            icon: DRAG_ICON_DATA_URL
+        });
+    } finally {
+        await remove(dragRoot, { recursive: true }).catch(() => {});
+    }
+}
+
+function handleFileDragStart(event: DragEvent, item: FileEntry | TreeNode) {
+    if (isTreeNode(item) && isLoadMoreNode(item)) return;
+    if (!isTreeNode(item) && item.name === '..') return;
+
+    event.stopPropagation();
+
+    const targets = resolveDragTargets(item);
+    void downloadTargetsAsDrag(targets).catch((error) => {
+        console.error('Failed to start drag download:', error);
+        notificationStore.error(t('fileManager.notifications.downloadFailed', { error }));
+    });
+}
+
+function handleFileDragEnd() {
+    // Native drag-out completes or cancels via the plugin promise.
 }
 
 function showTreeContextMenu(e: MouseEvent, node: TreeNode) {
@@ -1722,97 +1952,53 @@ async function waitForFileCompletion(fileTransferId: string): Promise<void> {
 
 async function handleDownload(file?: FileEntry) {
     try {
-        // Determine if this is batch download or single download
-        const isTreeMode = contextMenu.value.isTree;
-        const isMultiSelect = !isTreeMode && selectedFiles.value.size > 1;
+        const targets = resolveDownloadTargets(file);
+        if (targets.length === 0) return;
 
-        if (isMultiSelect) {
-            // Batch download for multiple selected files
-                const selectedDirectory = await open({
-                    directory: true,
-                    title: t('fileManager.dialogs.batchDownloadTitle')
-                });
+        if (targets.length > 1) {
+            const selectedDirectory = await open({
+                directory: true,
+                title: t('fileManager.dialogs.batchDownloadTitle')
+            });
 
             if (selectedDirectory && typeof selectedDirectory === 'string') {
-                const targets = Array.from(selectedFiles.value);
-                for (const fileName of targets) {
-                    const entry = files.value.find(f => f.name === fileName);
-                    if (!entry) continue;
-
-                    const remotePath = pathUtils.value.join(currentPath.value, entry.name);
-                    const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
-                        ? `${selectedDirectory}${entry.name}`
-                        : `${selectedDirectory}/${entry.name}`;
-
-                    if (entry.isDir) {
-                        // Download directory recursively
-                        await downloadDirectory(remotePath, localPath, props.sessionId);
-                    } else {
-                        // Download single file
-                        transferStore.addTransfer({
-                            id: crypto.randomUUID(),
-                            type: 'download',
-                            name: entry.name,
-                            localPath,
-                            remotePath,
-                            size: entry.size,
-                            transferred: 0,
-                            progress: 0,
-                            status: 'pending',
-                            sessionId: props.sessionId
-                        });
-                    }
-                }
+                await downloadTargetsToDirectory(targets, selectedDirectory);
             }
-        } else {
-            // Single file or directory download
-            const targetFile = file || contextMenu.value.file;
-            if (!targetFile) return;
+            return;
+        }
 
-            if (targetFile.isDir) {
-                // Directory download - ask for local directory
-                const selectedDirectory = await open({
-                    directory: true,
-                    title: t('fileManager.dialogs.downloadDirectoryTitle')
-                });
+        const target = targets[0];
+        if (target.isDir) {
+            const selectedDirectory = await open({
+                directory: true,
+                title: t('fileManager.dialogs.downloadDirectoryTitle')
+            });
 
-                if (selectedDirectory && typeof selectedDirectory === 'string') {
-                    const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
-                        ? contextMenu.value.treePath
-                        : pathUtils.value.join(currentPath.value, targetFile.name);
-
-                    const localPath = selectedDirectory.endsWith('/') || selectedDirectory.endsWith('\\')
-                        ? `${selectedDirectory}${targetFile.name}`
-                        : `${selectedDirectory}/${targetFile.name}`;
-
-                    await downloadDirectory(remotePath, localPath, props.sessionId);
-                }
-            } else {
-                // Single file download
-                const savePath = await save({
-                    defaultPath: targetFile.name,
-                    title: t('fileManager.dialogs.saveFileAsTitle')
-                });
-
-                if (savePath) {
-                    const remotePath = contextMenu.value.isTree && contextMenu.value.treePath
-                        ? contextMenu.value.treePath
-                        : pathUtils.value.join(currentPath.value, targetFile.name);
-
-                    transferStore.addTransfer({
-                        id: crypto.randomUUID(),
-                        type: 'download',
-                        name: targetFile.name,
-                        localPath: savePath,
-                        remotePath,
-                        size: targetFile.size,
-                        transferred: 0,
-                        progress: 0,
-                        status: 'pending',
-                        sessionId: props.sessionId
-                    });
-                }
+            if (selectedDirectory && typeof selectedDirectory === 'string') {
+                const localPath = await join(selectedDirectory, sanitizeLocalName(target.name));
+                await downloadDirectory(target.remotePath, localPath, props.sessionId);
             }
+            return;
+        }
+
+        const savePath = await save({
+            defaultPath: target.name,
+            title: t('fileManager.dialogs.saveFileAsTitle')
+        });
+
+        if (savePath) {
+            transferStore.addTransfer({
+                id: createTransferId(),
+                type: 'download',
+                name: target.name,
+                localPath: savePath,
+                remotePath: target.remotePath,
+                size: target.size,
+                transferred: 0,
+                progress: 0,
+                status: 'pending',
+                sessionId: props.sessionId
+            });
         }
     } catch (e) {
         console.error(e);
@@ -2313,10 +2499,11 @@ function formatSize(size: number): string {
 
             <!-- Flat View -->
             <template v-if="viewMode === 'flat'">
-                <VirtualFileList ref="virtualListRef" :items="sortedFiles" :view-mode="viewMode" :selected-files="selectedFiles"
+                    <VirtualFileList ref="virtualListRef" :items="sortedFiles" :view-mode="viewMode" :selected-files="selectedFiles"
                     :selected-tree-paths="selectedTreePaths" :column-widths="columnWidths"
                     :scroll-element="fileListScrollRef"
                     :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
+                    :on-drag-start="handleFileDragStart" :on-drag-end="handleFileDragEnd"
                     :expanded-paths="expandedPaths" :format-size="formatSize"
                     :format-date="formatDate" :renaming-path="renamingPath" v-model:rename-input="renameInput"
                     @confirm-rename="confirmRename" @cancel-rename="cancelRename" :current-path="currentPath" />
@@ -2324,12 +2511,13 @@ function formatSize(size: number): string {
 
             <!-- Tree View -->
             <template v-else>
-                <VirtualFileList ref="virtualListRef" :items="visibleTreeNodes" :view-mode="viewMode" :selected-files="selectedFiles"
+                    <VirtualFileList ref="virtualListRef" :items="visibleTreeNodes" :view-mode="viewMode" :selected-files="selectedFiles"
                     :selected-tree-paths="selectedTreePaths" :column-widths="columnWidths"
                     :scroll-element="fileListScrollRef"
                     :on-selection="handleSelection" :on-navigate="navigate" :on-context-menu="showContextMenu"
                     :on-tree-selection="handleTreeSelection" :on-open-tree-file="openTreeFile"
                     :on-tree-context-menu="showTreeContextMenu" :on-toggle-directory="toggleDirectory"
+                    :on-drag-start="handleFileDragStart" :on-drag-end="handleFileDragEnd"
                     :expanded-paths="expandedPaths" :format-size="formatSize"
                     :format-date="formatDate" :renaming-path="renamingPath" v-model:rename-input="renameInput"
                     @confirm-rename="confirmRename" @cancel-rename="cancelRename" :current-path="currentPath" />
@@ -2408,12 +2596,12 @@ function formatSize(size: number): string {
                 <button @click.stop="handleDownload()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center transition-all duration-fast">
                     <span class="flex-1">{{
-                        (!contextMenu.isTree && selectedFiles.size > 1)
+                        selectedCount > 1
                             ? t('fileManager.contextMenu.batchDownload')
                             : t('fileManager.contextMenu.download')
                     }}</span>
-                    <span v-if="!contextMenu.isTree && selectedFiles.size > 1" class="text-xs text-text-tertiary">({{
-                        selectedFiles.size
+                    <span v-if="selectedCount > 1" class="text-xs text-text-tertiary">({{
+                        selectedCount
                     }})</span>
                 </button>
                 <button @click.stop="handleAddToAiContext()"

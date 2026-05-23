@@ -16,6 +16,7 @@
     "release:major": "npm version major && npm run release"
   },
   "dependencies": {
+    "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@rollup/rollup-linux-x64-gnu": "^4.59.0",
     "@tanstack/vue-virtual": "^3.13.12",
     "@tauri-apps/api": "^2",
