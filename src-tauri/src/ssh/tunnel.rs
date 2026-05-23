@@ -546,16 +546,42 @@ pub fn start_tunnel(
         },
     );
 
+    let _ = crate::ops::append_audit_event(
+        &app_handle,
+        "tunnel.started",
+        Some(tunnel.connection_id),
+        None,
+        None,
+        "Started tunnel",
+        Some(tunnel.name.as_str()),
+        "info",
+        None,
+    );
+
     Ok(status)
 }
 
 #[tauri::command]
-pub fn stop_tunnel(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+pub fn stop_tunnel(app_handle: AppHandle, state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let tunnel = db::get_tunnel_by_id(&app_handle, id)?;
     let mut tunnels = state.tunnels.lock().map_err(|e| e.to_string())?;
 
     if let Some(mut runtime) = tunnels.remove(&id) {
         let _ = runtime.child.kill();
         let _ = runtime.child.wait();
+        if let Some(tunnel) = tunnel {
+            let _ = crate::ops::append_audit_event(
+                &app_handle,
+                "tunnel.stopped",
+                Some(tunnel.connection_id),
+                None,
+                None,
+                "Stopped tunnel",
+                Some(tunnel.name.as_str()),
+                "info",
+                None,
+            );
+        }
         return Ok(());
     }
 

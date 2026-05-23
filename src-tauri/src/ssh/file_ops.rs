@@ -34,6 +34,30 @@ pub struct FilePageResponse {
     pub has_more: bool,
 }
 
+fn append_file_audit_event(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+    session_id: &str,
+    event_type: &str,
+    title: &str,
+    detail: Option<&str>,
+    severity: &str,
+) {
+    if let Ok(context) = crate::ssh::client::get_client_session_context(state, session_id) {
+        let _ = crate::ops::append_audit_event(
+            app_handle,
+            event_type,
+            context.asset_id,
+            Some(session_id),
+            None,
+            title,
+            detail,
+            severity,
+            None,
+        );
+    }
+}
+
 fn to_wsl_path(distro: &str, path: &str) -> PathBuf {
     let clean_path = path.replace("/", "\\");
     let trimmed = clean_path.trim_start_matches('\\');
@@ -95,6 +119,7 @@ pub async fn read_remote_file(
 
 #[tauri::command]
 pub async fn write_remote_file(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     path: String,
@@ -106,7 +131,7 @@ pub async fn write_remote_file(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    match &client.client_type {
+    let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
             execute_ssh_operation(move || {
@@ -151,7 +176,21 @@ pub async fn write_remote_file(
             .await
             .map_err(|e| format!("Task join error: {}", e))?
         }
+    };
+
+    if result.is_ok() {
+        append_file_audit_event(
+            &app_handle,
+            &state,
+            &id,
+            "file.written",
+            "Wrote remote file",
+            Some(path.as_str()),
+            "warning",
+        );
     }
+
+    result
 }
 
 #[tauri::command]
@@ -315,6 +354,7 @@ pub async fn list_files_page(
 
 #[tauri::command]
 pub async fn create_directory(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     path: String,
@@ -324,7 +364,7 @@ pub async fn create_directory(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    match &client.client_type {
+    let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
             execute_ssh_operation(move || {
@@ -347,11 +387,26 @@ pub async fn create_directory(
             .await
             .map_err(|e| format!("Task join error: {}", e))?
         }
+    };
+
+    if result.is_ok() {
+        append_file_audit_event(
+            &app_handle,
+            &state,
+            &id,
+            "file.directoryCreated",
+            "Created remote directory",
+            Some(path.as_str()),
+            "warning",
+        );
     }
+
+    result
 }
 
 #[tauri::command]
 pub async fn create_file(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     path: String,
@@ -361,7 +416,7 @@ pub async fn create_file(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    match &client.client_type {
+    let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
             execute_ssh_operation(move || {
@@ -385,11 +440,26 @@ pub async fn create_file(
             .await
             .map_err(|e| format!("Task join error: {}", e))?
         }
+    };
+
+    if result.is_ok() {
+        append_file_audit_event(
+            &app_handle,
+            &state,
+            &id,
+            "file.created",
+            "Created remote file",
+            Some(path.as_str()),
+            "warning",
+        );
     }
+
+    result
 }
 
 #[tauri::command]
 pub async fn delete_item(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     path: String,
@@ -400,7 +470,7 @@ pub async fn delete_item(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    match &client.client_type {
+    let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
             execute_ssh_operation(move || {
@@ -431,13 +501,32 @@ pub async fn delete_item(
             .await
             .map_err(|e| format!("Task join error: {}", e))?
         }
+    };
+
+    if result.is_ok() {
+        append_file_audit_event(
+            &app_handle,
+            &state,
+            &id,
+            if is_dir { "file.directoryDeleted" } else { "file.deleted" },
+            if is_dir {
+                "Deleted remote directory"
+            } else {
+                "Deleted remote file"
+            },
+            Some(path.as_str()),
+            "warning",
+        );
     }
+
+    result
 }
 
 // rm_recursive helper removed as it's now handled by SshManager
 
 #[tauri::command]
 pub async fn rename_item(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     old_path: String,
@@ -448,7 +537,7 @@ pub async fn rename_item(
         clients.get(&id).ok_or("Session not found")?.clone()
     };
 
-    match &client.client_type {
+    let result = match &client.client_type {
         ClientType::Ssh(senders) => {
             let sender = senders.ops.clone();
             execute_ssh_operation(move || {
@@ -476,7 +565,21 @@ pub async fn rename_item(
             .await
             .map_err(|e| format!("Task join error: {}", e))?
         }
+    };
+
+    if result.is_ok() {
+        append_file_audit_event(
+            &app_handle,
+            &state,
+            &id,
+            "file.renamed",
+            "Renamed remote file",
+            Some(format!("{} -> {}", old_path, new_path).as_str()),
+            "warning",
+        );
     }
+
+    result
 }
 
 #[tauri::command]

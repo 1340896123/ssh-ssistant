@@ -114,7 +114,6 @@ function resetForms() {
     username:
       props.endpointToEdit?.username ??
       props.credentialRefToEdit?.username ??
-      props.assetToEdit?.owner ??
       "root",
     authType:
       props.endpointToEdit?.authType ??

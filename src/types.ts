@@ -74,6 +74,14 @@ export interface ConnectionHistoryEntry {
   source: ConnectionHistorySource;
 }
 
+export interface AssetAccessHistoryEntry {
+  assetId: number;
+  connectedAt: number;
+  status: ConnectionHistoryStatus;
+  reason?: string;
+  source: ConnectionHistorySource;
+}
+
 export interface AssetFolder {
   id?: number;
   name: string;
@@ -136,6 +144,7 @@ export interface AssetSessionConnectResult {
   sessionId: string;
   assetId: number;
   assetName: string;
+  createdAt: number;
   envId?: number | null;
   accessEndpointId?: number | null;
   credentialRefId?: number | null;
@@ -356,27 +365,28 @@ export interface Workspace {
   isIndexed: boolean;
 }
 
-export interface Session {
+export interface OpsSession {
   id: string;
   assetId: number;
   assetName: string;
+  createdAt: number;
+  accessEndpointId?: number | null;
+  credentialRefId?: number | null;
+  bastionChainId?: string | null;
+  currentPath: string;
+  riskLevel: AssetCriticality;
+  healthSummary?: string | null;
+  lastJobRunId?: number | null;
   status: "connected" | "disconnected" | "connecting";
   activeTab: "terminal" | "files" | "ai";
-  currentPath: string;
   files: FileEntry[];
   connectedAt: number;
   activeWorkspace?: Workspace;
   os?: string;
   envId?: number | null;
-  riskLevel?: AssetCriticality;
-  healthSummary?: string | null;
-  accessEndpointId?: number | null;
-  credentialRefId?: number | null;
-  bastionChainId?: string | null;
-  lastJobRunId?: number | null;
 }
 
-export type OpsSession = Session;
+export type Session = OpsSession;
 
 export type ConnectionStatus =
   | "connecting"

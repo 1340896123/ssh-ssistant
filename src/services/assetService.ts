@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AssetAccessHistoryEntry,
   AssetUpsertPayload,
   AssetFolder,
   AssetTag,
@@ -36,7 +37,17 @@ export const assetService = {
   createTag: (tag: AssetTag) => invoke<AssetTag>("asset_create_asset_tag", { tag }),
   removeTag: (id: number) => invoke("asset_delete_asset_tag", { id }),
   listSavedViews: () => invoke<SavedAssetView[]>("asset_get_saved_views"),
+  listAccessHistory: (assetId?: number, limit?: number) =>
+    invoke<AssetAccessHistoryEntry[]>("asset_get_access_history", { assetId, limit }),
   createSavedView: (view: SavedAssetView) =>
     invoke<SavedAssetView>("asset_create_saved_view", { view }),
   removeSavedView: (id: number) => invoke("asset_delete_saved_view", { id }),
+  importLegacyClientState: (
+    favoriteAssetIds: number[],
+    historyEntries: AssetAccessHistoryEntry[],
+  ) =>
+    invoke("asset_import_legacy_client_state", {
+      favoriteAssetIds,
+      historyEntries,
+    }),
 };

@@ -2,10 +2,11 @@ use crate::db::get_db_path;
 use crate::models::{
     AccessEndpoint, AssetFolder, AssetSessionConnectResult, AssetTag, AssetUpsertPayload,
     AuditEvent, Connection as SshConnection, CredentialRef, Environment, HostAsset, JobRun,
-    JobTemplate, SavedAssetView, SyncState,
+    JobTemplate, OpsSession, SavedAssetView, SyncState,
 };
 use crate::ssh::{client, client::AppState, command};
 use rusqlite::{params, Connection as SqliteConnection};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 fn now_ts() -> i64 {
@@ -63,6 +64,16 @@ fn default_credential_name(asset_name: &str, credential_kind: &str) -> String {
         "token" => format!("{} token credential", asset_name),
         _ => format!("{} password credential", asset_name),
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetAccessHistoryEntry {
+    pub asset_id: i64,
+    pub connected_at: i64,
+    pub status: String,
+    pub reason: Option<String>,
+    pub source: String,
 }
 
 pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
@@ -231,6 +242,12 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
             metadata_json TEXT,
             updated_at INTEGER NOT NULL
         );
+
+        CREATE INDEX IF NOT EXISTS idx_host_assets_last_accessed_at
+            ON host_assets(last_accessed_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_audit_events_asset_created_at
+            ON audit_events(asset_id, created_at DESC);
         "#,
     )?;
 
@@ -245,7 +262,7 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         )
         SELECT
             id, name, host, port, username, password, COALESCE(auth_type, 'password'), ssh_key_id, jump_host, jump_port, jump_username, jump_password,
-            COALESCE(os_type, 'Linux'), group_id, username, 'medium',
+            COALESCE(os_type, 'Linux'), group_id, NULL, 'medium',
             CASE
                 WHEN COALESCE(os_type, 'Linux') = 'Windows' THEN 'C:/Users/' || username
                 ELSE '/home/' || username
@@ -254,6 +271,7 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         FROM connections",
         [],
     )?;
+    conn.execute("UPDATE host_assets SET owner = NULL", [])?;
     conn.execute(
         "INSERT OR IGNORE INTO credential_refs (id, name, credential_kind, username, secret, ssh_key_id, asset_id, created_at, updated_at)
          SELECT
@@ -559,6 +577,18 @@ fn map_audit_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEvent> 
         severity: row.get(7)?,
         metadata_json: row.get(8)?,
         created_at: row.get(9)?,
+    })
+}
+
+fn map_access_history_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<AssetAccessHistoryEntry> {
+    Ok(AssetAccessHistoryEntry {
+        asset_id: row.get(0)?,
+        connected_at: row.get(1)?,
+        status: row.get(2)?,
+        reason: row.get(3)?,
+        source: row.get(4)?,
     })
 }
 
@@ -974,6 +1004,160 @@ pub fn asset_get_saved_views(app_handle: AppHandle) -> Result<Vec<SavedAssetView
         items.push(row.map_err(|e| e.to_string())?);
     }
     Ok(items)
+}
+
+#[tauri::command]
+pub fn asset_get_access_history(
+    app_handle: AppHandle,
+    asset_id: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<AssetAccessHistoryEntry>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let limit = limit.unwrap_or(200) as i64;
+
+    let sql = if asset_id.is_some() {
+        "SELECT asset_id, created_at, status, detail, source
+         FROM (
+            SELECT
+                asset_id,
+                created_at,
+                CASE
+                    WHEN event_type = 'session.connected' THEN 'success'
+                    ELSE 'failed'
+                END AS status,
+                CASE
+                    WHEN event_type = 'session.connected' THEN NULL
+                    ELSE detail
+                END AS detail,
+                COALESCE(
+                    json_extract(metadata_json, '$.source'),
+                    CASE
+                        WHEN event_type = 'session.connected' THEN 'tree'
+                        ELSE 'tree'
+                    END
+                ) AS source
+            FROM audit_events
+            WHERE asset_id = ?1
+              AND event_type IN ('session.connected', 'session.connectFailed')
+         )
+         ORDER BY created_at DESC
+         LIMIT ?2"
+    } else {
+        "SELECT asset_id, created_at, status, detail, source
+         FROM (
+            SELECT
+                asset_id,
+                created_at,
+                CASE
+                    WHEN event_type = 'session.connected' THEN 'success'
+                    ELSE 'failed'
+                END AS status,
+                CASE
+                    WHEN event_type = 'session.connected' THEN NULL
+                    ELSE detail
+                END AS detail,
+                COALESCE(
+                    json_extract(metadata_json, '$.source'),
+                    CASE
+                        WHEN event_type = 'session.connected' THEN 'tree'
+                        ELSE 'tree'
+                    END
+                ) AS source
+            FROM audit_events
+            WHERE asset_id IS NOT NULL
+              AND event_type IN ('session.connected', 'session.connectFailed')
+         )
+         ORDER BY created_at DESC
+         LIMIT ?1"
+    };
+
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let rows = if let Some(asset_id) = asset_id {
+        stmt.query_map(params![asset_id, limit], map_access_history_row)
+            .map_err(|e| e.to_string())?
+    } else {
+        stmt.query_map(params![limit], map_access_history_row)
+            .map_err(|e| e.to_string())?
+    };
+
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn asset_import_legacy_client_state(
+    app_handle: AppHandle,
+    favorite_asset_ids: Vec<i64>,
+    history_entries: Vec<AssetAccessHistoryEntry>,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    for asset_id in favorite_asset_ids {
+        tx.execute(
+            "UPDATE host_assets SET is_favorite = 1, updated_at = ?2 WHERE id = ?1",
+            params![asset_id, now_ts()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for entry in history_entries {
+        let event_type = if entry.status == "success" {
+            "session.connected"
+        } else {
+            "session.connectFailed"
+        };
+        let metadata_json = serde_json::json!({
+            "source": entry.source,
+            "imported": true,
+        })
+        .to_string();
+        let existing_count: i64 = tx
+            .query_row(
+                "SELECT COUNT(1) FROM audit_events
+                 WHERE asset_id = ?1
+                   AND event_type = ?2
+                   AND created_at = ?3
+                   AND COALESCE(json_extract(metadata_json, '$.source'), '') = ?4",
+                params![
+                    entry.asset_id,
+                    event_type,
+                    entry.connected_at,
+                    entry.source.as_str()
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+
+        if existing_count == 0 {
+            tx.execute(
+                "INSERT INTO audit_events (event_type, asset_id, session_id, job_run_id, title, detail, severity, metadata_json, created_at)
+                 VALUES (?1, ?2, NULL, NULL, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    event_type,
+                    entry.asset_id,
+                    if entry.status == "success" {
+                        "Imported legacy successful connection"
+                    } else {
+                        "Imported legacy failed connection"
+                    },
+                    entry.reason,
+                    if entry.status == "success" { "info" } else { "warning" },
+                    metadata_json,
+                    entry.connected_at
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -2053,16 +2237,18 @@ pub async fn session_connect_asset(
     asset_id: i64,
     access_endpoint_id: Option<i64>,
     existing_session_id: Option<String>,
+    source: Option<String>,
 ) -> Result<AssetSessionConnectResult, String> {
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
     let (asset, endpoint, credential_ref) = resolve_asset_bundle(&conn, asset_id, access_endpoint_id)?;
     drop(conn);
+    let created_at = now_ts();
 
     let ssh_config = map_connection_from_endpoint(&asset, &endpoint, credential_ref.as_ref());
     let session_id = client::connect(
         app_handle.clone(),
-        state,
+        state.clone(),
         ssh_config,
         existing_session_id,
     )
@@ -2072,9 +2258,26 @@ pub async fn session_connect_asset(
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE host_assets SET last_accessed_at = ?2, updated_at = ?2 WHERE id = ?1",
-        params![asset_id, now_ts()],
+        params![asset_id, created_at],
     )
     .map_err(|e| e.to_string())?;
+    {
+        let mut clients = state.clients.lock().map_err(|e| e.to_string())?;
+        if let Some(client) = clients.get_mut(&session_id) {
+            client.asset_id = Some(asset_id);
+            client.access_endpoint_id = endpoint.id;
+            client.credential_ref_id = endpoint
+                .credential_ref_id
+                .or_else(|| credential_ref.as_ref().and_then(|item| item.id));
+            client.bastion_chain_id = asset.bastion_chain_id.clone();
+        }
+    }
+    let audit_metadata = serde_json::json!({
+        "source": source.clone().unwrap_or_else(|| "tree".to_string()),
+        "accessEndpointId": endpoint.id,
+        "credentialRefId": endpoint.credential_ref_id.or_else(|| credential_ref.as_ref().and_then(|item| item.id)),
+    })
+    .to_string();
     append_audit_event(
         &app_handle,
         "session.connected",
@@ -2084,16 +2287,19 @@ pub async fn session_connect_asset(
         "Connected asset session",
         Some(asset.name.as_str()),
         "info",
-        None,
+        Some(audit_metadata.as_str()),
     )?;
 
     Ok(AssetSessionConnectResult {
         session_id,
         asset_id,
         asset_name: asset.name,
+        created_at,
         env_id: asset.env_id,
         access_endpoint_id: endpoint.id,
-        credential_ref_id: endpoint.credential_ref_id.or_else(|| credential_ref.and_then(|item| item.id)),
+        credential_ref_id: endpoint
+            .credential_ref_id
+            .or_else(|| credential_ref.and_then(|item| item.id)),
         bastion_chain_id: asset.bastion_chain_id,
         risk_level: asset.criticality,
         health_summary: asset.health_summary,
@@ -2121,4 +2327,30 @@ pub async fn session_disconnect_asset(
         None,
     )?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn session_get_ops_sessions(state: State<'_, AppState>) -> Result<Vec<OpsSession>, String> {
+    let clients = state.clients.lock().map_err(|e| e.to_string())?;
+    let mut sessions = Vec::new();
+
+    for (session_id, client) in clients.iter() {
+        if let Some(asset_id) = client.asset_id {
+            sessions.push(OpsSession {
+                id: session_id.clone(),
+                asset_id,
+                asset_name: String::new(),
+                created_at: now_ts(),
+                access_endpoint_id: client.access_endpoint_id,
+                credential_ref_id: client.credential_ref_id,
+                bastion_chain_id: client.bastion_chain_id.clone(),
+                current_path: Some(".".to_string()),
+                risk_level: "medium".to_string(),
+                health_summary: None,
+                last_job_run_id: None,
+            });
+        }
+    }
+
+    Ok(sessions)
 }

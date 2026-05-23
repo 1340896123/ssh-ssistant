@@ -946,6 +946,29 @@ ${activeWorkspace.value.context}
             mode?: "overwrite" | "append";
           };
           try {
+            const confirmed = await confirm(
+              `This action will write to ${args.path} on the remote host.\n\nDo you want to continue?`,
+            );
+            if (!confirmed) {
+              await assetStore.appendAuditEvent({
+                eventType: "ai.writeFileCancelled",
+                assetId: activeAsset.value?.id ?? null,
+                sessionId: props.sessionId,
+                jobRunId: null,
+                title: "AI write file cancelled",
+                detail: args.path,
+                severity: "warning",
+                metadataJson: JSON.stringify({ mode: args.mode ?? "overwrite" }),
+                createdAt: Date.now(),
+              });
+              messages.value.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                name,
+                content: `Write to ${args.path} cancelled by user.`,
+              });
+              continue;
+            }
             await invoke("write_remote_file", {
               id: props.sessionId,
               path: args.path,

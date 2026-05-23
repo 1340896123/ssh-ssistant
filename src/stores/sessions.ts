@@ -2,13 +2,19 @@ import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useNotificationStore } from './notifications';
-import type { Session, HostAsset, ConnectionHistorySource, ConnectionStatusEvent, ReconnectEvent } from '../types';
+import type {
+  OpsSession,
+  HostAsset,
+  ConnectionHistorySource,
+  ConnectionStatusEvent,
+  ReconnectEvent,
+} from '../types';
 import { useAssetStore } from './assets';
 import { sessionService } from '../services';
 
 export const useSessionStore = defineStore('sessions', {
   state: () => ({
-    sessions: [] as Session[],
+    sessions: [] as OpsSession[],
     activeSessionId: null as string | null,
     _unlistenFns: [] as UnlistenFn[],
   }),
@@ -117,23 +123,26 @@ export const useSessionStore = defineStore('sessions', {
         const connectionResult = await sessionService.connectAsset(
           asset.id,
           asset.accessEndpointId ?? null,
+          null,
+          source,
         );
-        const session: Session = {
+        const session: OpsSession = {
           id: connectionResult.sessionId,
           assetId: connectionResult.assetId,
           assetName: connectionResult.assetName,
-          status: 'connected',
-          activeTab: 'terminal',
-          currentPath: '.',
-          files: [],
-          connectedAt: Date.now(),
-          envId: connectionResult.envId ?? asset.envId ?? null,
-          riskLevel: connectionResult.riskLevel ?? asset.criticality ?? 'medium',
-          healthSummary: connectionResult.healthSummary ?? asset.healthSummary ?? null,
+          createdAt: connectionResult.createdAt,
           accessEndpointId: connectionResult.accessEndpointId ?? asset.accessEndpointId ?? null,
           credentialRefId: connectionResult.credentialRefId ?? null,
           bastionChainId: connectionResult.bastionChainId ?? asset.bastionChainId ?? null,
+          currentPath: '.',
+          riskLevel: connectionResult.riskLevel ?? asset.criticality ?? 'medium',
+          healthSummary: connectionResult.healthSummary ?? asset.healthSummary ?? null,
           lastJobRunId: null,
+          status: 'connected',
+          activeTab: 'terminal',
+          files: [],
+          connectedAt: Date.now(),
+          envId: connectionResult.envId ?? asset.envId ?? null,
           os: connectionResult.osInfo,
         };
 
@@ -155,7 +164,7 @@ export const useSessionStore = defineStore('sessions', {
             title: 'Session connection failed',
             detail: String(e),
             severity: 'warning',
-            metadataJson: null,
+            metadataJson: JSON.stringify({ source }),
             createdAt: Date.now(),
           });
         }
@@ -209,9 +218,11 @@ export const useSessionStore = defineStore('sessions', {
           asset.id,
           session.accessEndpointId ?? asset.accessEndpointId ?? null,
           session.id,
+          'history',
         );
         session.status = 'connected';
         session.connectedAt = Date.now();
+        session.createdAt = result.createdAt;
         session.os = result.osInfo;
         session.assetName = result.assetName;
         session.envId = result.envId ?? asset.envId ?? null;

@@ -31,6 +31,10 @@ pub struct SshClient {
     pub owner_cache: Arc<Mutex<HashMap<u32, String>>>, // UID cache (To be deprecated as Manager handles it internally, but keep for compatibility if needed)
     pub shutdown_signal: Arc<AtomicBool>,              // Shared signal
     pub os_info: Option<String>,                       // Remote OS information
+    pub asset_id: Option<i64>,
+    pub access_endpoint_id: Option<i64>,
+    pub credential_ref_id: Option<i64>,
+    pub bastion_chain_id: Option<String>,
 }
 
 use crate::models::Transfer;
@@ -50,6 +54,17 @@ pub struct AppState {
                                                                // For backward compatibility, we maintain the existing transfer structure
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSessionContext {
+    pub session_id: String,
+    pub asset_id: Option<i64>,
+    pub access_endpoint_id: Option<i64>,
+    pub credential_ref_id: Option<i64>,
+    pub bastion_chain_id: Option<String>,
+    pub os_info: Option<String>,
+}
+
 impl AppState {
     pub fn new() -> Self {
         Self {
@@ -59,6 +74,25 @@ impl AppState {
             tunnels: Mutex::new(HashMap::new()),
         }
     }
+}
+
+pub fn get_client_session_context(
+    state: &State<'_, AppState>,
+    session_id: &str,
+) -> Result<ClientSessionContext, String> {
+    let clients = state.clients.lock().map_err(|e| e.to_string())?;
+    let client = clients
+        .get(session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
+
+    Ok(ClientSessionContext {
+        session_id: session_id.to_string(),
+        asset_id: client.asset_id,
+        access_endpoint_id: client.access_endpoint_id,
+        credential_ref_id: client.credential_ref_id,
+        bastion_chain_id: client.bastion_chain_id.clone(),
+        os_info: client.os_info.clone(),
+    })
 }
 
 fn shutdown_client(client: SshClient) {
@@ -234,6 +268,10 @@ pub async fn connect(
         owner_cache: Arc::new(Mutex::new(HashMap::new())),
         shutdown_signal,
         os_info: Some(os_info),
+        asset_id: None,
+        access_endpoint_id: None,
+        credential_ref_id: None,
+        bastion_chain_id: None,
     };
 
     // Start shell thread (or init shell via manager)

@@ -8,13 +8,13 @@ import {
 } from "../services";
 import type {
   AccessEndpoint,
+  AssetAccessHistoryEntry,
   AssetFolder,
   AssetTag,
   AssetUpsertPayload,
   AuditEvent,
   ConnectionHistoryEntry,
   ConnectionHistorySource,
-  ConnectionHistoryStatus,
   CredentialRef,
   Environment,
   HostAsset,
@@ -24,18 +24,19 @@ import type {
   SyncState,
 } from "../types";
 
-const FAVORITES_STORAGE_KEY = "asset-favorites";
-const HISTORY_STORAGE_KEY = "asset-history";
-const MAX_HISTORY_ITEMS = 40;
+const LEGACY_ASSET_FAVORITES_KEY = "asset-favorites";
+const LEGACY_ASSET_HISTORY_KEY = "asset-history";
+const LEGACY_CONNECTION_FAVORITES_KEY = "connection-favorites";
+const LEGACY_CONNECTION_HISTORY_KEY = "connection-history";
 
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
-function readFavorites(): number[] {
+function readNumberArrayStorage(key: string): number[] {
   if (!canUseStorage()) return [];
   try {
-    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
@@ -46,35 +47,72 @@ function readFavorites(): number[] {
   }
 }
 
-function readHistory(): ConnectionHistoryEntry[] {
+function readLegacyHistoryStorage(key: string): AssetAccessHistoryEntry[] {
   if (!canUseStorage()) return [];
   try {
-    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
-      ? parsed.filter((item): item is ConnectionHistoryEntry => {
-          return (
-            typeof item?.connectionId === "number" &&
-            typeof item?.connectedAt === "number" &&
-            typeof item?.status === "string" &&
-            typeof item?.source === "string"
-          );
-        })
+      ? parsed
+          .filter((item): item is ConnectionHistoryEntry => {
+            return (
+              typeof item?.connectionId === "number" &&
+              typeof item?.connectedAt === "number" &&
+              typeof item?.status === "string" &&
+              typeof item?.source === "string"
+            );
+          })
+          .map((item) => ({
+            assetId: item.connectionId,
+            connectedAt: item.connectedAt,
+            status: item.status,
+            reason: item.reason,
+            source: item.source,
+          }))
       : [];
   } catch {
     return [];
   }
 }
 
-function writeFavorites(favorites: number[]) {
+function clearLegacyClientStateStorage() {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+  for (const key of [
+    LEGACY_ASSET_FAVORITES_KEY,
+    LEGACY_ASSET_HISTORY_KEY,
+    LEGACY_CONNECTION_FAVORITES_KEY,
+    LEGACY_CONNECTION_HISTORY_KEY,
+  ]) {
+    window.localStorage.removeItem(key);
+  }
 }
 
-function writeHistory(history: ConnectionHistoryEntry[]) {
-  if (!canUseStorage()) return;
-  window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+function readLegacyFavoriteIds(): number[] {
+  return Array.from(
+    new Set([
+      ...readNumberArrayStorage(LEGACY_ASSET_FAVORITES_KEY),
+      ...readNumberArrayStorage(LEGACY_CONNECTION_FAVORITES_KEY),
+    ]),
+  );
+}
+
+function readLegacyHistoryEntries(): AssetAccessHistoryEntry[] {
+  return [
+    ...readLegacyHistoryStorage(LEGACY_ASSET_HISTORY_KEY),
+    ...readLegacyHistoryStorage(LEGACY_CONNECTION_HISTORY_KEY),
+  ];
+}
+
+function mapHistorySource(raw?: string): ConnectionHistorySource {
+  if (raw === "quick" || raw === "history" || raw === "tree" || raw === "search") {
+    return raw;
+  }
+  return "tree";
+}
+
+function mapHistoryStatus(raw?: string): "success" | "failed" {
+  return raw === "failed" ? "failed" : "success";
 }
 
 export const useAssetStore = defineStore("assets", {
@@ -90,8 +128,8 @@ export const useAssetStore = defineStore("assets", {
     jobRuns: [] as JobRun[],
     auditEvents: [] as AuditEvent[],
     syncState: null as SyncState | null,
-    favorites: readFavorites() as number[],
-    history: readHistory() as ConnectionHistoryEntry[],
+    accessHistory: [] as AssetAccessHistoryEntry[],
+    hasImportedLegacyClientState: false,
   }),
   getters: {
     treeData: (state) => {
@@ -113,13 +151,24 @@ export const useAssetStore = defineStore("assets", {
       return buildTree(null);
     },
     favoriteAssets: (state) =>
-      state.assets.filter(
-        (asset) => asset.id !== undefined && state.favorites.includes(asset.id),
-      ),
+      state.assets.filter((asset) => asset.id !== undefined && Boolean(asset.isFavorite)),
+    favorites: (state) =>
+      state.assets
+        .filter((asset) => asset.id !== undefined && Boolean(asset.isFavorite))
+        .map((asset) => asset.id as number),
     historyEntries: (state) =>
-      state.history
+      state.accessHistory
         .filter((entry) =>
-          state.assets.some((asset) => asset.id === entry.connectionId),
+          state.assets.some((asset) => asset.id === entry.assetId),
+        )
+        .map(
+          (entry): ConnectionHistoryEntry => ({
+            connectionId: entry.assetId,
+            connectedAt: entry.connectedAt,
+            status: entry.status,
+            reason: entry.reason,
+            source: entry.source,
+          }),
         )
         .sort((a, b) => b.connectedAt - a.connectedAt),
     environmentMap: (state) =>
@@ -127,7 +176,23 @@ export const useAssetStore = defineStore("assets", {
     assetMap: (state) => new Map(state.assets.map((asset) => [asset.id ?? -1, asset])),
   },
   actions: {
+    async importLegacyClientStateIfNeeded() {
+      if (this.hasImportedLegacyClientState) return;
+
+      const favoriteAssetIds = readLegacyFavoriteIds();
+      const historyEntries = readLegacyHistoryEntries();
+      if (favoriteAssetIds.length === 0 && historyEntries.length === 0) {
+        this.hasImportedLegacyClientState = true;
+        return;
+      }
+
+      await assetService.importLegacyClientState(favoriteAssetIds, historyEntries);
+      clearLegacyClientStateStorage();
+      this.hasImportedLegacyClientState = true;
+    },
     async loadAssets() {
+      await this.importLegacyClientStateIfNeeded();
+
       const [
         assets,
         folders,
@@ -136,6 +201,7 @@ export const useAssetStore = defineStore("assets", {
         savedViews,
         accessEndpoints,
         credentialRefs,
+        accessHistory,
         syncState,
       ] = await Promise.all([
         assetService.list(),
@@ -145,6 +211,7 @@ export const useAssetStore = defineStore("assets", {
         assetService.listSavedViews(),
         accessService.listEndpoints(),
         accessService.listCredentialRefs(),
+        assetService.listAccessHistory(undefined, 200),
         syncService.getState().catch(() => null),
       ]);
 
@@ -153,7 +220,9 @@ export const useAssetStore = defineStore("assets", {
         platform: asset.platform ?? "Linux",
         folderId: asset.folderId ?? asset.groupId ?? null,
         labels: asset.labels ?? [],
+        owner: asset.owner ?? "",
         criticality: asset.criticality ?? "medium",
+        isFavorite: Boolean(asset.isFavorite),
       }));
       this.folders = folders;
       this.environments = environments;
@@ -161,15 +230,14 @@ export const useAssetStore = defineStore("assets", {
       this.savedViews = savedViews;
       this.accessEndpoints = accessEndpoints;
       this.credentialRefs = credentialRefs;
+      this.accessHistory = accessHistory.map((entry) => ({
+        assetId: entry.assetId,
+        connectedAt: entry.connectedAt,
+        status: mapHistoryStatus(entry.status),
+        reason: entry.reason,
+        source: mapHistorySource(entry.source),
+      }));
       this.syncState = syncState;
-      this.favorites = this.favorites.filter((id) =>
-        this.assets.some((asset) => asset.id === id),
-      );
-      this.history = this.history.filter((entry) =>
-        this.assets.some((asset) => asset.id === entry.connectionId),
-      );
-      writeFavorites(this.favorites);
-      writeHistory(this.history);
     },
     defaultAccessEndpointForAsset(assetId?: number) {
       if (assetId === undefined) return null;
@@ -177,7 +245,8 @@ export const useAssetStore = defineStore("assets", {
         this.accessEndpoints.find(
           (endpoint) =>
             endpoint.assetId === assetId &&
-            this.assets.find((asset) => asset.id === assetId)?.accessEndpointId === endpoint.id,
+            this.assets.find((asset) => asset.id === assetId)?.accessEndpointId ===
+              endpoint.id,
         ) ??
         this.accessEndpoints.find((endpoint) => endpoint.assetId === assetId) ??
         null
@@ -199,7 +268,7 @@ export const useAssetStore = defineStore("assets", {
         name: endpoint?.name ?? `${asset.name} default endpoint`,
         host: endpoint?.host ?? asset.host,
         port: endpoint?.port ?? asset.port,
-        username: endpoint?.username ?? credentialRef?.username ?? asset.owner ?? "root",
+        username: endpoint?.username ?? credentialRef?.username ?? "root",
         authType:
           endpoint?.authType ??
           (credentialRef?.credentialKind === "sshKey" ? "key" : "password"),
@@ -228,20 +297,31 @@ export const useAssetStore = defineStore("assets", {
           labels: asset.labels ?? [],
           criticality: asset.criticality ?? "medium",
           platform: asset.platform ?? "Linux",
+          owner: asset.owner?.trim() || "",
         },
         defaultAccessEndpoint: nextEndpoint,
         defaultCredentialRef: nextCredentialRef,
       };
     },
     async refreshOpsData(assetId?: number) {
-      const [jobTemplates, jobRuns, auditEvents] = await Promise.all([
+      const [jobTemplates, jobRuns, auditEvents, accessHistory] = await Promise.all([
         opsService.listJobTemplates(),
         opsService.listJobRuns(assetId),
         auditService.list(assetId),
+        assetService.listAccessHistory(assetId, assetId ? 40 : 200),
       ]);
       this.jobTemplates = jobTemplates;
       this.jobRuns = jobRuns;
       this.auditEvents = auditEvents;
+      if (assetId === undefined) {
+        this.accessHistory = accessHistory.map((entry) => ({
+          assetId: entry.assetId,
+          connectedAt: entry.connectedAt,
+          status: mapHistoryStatus(entry.status),
+          reason: entry.reason,
+          source: mapHistorySource(entry.source),
+        }));
+      }
     },
     async addAsset(
       asset: HostAsset,
@@ -276,10 +356,6 @@ export const useAssetStore = defineStore("assets", {
     },
     async deleteAsset(id: number) {
       await assetService.remove(id);
-      this.favorites = this.favorites.filter((favoriteId) => favoriteId !== id);
-      this.history = this.history.filter((entry) => entry.connectionId !== id);
-      writeFavorites(this.favorites);
-      writeHistory(this.history);
       await this.loadAssets();
     },
     async addFolder(folder: AssetFolder) {
@@ -324,47 +400,45 @@ export const useAssetStore = defineStore("assets", {
       await this.loadAssets();
     },
     async toggleFavorite(assetId: number) {
-      const nextFavorites = this.favorites.includes(assetId)
-        ? this.favorites.filter((id) => id !== assetId)
-        : [assetId, ...this.favorites].slice(0, 12);
-      const isFavorite = nextFavorites.includes(assetId);
-      await assetService.toggleFavorite(assetId, isFavorite);
-      this.favorites = nextFavorites;
-      writeFavorites(this.favorites);
+      const asset = this.assets.find((item) => item.id === assetId);
+      const nextFavorite = !asset?.isFavorite;
+      await assetService.toggleFavorite(assetId, nextFavorite);
       await this.loadAssets();
     },
     isFavorite(assetId: number) {
-      return this.favorites.includes(assetId);
-    },
-    recordHistory(entry: ConnectionHistoryEntry) {
-      this.history = [entry, ...this.history]
-        .sort((a, b) => b.connectedAt - a.connectedAt)
-        .slice(0, MAX_HISTORY_ITEMS);
-      writeHistory(this.history);
+      return Boolean(this.assets.find((asset) => asset.id === assetId)?.isFavorite);
     },
     addSuccessfulConnection(
       connectionId: number,
       source: ConnectionHistorySource = "tree",
     ) {
-      this.recordHistory({
-        connectionId,
-        connectedAt: Date.now(),
-        status: "success",
-        source,
-      });
+      const existing = this.accessHistory.filter((entry) => entry.assetId !== connectionId);
+      this.accessHistory = [
+        {
+          assetId: connectionId,
+          connectedAt: Date.now(),
+          status: "success",
+          source,
+        },
+        ...existing,
+      ];
     },
     addFailedConnection(
       connectionId: number,
       reason?: string,
       source: ConnectionHistorySource = "tree",
     ) {
-      this.recordHistory({
-        connectionId,
-        connectedAt: Date.now(),
-        status: "failed" as ConnectionHistoryStatus,
-        reason,
-        source,
-      });
+      const existing = this.accessHistory.filter((entry) => entry.assetId !== connectionId);
+      this.accessHistory = [
+        {
+          assetId: connectionId,
+          connectedAt: Date.now(),
+          status: "failed",
+          reason,
+          source,
+        },
+        ...existing,
+      ];
     },
     async touchAsset(id: number) {
       await assetService.touch(id);
