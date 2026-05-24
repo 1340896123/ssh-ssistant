@@ -886,7 +886,7 @@ onUnmounted(() => {
       <div class="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <aside
           v-if="shouldShowInlineResourcePane"
-          class="flex h-full shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
+          class="flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-border-primary bg-bg-secondary"
           :style="{ width: resourcePaneWidth + 'px' }"
         >
           <div
@@ -1073,87 +1073,101 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="flex h-8 items-center gap-2 overflow-hidden border-t border-border-primary bg-bg-secondary px-3 text-xs text-text-secondary">
-            <span
-              class="rounded-full border border-border-primary px-2 py-0.5 text-text-primary"
-            >
-              {{
-                activeSession
-                  ? activeSession.status
-                  : t("workbench.statusIdle")
-              }}
-            </span>
-            <span v-if="activeSession">
-              {{ t("app.sessionDuration") }} {{ activeSessionDuration }}
-            </span>
-            <span
-              v-if="activeAssetRisk"
-              class="rounded-full border border-border-primary px-2 py-0.5"
-              :class="
-                activeAssetRisk === 'critical'
-                  ? 'text-error'
-                  : activeAssetRisk === 'high'
-                    ? 'text-warning'
-                    : 'text-text-secondary'
-              "
-            >
-              Risk {{ activeAssetRisk }}
-            </span>
-            <span
-              v-if="activeAssetHealth"
-              class="truncate rounded-full border border-border-primary px-2 py-0.5"
-            >
-              {{ activeAssetHealth }}
-            </span>
-            <span
-              v-if="activeSession?.currentPath"
-              class="truncate rounded-full border border-border-primary px-2 py-0.5"
-            >
-              {{ activeSession.currentPath }}
-            </span>
-            <span
-              v-if="activeSelection.count > 0"
-              class="truncate rounded-full border border-border-primary px-2 py-0.5"
-            >
-              {{
-                t("workbench.statusSelection", {
-                  count: activeSelection.count,
-                })
-              }}
-              <span v-if="activeSelection.targetLabel"> · {{ activeSelection.targetLabel }}</span>
-            </span>
-            <span class="rounded-full border border-border-primary px-2 py-0.5">
-              {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
-            </span>
-            <span
-              v-if="activeTransferSummary.total > 0"
-              class="rounded-full border border-border-primary px-2 py-0.5"
-            >
-              {{
-                t("workbench.statusTransfers", {
-                  total: activeTransferSummary.total,
-                  running: activeTransferSummary.running,
-                })
-              }}
-            </span>
-            <span
-              v-if="activeSession && sessionStatus[activeSession.id]?.uptime"
-              class="rounded-full border border-border-primary px-2 py-0.5"
-            >
-              {{ sessionStatus[activeSession.id].uptime }}
-            </span>
-            <span
-              v-if="activeSession && sessionStatus[activeSession.id]?.disk?.percent"
-              class="rounded-full border border-border-primary px-2 py-0.5"
-            >
-              Disk {{ sessionStatus[activeSession.id].disk?.percent }}
-            </span>
-            <span
-              v-if="activeSession && sessionStatus[activeSession.id]?.ip"
-              class="truncate rounded-full border border-border-primary px-2 py-0.5"
-            >
-              {{ sessionStatus[activeSession.id].ip }}
-            </span>
+          <div class="h-8 overflow-x-auto overflow-y-hidden border-t border-border-primary bg-bg-secondary">
+            <div class="flex h-full min-w-max items-center gap-2 px-3 text-xs text-text-secondary">
+              <span
+                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5 text-text-primary"
+              >
+                {{
+                  activeSession
+                    ? activeSession.status
+                    : t("workbench.statusIdle")
+                }}
+              </span>
+              <span v-if="activeSession" class="shrink-0 whitespace-nowrap">
+                {{ t("app.sessionDuration") }} {{ activeSessionDuration }}
+              </span>
+              <span
+                v-if="activeAssetRisk"
+                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                :class="
+                  activeAssetRisk === 'critical'
+                    ? 'text-error'
+                    : activeAssetRisk === 'high'
+                      ? 'text-warning'
+                      : 'text-text-secondary'
+                "
+              >
+                Risk {{ activeAssetRisk }}
+              </span>
+              <span
+                v-if="activeAssetHealth"
+                class="max-w-[12rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                :title="activeAssetHealth"
+              >
+                {{ activeAssetHealth }}
+              </span>
+              <span
+                v-if="activeSession?.currentPath"
+                class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                :title="activeSession.currentPath"
+              >
+                {{ activeSession.currentPath }}
+              </span>
+              <span
+                v-if="activeSelection.count > 0"
+                class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                :title="
+                  activeSelection.targetLabel
+                    ? `${t('workbench.statusSelection', {
+                        count: activeSelection.count,
+                      })} · ${activeSelection.targetLabel}`
+                    : t('workbench.statusSelection', {
+                        count: activeSelection.count,
+                      })
+                "
+              >
+                {{
+                  t("workbench.statusSelection", {
+                    count: activeSelection.count,
+                  })
+                }}
+                <span v-if="activeSelection.targetLabel"> · {{ activeSelection.targetLabel }}</span>
+              </span>
+              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
+              </span>
+              <span
+                v-if="activeTransferSummary.total > 0"
+                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+              >
+                {{
+                  t("workbench.statusTransfers", {
+                    total: activeTransferSummary.total,
+                    running: activeTransferSummary.running,
+                  })
+                }}
+              </span>
+              <span
+                v-if="activeSession && sessionStatus[activeSession.id]?.uptime"
+                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+              >
+                {{ sessionStatus[activeSession.id].uptime }}
+              </span>
+              <span
+                v-if="activeSession && sessionStatus[activeSession.id]?.disk?.percent"
+                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+              >
+                Disk {{ sessionStatus[activeSession.id].disk?.percent }}
+              </span>
+              <span
+                v-if="activeSession && sessionStatus[activeSession.id]?.ip"
+                class="max-w-[10rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                :title="sessionStatus[activeSession.id].ip"
+              >
+                {{ sessionStatus[activeSession.id].ip }}
+              </span>
+            </div>
           </div>
         </main>
 
@@ -1165,7 +1179,7 @@ onUnmounted(() => {
 
         <aside
           v-if="shouldShowInlineContextPane"
-          class="flex h-full shrink-0 flex-col border-l border-border-primary bg-bg-secondary"
+          class="flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-l border-border-primary bg-bg-secondary"
           :style="{ width: contextPaneWidth + 'px' }"
         >
           <div class="border-b border-border-primary px-4 py-3">
@@ -1313,7 +1327,7 @@ onUnmounted(() => {
 
         <aside
           v-if="shouldShowResourceDrawer"
-          class="absolute inset-y-0 left-0 z-40 flex w-[320px] max-w-[calc(100%-56px)] min-h-0 flex-col border-r border-border-primary bg-bg-secondary shadow-xl"
+          class="absolute inset-y-0 left-0 z-40 flex w-[320px] max-w-[calc(100%-56px)] min-h-0 min-w-0 flex-col overflow-hidden border-r border-border-primary bg-bg-secondary shadow-xl"
         >
           <div
             v-if="activeActivity !== 'sessions'"
@@ -1360,7 +1374,7 @@ onUnmounted(() => {
 
         <aside
           v-if="shouldShowContextDrawer"
-          class="absolute inset-y-0 right-0 z-40 flex w-[min(420px,calc(100%-56px))] min-h-0 flex-col border-l border-border-primary bg-bg-secondary shadow-xl"
+          class="absolute inset-y-0 right-0 z-40 flex w-[min(420px,calc(100%-56px))] min-h-0 min-w-0 flex-col overflow-hidden border-l border-border-primary bg-bg-secondary shadow-xl"
         >
           <div class="border-b border-border-primary px-4 py-3">
             <div class="flex items-start justify-between gap-3">

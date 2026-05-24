@@ -123,6 +123,22 @@ function mapHistoryStatus(raw?: string): "success" | "failed" {
   return raw === "failed" ? "failed" : "success";
 }
 
+function dedupeAccessHistory(
+  entries: AssetAccessHistoryEntry[],
+): AssetAccessHistoryEntry[] {
+  const latestEntries = new Map<number, AssetAccessHistoryEntry>();
+
+  for (const entry of [...entries].sort((a, b) => b.connectedAt - a.connectedAt)) {
+    if (!latestEntries.has(entry.assetId)) {
+      latestEntries.set(entry.assetId, entry);
+    }
+  }
+
+  return Array.from(latestEntries.values()).sort(
+    (a, b) => b.connectedAt - a.connectedAt,
+  );
+}
+
 export const useAssetStore = defineStore("assets", {
   state: () => ({
     assets: [] as HostAsset[],
@@ -172,7 +188,7 @@ export const useAssetStore = defineStore("assets", {
         .filter((asset) => asset.id !== undefined && Boolean(asset.isFavorite))
         .map((asset) => asset.id as number),
     historyEntries: (state) =>
-      state.accessHistory
+      dedupeAccessHistory(state.accessHistory)
         .filter((entry) =>
           state.assets.some((asset) => asset.id === entry.assetId),
         )

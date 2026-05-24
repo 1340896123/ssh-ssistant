@@ -330,20 +330,9 @@
       "title": "Confirm Deletion",
       "message": "Delete {count} item(s)?"
     },
-    "actions": {
-      "openInTerminal": "Open current path in terminal",
-      "addSelectionToAi": "Add current selection to AI context"
-    },
     "hints": {
-      "path": "Path: {path}",
-      "selection": "Selected: {count}",
-      "target": "Linked target: {target}",
       "multipleTargets": "{count} items selected",
-      "visibleRange": "Visible list: {range}",
-      "pagination": "Pagination: {status}",
-      "allLoaded": "All pages loaded",
-      "loadingMore": "Loading more items",
-      "hasMore": "More items available to load"
+      "loadingMore": "Loading more items"
     }
   },
   "transfers": {

@@ -330,20 +330,9 @@
       "title": "确认删除",
       "message": "删除 {count} 个项目？"
     },
-    "actions": {
-      "openInTerminal": "在终端打开当前路径",
-      "addSelectionToAi": "将当前选择加入 AI 上下文"
-    },
     "hints": {
-      "path": "路径：{path}",
-      "selection": "已选择：{count} 项",
-      "target": "联动目标：{target}",
       "multipleTargets": "已选择 {count} 个项目",
-      "visibleRange": "当前列表：{range}",
-      "pagination": "分页状态：{status}",
-      "allLoaded": "已加载全部分页",
-      "loadingMore": "正在加载更多项目",
-      "hasMore": "存在更多项目，可继续加载"
+      "loadingMore": "正在加载更多项目"
     }
   },
   "transfers": {
