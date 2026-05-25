@@ -273,6 +273,52 @@ pub struct SavedAssetView {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct LocalWorkspaceSnapshot {
+    pub settings: AppSettings,
+    pub records: Vec<CloudAssetRecord>,
+    pub folders: Vec<AssetFolder>,
+    pub environments: Vec<Environment>,
+    pub tags: Vec<AssetTag>,
+    pub saved_views: Vec<SavedAssetView>,
+    pub access_history: Vec<LocalWorkspaceAccessHistoryEntry>,
+    #[serde(default)]
+    pub job_templates: Vec<JobTemplate>,
+    #[serde(default)]
+    pub job_runs: Vec<JobRun>,
+    #[serde(default)]
+    pub job_archives: Vec<JobRunArchive>,
+    #[serde(default)]
+    pub audit_events: Vec<AuditEvent>,
+    pub sync_state: Option<SyncState>,
+    #[serde(default)]
+    pub sync_object_versions: Vec<SyncObjectVersionEntry>,
+    #[serde(default)]
+    pub sync_changes: Vec<SyncChangeLogEntry>,
+    #[serde(default)]
+    pub sync_services: Vec<SyncServiceConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalWorkspaceAccessHistoryEntry {
+    pub asset_id: i64,
+    pub connected_at: i64,
+    pub status: String,
+    pub reason: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncObjectVersionEntry {
+    pub object_type: String,
+    pub object_id: String,
+    pub version: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct JobTemplate {
     pub id: Option<i64>,
     pub name: String,

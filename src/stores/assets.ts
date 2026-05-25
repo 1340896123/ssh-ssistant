@@ -26,6 +26,7 @@ import type {
   JobRun,
   JobRunArchive,
   JobTemplate,
+  LocalWorkspaceSnapshot,
   OpsConsoleAnswer,
   SavedAssetView,
   SyncChangeLogEntry,
@@ -271,6 +272,38 @@ export const useAssetStore = defineStore("assets", {
         source: mapHistorySource(entry.source),
       }));
       this.syncState = syncState;
+    },
+    resetStoreState() {
+      this.assets = [];
+      this.folders = [];
+      this.environments = [];
+      this.tags = [];
+      this.savedViews = [];
+      this.accessEndpoints = [];
+      this.credentialRefs = [];
+      this.jobTemplates = [];
+      this.jobRuns = [];
+      this.jobArchives = [];
+      this.auditEvents = [];
+      this.syncState = null;
+      this.syncOverview = null;
+      this.syncChanges = [];
+      this.syncServices = [];
+      this.accessHistory = [];
+      this.lastOpsConsoleAnswer = null;
+      this.lastJobBatchPreview = null;
+      this.lastJobBatchResult = null;
+    },
+    async exportLocalWorkspaceSnapshot() {
+      return assetService.exportLocalWorkspaceSnapshot();
+    },
+    async restoreLocalWorkspaceSnapshot(snapshot: LocalWorkspaceSnapshot) {
+      await assetService.restoreLocalWorkspaceSnapshot(snapshot);
+      await this.loadAssets();
+    },
+    async clearWorkspace() {
+      await assetService.clearWorkspace();
+      this.resetStoreState();
     },
     defaultAccessEndpointForAsset(assetId?: number) {
       if (assetId === undefined) return null;

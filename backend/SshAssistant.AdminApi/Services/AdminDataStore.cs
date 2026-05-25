@@ -1639,7 +1639,6 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             return await dbContext.BillingInvoices.AsNoTracking()
                 .Where(item => item.TargetType == "enterprise" && item.TargetId == resolvedEnterpriseId)
                 .OrderByDescending(item => item.BillingMonth)
-                .ThenByDescending(item => item.CreatedAt)
                 .ToListAsync();
         }
 
@@ -1648,7 +1647,6 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             return await dbContext.BillingInvoices.AsNoTracking()
                 .Where(item => item.TargetType == "personal" && item.TargetId == accountKey)
                 .OrderByDescending(item => item.BillingMonth)
-                .ThenByDescending(item => item.CreatedAt)
                 .ToListAsync();
         }
 

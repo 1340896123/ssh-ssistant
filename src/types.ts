@@ -355,6 +355,13 @@ export interface SyncObjectVersionSummary {
   maxVersion: number;
 }
 
+export interface SyncObjectVersionEntry {
+  objectType: string;
+  objectId: string;
+  version: number;
+  updatedAt: number;
+}
+
 export interface SyncOverview {
   state: SyncState;
   pendingChanges: number;
@@ -567,6 +574,32 @@ export interface ClientSubscriptionSnapshot {
   recentInvoices: SubscriptionInvoiceSummary[];
   paymentProviders: SubscriptionPaymentProvider[];
   usage: SubscriptionUsageSummary;
+}
+
+export interface LocalWorkspaceAccessHistoryEntry {
+  assetId: number;
+  connectedAt: number;
+  status: ConnectionHistoryStatus;
+  reason?: string;
+  source: ConnectionHistorySource;
+}
+
+export interface LocalWorkspaceSnapshot {
+  settings: Settings;
+  records: CloudAssetRecord[];
+  folders: AssetFolder[];
+  environments: Environment[];
+  tags: AssetTag[];
+  savedViews: SavedAssetView[];
+  accessHistory: LocalWorkspaceAccessHistoryEntry[];
+  jobTemplates: JobTemplate[];
+  jobRuns: JobRun[];
+  jobArchives: JobRunArchive[];
+  auditEvents: AuditEvent[];
+  syncState?: SyncState | null;
+  syncObjectVersions: SyncObjectVersionEntry[];
+  syncChanges: SyncChangeLogEntry[];
+  syncServices: SyncServiceConfig[];
 }
 
 export interface PendingCheckoutSession {

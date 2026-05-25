@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AssetAccessHistoryEntry,
   CloudAssetRecord,
+  LocalWorkspaceSnapshot,
   AssetUpsertPayload,
   AssetFolder,
   AssetTag,
@@ -53,4 +54,9 @@ export const assetService = {
     }),
   importCloudRecords: (records: CloudAssetRecord[], replaceExisting = true) =>
     invoke<number>("asset_import_cloud_records", { records, replaceExisting }),
+  exportLocalWorkspaceSnapshot: () =>
+    invoke<LocalWorkspaceSnapshot>("asset_export_local_workspace_snapshot"),
+  restoreLocalWorkspaceSnapshot: (snapshot: LocalWorkspaceSnapshot) =>
+    invoke("asset_restore_local_workspace_snapshot", { snapshot }),
+  clearWorkspace: () => invoke("asset_clear_workspace"),
 };

@@ -503,6 +503,35 @@ export const useTransferStore = defineStore('transfers', () => {
         await Promise.all(deletableItems.map(item => removeTransfer(item.id)));
     }
 
+    async function cancelAllAndReset() {
+        const cancellableItems = [...items.value];
+        await Promise.all(
+            cancellableItems.map((item) => {
+                if (['running', 'paused', 'pending'].includes(item.status)) {
+                    return cancelTransfer(item.id).catch(() => undefined);
+                }
+                return Promise.resolve();
+            }),
+        );
+        await Promise.all(
+            cancellableItems.map((item) => removeTransfer(item.id).catch(() => undefined)),
+        );
+        items.value = [];
+        directoryProgress.clear();
+        active.value = false;
+    }
+
+    function clearLocalState() {
+        items.value = [];
+        directoryProgress.clear();
+        active.value = false;
+        if (progressUpdateTimer !== null) {
+            clearTimeout(progressUpdateTimer);
+            progressUpdateTimer = null;
+        }
+        progressUpdateQueue.clear();
+    }
+
     async function removeTransfer(id: string) {
         await invoke('remove_transfer', { id });
         const idx = items.value.findIndex(i => i.id === id);
@@ -523,6 +552,8 @@ export const useTransferStore = defineStore('transfers', () => {
         batchResume,
         batchCancel,
         batchDelete,
+        cancelAllAndReset,
+        clearLocalState,
         removeTransfer,
         initListeners,
         processQueue,

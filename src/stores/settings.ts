@@ -2,27 +2,152 @@ import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSubscriptionSnapshot, Settings } from '../types';
 import { setI18nLanguage } from '../i18n';
-import { cloudService } from '../services';
+import { cloudService, workspaceSnapshotService } from '../services';
 
 const DEFAULT_CHECKOUT_RETURN_URL = 'sshstar://billing/success';
 const DEFAULT_CHECKOUT_CANCEL_URL = 'sshstar://billing/cancel';
+const LOCAL_WORKSPACE_SNAPSHOT_KEY = 'default-local-workspace';
+const LOGIN_GATEWAY_REQUIRED_KEY = 'login-gateway-required';
+
+function canUseStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function setLoginGatewayRequired(required: boolean) {
+  if (!canUseStorage()) return;
+  if (required) {
+    window.localStorage.setItem(LOGIN_GATEWAY_REQUIRED_KEY, '1');
+    return;
+  }
+  window.localStorage.removeItem(LOGIN_GATEWAY_REQUIRED_KEY);
+}
+
+function readLoginGatewayRequired() {
+  if (!canUseStorage()) return false;
+  return window.localStorage.getItem(LOGIN_GATEWAY_REQUIRED_KEY) === '1';
+}
+
+function createDefaultAccount(): Settings['account'] {
+  return {
+    mode: 'local',
+    userId: null,
+    displayName: 'Local Workspace',
+    email: null,
+    enterpriseId: null,
+    enterpriseName: null,
+    subAccountId: null,
+    accessToken: null,
+    refreshToken: null,
+    expiresAt: null,
+    refreshExpiresAt: null,
+  };
+}
+
+function createSignedOutAccount(
+  currentAccount: Settings['account'],
+  options?: {
+    nextMode?: Settings['account']['mode'];
+    preserveIdentity?: boolean;
+  },
+): Settings['account'] {
+  const nextMode = options?.nextMode ?? currentAccount.mode;
+  const preserveIdentity = options?.preserveIdentity ?? nextMode !== 'local';
+
+  if (nextMode === 'local') {
+    return createDefaultAccount();
+  }
+
+  if (nextMode === 'enterpriseSubAccount') {
+    return {
+      ...createDefaultAccount(),
+      mode: 'enterpriseSubAccount',
+      displayName: preserveIdentity
+        ? currentAccount.displayName ||
+          currentAccount.subAccountId ||
+          currentAccount.enterpriseName ||
+          'Enterprise Sub-Account'
+        : 'Enterprise Sub-Account',
+      enterpriseId: preserveIdentity ? currentAccount.enterpriseId || null : null,
+      enterpriseName: preserveIdentity ? currentAccount.enterpriseName || null : null,
+      subAccountId: preserveIdentity ? currentAccount.subAccountId || null : null,
+    };
+  }
+
+  return {
+    ...createDefaultAccount(),
+    mode: 'personal',
+    displayName: preserveIdentity
+      ? currentAccount.displayName ||
+        currentAccount.email ||
+        currentAccount.userId ||
+        'Personal Account'
+      : 'Personal Account',
+    email: preserveIdentity ? currentAccount.email || null : null,
+    userId: preserveIdentity
+      ? currentAccount.userId || currentAccount.email || null
+      : null,
+  };
+}
+
+function createDefaultSubscription(): Settings['ai']['subscription'] {
+  return {
+    plan: 'free',
+    planDisplayName: 'Free',
+    status: 'inactive',
+    seats: 1,
+    billingScope: 'global',
+    pricePerSeat: 0,
+    currency: 'USD',
+    startedAt: null,
+    renewalAt: null,
+    allowCustomEndpoint: true,
+    useCustomEndpoint: true,
+    syncToCloud: true,
+  };
+}
+
+function createDefaultCustomEndpoint(): Settings['ai']['customEndpoint'] {
+  return {
+    endpointName: 'Default Custom Endpoint',
+    apiUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    modelName: 'gpt-3.5-turbo',
+    providerType: 'openai',
+  };
+}
+
+function createDefaultManagedRuntime(): Pick<
+  Settings['ai'],
+  'apiUrl' | 'apiKey' | 'modelName' | 'providerType'
+> {
+  return {
+    apiUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    modelName: 'gpt-3.5-turbo',
+    providerType: 'openai',
+  };
+}
+
+function sanitizeCloudSettingsPatch(parsed: Partial<Settings>): Partial<Settings> {
+  return {
+    theme: parsed.theme,
+    language: parsed.language,
+    terminalAppearance: parsed.terminalAppearance,
+    fileManager: parsed.fileManager,
+    sshPool: parsed.sshPool,
+    connectionTimeout: parsed.connectionTimeout,
+    reconnect: parsed.reconnect,
+    heartbeat: parsed.heartbeat,
+    poolHealth: parsed.poolHealth,
+    networkAdaptive: parsed.networkAdaptive,
+  };
+}
 
 export const useSettingsStore = defineStore('settings', {
   state: (): Settings => ({
     theme: 'dark',
     language: 'zh',
-    account: {
-      mode: 'local',
-      userId: null,
-      displayName: 'Local Workspace',
-      email: null,
-      enterpriseId: null,
-      enterpriseName: null,
-      subAccountId: null,
-      accessToken: null,
-      refreshToken: null,
-      expiresAt: null,
-    },
+    account: createDefaultAccount(),
     sync: {
       enabled: false,
       endpointUrl: '',
@@ -36,27 +161,8 @@ export const useSettingsStore = defineStore('settings', {
       apiKey: '',
       modelName: 'gpt-3.5-turbo',
       providerType: 'openai',
-      subscription: {
-        plan: 'free',
-        planDisplayName: 'Free',
-        status: 'inactive',
-        seats: 1,
-        billingScope: 'global',
-        pricePerSeat: 0,
-        currency: 'USD',
-        startedAt: null,
-        renewalAt: null,
-        allowCustomEndpoint: true,
-        useCustomEndpoint: true,
-        syncToCloud: true,
-      },
-      customEndpoint: {
-        endpointName: 'Default Custom Endpoint',
-        apiUrl: 'https://api.openai.com/v1',
-        apiKey: '',
-        modelName: 'gpt-3.5-turbo',
-        providerType: 'openai',
-      },
+      subscription: createDefaultSubscription(),
+      customEndpoint: createDefaultCustomEndpoint(),
       subscriptionSnapshot: null as ClientSubscriptionSnapshot | null,
       pendingCheckoutSession: null,
     },
@@ -111,6 +217,124 @@ export const useSettingsStore = defineStore('settings', {
     }
   }),
   actions: {
+    markLoginGatewayRequired() {
+      setLoginGatewayRequired(true);
+    },
+    clearLoginGatewayRequired() {
+      setLoginGatewayRequired(false);
+    },
+    isLoginGatewayRequired() {
+      return readLoginGatewayRequired();
+    },
+    resetCloudManagedAiState() {
+      const runtimeDefaults = createDefaultManagedRuntime();
+      this.ai = {
+        ...this.ai,
+        ...runtimeDefaults,
+        subscription: createDefaultSubscription(),
+        customEndpoint: createDefaultCustomEndpoint(),
+        subscriptionSnapshot: null,
+        pendingCheckoutSession: null,
+      };
+    },
+    applyCloudIdentity(response: {
+      mode: string;
+      accountKey: string;
+      displayName: string;
+      email: string;
+      enterpriseId: string;
+      enterpriseName: string;
+      subAccountId: string;
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: string;
+      refreshExpiresAt: string;
+      syncEndpointUrl: string;
+    }) {
+      const identityFallback =
+        response.mode === 'enterpriseSubAccount'
+          ? response.enterpriseName || response.subAccountId || response.accountKey
+          : response.email || response.accountKey;
+      const nextDisplayName =
+        response.displayName?.trim() ||
+        identityFallback?.trim() ||
+        this.account.displayName ||
+        'Cloud Account';
+
+      this.account = {
+        ...this.account,
+        mode: response.mode as Settings['account']['mode'],
+        userId:
+          response.mode === 'personal'
+            ? response.accountKey || response.email || this.account.userId
+            : null,
+        displayName: nextDisplayName,
+        email: response.mode === 'personal' ? response.email || response.accountKey || null : null,
+        enterpriseId: response.mode === 'enterpriseSubAccount' ? response.enterpriseId || null : null,
+        enterpriseName:
+          response.mode === 'enterpriseSubAccount' ? response.enterpriseName || null : null,
+        subAccountId:
+          response.mode === 'enterpriseSubAccount'
+            ? response.subAccountId || response.accountKey || this.account.subAccountId
+            : null,
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+        expiresAt: response.expiresAt ? Date.parse(response.expiresAt) : null,
+        refreshExpiresAt: response.refreshExpiresAt
+          ? Date.parse(response.refreshExpiresAt)
+          : null,
+      };
+
+      this.sync = {
+        ...this.sync,
+        enabled: response.mode !== 'local',
+        endpointUrl:
+          this.sync.endpointUrl ||
+          (response.syncEndpointUrl
+            ? new URL(response.syncEndpointUrl, this.sync.endpointUrl || 'http://localhost:5047')
+                .origin
+            : this.sync.endpointUrl),
+      };
+    },
+    async saveCurrentLocalWorkspaceSnapshot() {
+      const assetSnapshot = await (await import('./assets')).useAssetStore().exportLocalWorkspaceSnapshot();
+      await workspaceSnapshotService.save(LOCAL_WORKSPACE_SNAPSHOT_KEY, {
+        ...assetSnapshot,
+        settings: JSON.parse(JSON.stringify(this.$state)) as Settings,
+      });
+    },
+    async restoreSavedLocalWorkspaceSnapshot() {
+      const snapshot = await workspaceSnapshotService.get(LOCAL_WORKSPACE_SNAPSHOT_KEY);
+      if (!snapshot) {
+        this.account = createDefaultAccount();
+        this.sync = {
+          ...this.sync,
+          enabled: false,
+          organizationScope: '',
+          lastCloudSyncAt: null,
+        };
+        this.resetCloudManagedAiState();
+        this.ai.customEndpoint = createDefaultCustomEndpoint();
+        this.applyTheme();
+        await this.applyLanguage();
+        await invoke('save_settings', { settings: this.$state });
+        return false;
+      }
+
+      await (await import('./assets')).useAssetStore().restoreLocalWorkspaceSnapshot(snapshot);
+      this.$patch(snapshot.settings);
+      this.account = createDefaultAccount();
+      this.sync = {
+        ...this.sync,
+        enabled: false,
+        organizationScope: '',
+        lastCloudSyncAt: null,
+      };
+      this.applyTheme();
+      await this.applyLanguage();
+      await invoke('save_settings', { settings: this.$state });
+      return true;
+    },
     async loadSettings() {
       try {
         const settings = await invoke<Settings>('get_settings');
@@ -134,6 +358,9 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
     async loginToCloud(secret = '') {
+      if (this.account.mode === 'local') {
+        throw new Error('Cloud login requires a personal account or enterprise sub account.');
+      }
       const identifier =
         this.account.email?.trim() ||
         this.account.userId?.trim() ||
@@ -146,26 +373,7 @@ export const useSettingsStore = defineStore('settings', {
         secret,
       });
 
-      this.account = {
-        ...this.account,
-        mode: response.mode as Settings['account']['mode'],
-        userId: response.accountKey || this.account.userId,
-        displayName: response.displayName || this.account.displayName,
-        email: response.email || this.account.email,
-        enterpriseId: response.enterpriseId || this.account.enterpriseId,
-        enterpriseName: response.enterpriseName || this.account.enterpriseName,
-        subAccountId: response.subAccountId || this.account.subAccountId,
-        accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
-        expiresAt: Date.parse(response.expiresAt),
-        refreshExpiresAt: Date.parse(response.refreshExpiresAt),
-      };
-
-      this.sync = {
-        ...this.sync,
-        enabled: response.mode !== 'local',
-        endpointUrl: this.sync.endpointUrl || response.syncEndpointUrl || this.sync.endpointUrl,
-      };
+      this.applyCloudIdentity(response);
 
       this.ai = {
         ...this.ai,
@@ -210,7 +418,10 @@ export const useSettingsStore = defineStore('settings', {
         });
       } catch (error) {
         if (String(error).includes('401')) {
-          await this.logoutFromCloud();
+          this.markLoginGatewayRequired();
+          await this.logoutFromCloud({
+            preserveIdentity: true,
+          });
         }
         throw error;
       }
@@ -248,7 +459,10 @@ export const useSettingsStore = defineStore('settings', {
         );
       } catch (error) {
         if (String(error).includes('401')) {
-          await this.logoutFromCloud();
+          this.markLoginGatewayRequired();
+          await this.logoutFromCloud({
+            preserveIdentity: true,
+          });
         }
         throw error;
       }
@@ -256,7 +470,7 @@ export const useSettingsStore = defineStore('settings', {
       if (response.settingsJson) {
         try {
           const parsed = JSON.parse(response.settingsJson) as Partial<Settings>;
-          this.$patch(parsed);
+          this.$patch(sanitizeCloudSettingsPatch(parsed));
         } catch (error) {
           console.error('Failed to parse cloud settings payload', error);
         }
@@ -288,7 +502,10 @@ export const useSettingsStore = defineStore('settings', {
     },
     async refreshCloudSession() {
       if (!this.account.refreshToken) {
-        await this.logoutFromCloud();
+        this.markLoginGatewayRequired();
+        await this.logoutFromCloud({
+          preserveIdentity: true,
+        });
         return null;
       }
 
@@ -297,20 +514,7 @@ export const useSettingsStore = defineStore('settings', {
         this.account.refreshToken,
       );
 
-      this.account = {
-        ...this.account,
-        mode: response.mode as Settings['account']['mode'],
-        userId: response.accountKey || this.account.userId,
-        displayName: response.displayName || this.account.displayName,
-        email: response.email || this.account.email,
-        enterpriseId: response.enterpriseId || this.account.enterpriseId,
-        enterpriseName: response.enterpriseName || this.account.enterpriseName,
-        subAccountId: response.subAccountId || this.account.subAccountId,
-        accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
-        expiresAt: Date.parse(response.expiresAt),
-        refreshExpiresAt: Date.parse(response.refreshExpiresAt),
-      };
+      this.applyCloudIdentity(response);
 
       if (this.account.accessToken && !this.ai.subscription.useCustomEndpoint) {
         await this.loadManagedAiRuntime().catch(() => undefined);
@@ -319,27 +523,18 @@ export const useSettingsStore = defineStore('settings', {
       await invoke('save_settings', { settings: this.$state });
       return response;
     },
-    async logoutFromCloud() {
-      this.account = {
-        mode: 'local',
-        userId: null,
-        displayName: 'Local Workspace',
-        email: null,
-        enterpriseId: null,
-        enterpriseName: null,
-        subAccountId: null,
-        accessToken: null,
-        refreshToken: null,
-        expiresAt: null,
-        refreshExpiresAt: null,
-      };
+    async logoutFromCloud(options?: {
+      nextMode?: Settings['account']['mode'];
+      preserveIdentity?: boolean;
+    }) {
+      this.account = createSignedOutAccount(this.account, options);
       this.sync = {
         ...this.sync,
         enabled: false,
         organizationScope: '',
         lastCloudSyncAt: null,
       };
-      this.ai.subscriptionSnapshot = null;
+      this.resetCloudManagedAiState();
       await invoke('save_settings', { settings: this.$state });
     },
     isCloudSessionExpired() {

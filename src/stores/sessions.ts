@@ -241,6 +241,45 @@ export const useSessionStore = defineStore('sessions', {
         useNotificationStore().error('Failed to reconnect: ' + e);
       }
     },
+    async disconnectAllSessions() {
+      const sessions = [...this.sessions];
+      this.sessions = [];
+      this.activeSessionId = null;
+      await Promise.all(
+        sessions.map((session) =>
+          sessionService.disconnectAsset(session.id, session.assetId).catch((error) => {
+            console.warn('Failed to disconnect session during reset', session.id, error);
+          }),
+        ),
+      );
+    },
+    async hydrateSessionsFromBackend() {
+      const assetStore = useAssetStore();
+      const sessions = await sessionService.listOpsSessions();
+      this.sessions = sessions.map((session) => {
+        const asset = assetStore.assets.find((item) => item.id === session.assetId);
+        return {
+          id: session.id,
+          assetId: session.assetId,
+          assetName: asset?.name || session.assetName || `Asset ${session.assetId}`,
+          createdAt: session.createdAt,
+          accessEndpointId: session.accessEndpointId ?? asset?.accessEndpointId ?? null,
+          credentialRefId: session.credentialRefId ?? null,
+          bastionChainId: session.bastionChainId ?? asset?.bastionChainId ?? null,
+          currentPath: session.currentPath || '.',
+          riskLevel: session.riskLevel || asset?.criticality || 'medium',
+          healthSummary: session.healthSummary ?? asset?.healthSummary ?? null,
+          lastJobRunId: session.lastJobRunId ?? null,
+          status: 'connected' as const,
+          activeTab: 'terminal' as const,
+          files: [],
+          connectedAt: session.createdAt,
+          envId: asset?.envId ?? null,
+          os: asset?.platform,
+        };
+      });
+      this.activeSessionId = this.sessions[0]?.id ?? null;
+    },
     setActiveSession(id: string) {
       this.activeSessionId = id;
     },

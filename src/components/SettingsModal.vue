@@ -3,6 +3,9 @@ import { computed, ref, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useSshKeyStore } from '../stores/sshKeys';
 import { useAssetStore } from '../stores/assets';
+import { useSessionStore } from '../stores/sessions';
+import { useTransferStore } from '../stores/transfers';
+import type { AISubscriptionConfig, Settings } from '../types';
 import { useI18n } from '../composables/useI18n';
 import { X, Plus, Trash2, Key } from 'lucide-vue-next';
 
@@ -10,6 +13,8 @@ const props = defineProps<{ show: boolean }>();
 const emit = defineEmits(['close']);
 const store = useSettingsStore();
 const assetStore = useAssetStore();
+const sessionStore = useSessionStore();
+const transferStore = useTransferStore();
 const sshKeyStore = useSshKeyStore();
 const { t } = useI18n();
 
@@ -24,6 +29,79 @@ const subscriptionSnapshot = computed(() => store.ai.subscriptionSnapshot);
 const isCreatingCheckout = ref<string | null>(null);
 const isRefreshingBilling = ref(false);
 const selectedCheckoutProvider = ref('manual');
+
+function createClearedSubscription() {
+  return {
+    plan: 'free',
+    planDisplayName: 'Free',
+    status: 'inactive',
+    seats: 1,
+    billingScope: 'global',
+    pricePerSeat: 0,
+    currency: 'USD',
+    startedAt: null,
+    renewalAt: null,
+    allowCustomEndpoint: true,
+    useCustomEndpoint: true,
+    syncToCloud: true,
+  } satisfies AISubscriptionConfig;
+}
+
+function createClearedAiConfig(ai: Settings['ai']) {
+  return {
+    ...ai,
+    apiUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    modelName: 'gpt-3.5-turbo',
+    providerType: 'openai' as const,
+    customEndpoint: {
+      endpointName: 'Default Custom Endpoint',
+      apiUrl: 'https://api.openai.com/v1',
+      apiKey: '',
+      modelName: 'gpt-3.5-turbo',
+      providerType: 'openai' as const,
+    },
+    subscription: createClearedSubscription(),
+    subscriptionSnapshot: null,
+    pendingCheckoutSession: null,
+  };
+}
+
+function buildAccountFingerprint(account: Settings['account']) {
+  return [
+    account.mode,
+    account.email?.trim() ?? '',
+    account.userId?.trim() ?? '',
+    account.enterpriseId?.trim() ?? '',
+    account.enterpriseName?.trim() ?? '',
+    account.subAccountId?.trim() ?? '',
+  ].join('|');
+}
+
+function normalizeAccountForSave(account: Settings['account']) {
+  const currentFingerprint = buildAccountFingerprint(store.account);
+  const nextFingerprint = buildAccountFingerprint(account);
+  const shouldClearCloudState = account.mode === 'local' || currentFingerprint !== nextFingerprint;
+  const nextDisplayName =
+    account.mode === 'local'
+      ? 'Local Workspace'
+      : (account.displayName || account.email || account.userId || account.subAccountId || 'Personal Account');
+
+  return {
+    ...account,
+    displayName: nextDisplayName,
+    email: account.mode === 'personal' ? (account.email || account.userId || '').trim() || null : null,
+    userId: account.mode === 'personal' ? (account.userId || account.email || '').trim() || null : null,
+    enterpriseId: account.mode === 'enterpriseSubAccount' ? (account.enterpriseId || '').trim() || null : null,
+    enterpriseName:
+      account.mode === 'enterpriseSubAccount' ? (account.enterpriseName || '').trim() || null : null,
+    subAccountId: account.mode === 'enterpriseSubAccount' ? (account.subAccountId || '').trim() || null : null,
+    accessToken: shouldClearCloudState ? null : account.accessToken ?? null,
+    refreshToken: shouldClearCloudState ? null : account.refreshToken ?? null,
+    expiresAt: shouldClearCloudState ? null : account.expiresAt ?? null,
+    refreshExpiresAt: shouldClearCloudState ? null : account.refreshExpiresAt ?? null,
+  };
+}
 
 function formatMoney(value: number, currency = 'USD') {
   return new Intl.NumberFormat('en-US', {
@@ -91,24 +169,119 @@ watch(() => props.show, (val) => {
   }
 });
 
-function save() {
-  store.saveSettings(form.value);
+async function save() {
+  const previousMode = store.account.mode;
+  const account = normalizeAccountForSave(form.value.account);
+  const currentFingerprint = buildAccountFingerprint(store.account);
+  const nextFingerprint = buildAccountFingerprint(account);
+  const shouldClearCloudState =
+    account.mode !== previousMode ||
+    currentFingerprint !== nextFingerprint;
+
+  if (shouldClearCloudState && previousMode === 'local' && account.mode !== 'local') {
+    await store.saveCurrentLocalWorkspaceSnapshot().catch(() => undefined);
+  }
+
+  if (shouldClearCloudState) {
+    await transferStore.cancelAllAndReset().catch(() => undefined);
+    await sessionStore.disconnectAllSessions().catch(() => undefined);
+    sessionStore.cleanupEventListeners();
+    transferStore.clearLocalState();
+  }
+
+  const nextSettings: Partial<Settings> = {
+    ...form.value,
+    account,
+    ai: shouldClearCloudState ? createClearedAiConfig(form.value.ai) : form.value.ai,
+  };
+
+  await store.saveSettings(nextSettings);
+
+  if (shouldClearCloudState) {
+    if (account.mode === 'local') {
+      store.clearLoginGatewayRequired();
+      const restored = await store.restoreSavedLocalWorkspaceSnapshot().catch(() => false);
+      if (!restored) {
+        await assetStore.clearWorkspace().catch(() => undefined);
+      }
+      emit('close');
+      window.location.reload();
+      return;
+    }
+
+    await assetStore.clearWorkspace().catch(() => undefined);
+    store.markLoginGatewayRequired();
+    emit('close');
+    window.location.reload();
+    return;
+  }
+
   emit('close');
 }
 
 async function loginToCloud() {
   isCloudLoggingIn.value = true;
   cloudStatusMessage.value = '';
+  const previousState = JSON.parse(JSON.stringify(store.$state)) as Settings;
   try {
-    await store.saveSettings(form.value);
-    const response = await store.loginToCloud(cloudSecret.value);
-    await store.loadClientSubscriptionSnapshot().catch(() => null);
-    form.value.account = { ...store.account };
-    form.value.sync = { ...store.sync };
-    form.value.ai = { ...store.ai };
-    subscriptionSummary.value = store.activeSubscriptionSummary();
-    cloudStatusMessage.value = `${response.mode} connected`;
+    const previousMode = store.account.mode;
+    if (previousMode === 'local' && form.value.account.mode !== 'local') {
+      await store.saveCurrentLocalWorkspaceSnapshot().catch(() => undefined);
+    }
+    await store.saveSettings({
+      ...form.value,
+      account: {
+        ...form.value.account,
+        displayName:
+          form.value.account.mode === 'local'
+            ? 'Local Workspace'
+            : form.value.account.mode === 'enterpriseSubAccount'
+              ? (
+                  form.value.account.displayName ||
+                  form.value.account.enterpriseName ||
+                  form.value.account.subAccountId ||
+                  'Enterprise Sub-Account'
+                )
+              : (form.value.account.displayName || form.value.account.email || form.value.account.userId || 'Personal Account'),
+        email:
+          form.value.account.mode === 'personal'
+            ? (form.value.account.email || form.value.account.userId || '').trim() || null
+            : null,
+        userId:
+          form.value.account.mode === 'personal'
+            ? (form.value.account.userId || form.value.account.email || '').trim() || null
+            : null,
+        enterpriseId:
+          form.value.account.mode === 'enterpriseSubAccount'
+            ? (form.value.account.enterpriseId || '').trim() || null
+            : null,
+        enterpriseName:
+          form.value.account.mode === 'enterpriseSubAccount'
+            ? (form.value.account.enterpriseName || '').trim() || null
+            : null,
+        subAccountId:
+          form.value.account.mode === 'enterpriseSubAccount'
+            ? (form.value.account.subAccountId || '').trim() || null
+            : null,
+        accessToken: null,
+        refreshToken: null,
+        expiresAt: null,
+        refreshExpiresAt: null,
+      },
+      ai: createClearedAiConfig(form.value.ai),
+    });
+    await store.loginToCloud(cloudSecret.value);
+    await transferStore.cancelAllAndReset().catch(() => undefined);
+    await sessionStore.disconnectAllSessions().catch(() => undefined);
+    sessionStore.cleanupEventListeners();
+    transferStore.clearLocalState();
+    await assetStore.clearWorkspace().catch(() => undefined);
+    store.clearLoginGatewayRequired();
+    emit('close');
+    window.location.reload();
+    return;
   } catch (error) {
+    await store.saveSettings(previousState).catch(() => undefined);
     cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
     isCloudLoggingIn.value = false;
@@ -128,7 +301,10 @@ async function syncSettingsNow() {
         store.account.mode,
         store.account.userId || store.account.subAccountId || 'local-workspace',
         store.account.accessToken || '',
-        () => store.logoutFromCloud(),
+        () =>
+          store.logoutFromCloud({
+            preserveIdentity: true,
+          }),
       );
       await assetStore.pullAssetsFromCloud(
         store.sync.endpointUrl || 'http://localhost:5047',

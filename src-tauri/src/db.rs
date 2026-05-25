@@ -1,11 +1,11 @@
 use crate::models::{
     AccountProfile, AIConfig, AIEndpointConfig, AISubscriptionConfig, AppSettings,
     Connection as SshConnection, ConnectionGroup, ConnectionTimeoutSettings,
-    FileManagerSettings, HeartbeatSettings, NetworkAdaptiveSettings, PoolHealthSettings,
-    PendingCheckoutSession, ReconnectSettings, SshKey, SshPoolSettings, SyncPreferences,
-    TerminalAppearanceSettings, Tunnel,
+    FileManagerSettings, HeartbeatSettings, LocalWorkspaceSnapshot, NetworkAdaptiveSettings,
+    PoolHealthSettings, PendingCheckoutSession, ReconnectSettings, SshKey, SshPoolSettings,
+    SyncPreferences, TerminalAppearanceSettings, Tunnel,
 };
-use rusqlite::{params, Connection, Result, Row};
+use rusqlite::{params, Connection, OptionalExtension, Result, Row};
 use tauri::{AppHandle, Manager};
 
 pub fn get_db_path(app_handle: &AppHandle) -> std::path::PathBuf {
@@ -113,6 +113,15 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
             terminal_font_family TEXT NOT NULL DEFAULT 'Menlo, Monaco, "Courier New", monospace',
             terminal_cursor_style TEXT NOT NULL DEFAULT 'block',
             terminal_line_height REAL NOT NULL DEFAULT 1.0
+        )"#,
+        [],
+    )?;
+
+    conn.execute(
+        r#"CREATE TABLE IF NOT EXISTS local_workspace_snapshots (
+            snapshot_key TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
         )"#,
         [],
     )?;
@@ -467,6 +476,48 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
 }
 
 #[tauri::command]
+pub fn get_local_workspace_snapshot(
+    app_handle: AppHandle,
+    snapshot_key: String,
+) -> Result<Option<LocalWorkspaceSnapshot>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let payload = conn
+        .query_row(
+            "SELECT payload_json FROM local_workspace_snapshots WHERE snapshot_key = ?1",
+            params![snapshot_key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    payload
+        .map(|raw| serde_json::from_str::<LocalWorkspaceSnapshot>(&raw).map_err(|e| e.to_string()))
+        .transpose()
+}
+
+#[tauri::command]
+pub fn save_local_workspace_snapshot(
+    app_handle: AppHandle,
+    snapshot_key: String,
+    snapshot: LocalWorkspaceSnapshot,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let payload_json = serde_json::to_string(&snapshot).map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO local_workspace_snapshots (snapshot_key, payload_json, updated_at)
+         VALUES (?1, ?2, strftime('%s','now'))
+         ON CONFLICT(snapshot_key) DO UPDATE SET
+            payload_json = excluded.payload_json,
+            updated_at = excluded.updated_at",
+        params![snapshot_key, payload_json],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_connections(app_handle: AppHandle) -> Result<Vec<SshConnection>, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
@@ -814,13 +865,9 @@ pub fn delete_group(app_handle: AppHandle, id: i64) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
-    let db_path = get_db_path(&app_handle);
-    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-
+pub fn get_settings_with_conn(conn: &Connection) -> Result<AppSettings> {
     let mut stmt = conn.prepare("SELECT theme, language, account_mode, account_user_id, account_display_name, account_email, account_enterprise_id, account_enterprise_name, account_sub_account_id, account_access_token, account_refresh_token, account_expires_at, account_refresh_expires_at, sync_enabled, sync_endpoint_url, sync_organization_scope, sync_assets, sync_settings, sync_last_cloud_sync_at, ai_api_url, ai_api_key, ai_model_name, ai_provider_type, ai_subscription_plan, ai_subscription_status, ai_subscription_seats, ai_subscription_billing_scope, ai_subscription_price_per_seat, ai_subscription_currency, ai_subscription_plan_display_name, ai_subscription_started_at, ai_subscription_renewal_at, ai_subscription_allow_custom_endpoint, ai_subscription_use_custom_endpoint, ai_subscription_sync_to_cloud, ai_custom_endpoint_name, ai_custom_endpoint_url, ai_custom_endpoint_key, ai_custom_endpoint_model_name, ai_custom_endpoint_provider_type, ai_pending_checkout_invoice_id, ai_pending_checkout_provider_key, ai_pending_checkout_url, ai_pending_checkout_external_reference, ai_pending_checkout_created_at, ai_pending_checkout_expires_at, terminal_font_size, terminal_font_family, terminal_cursor_style, terminal_line_height, file_manager_view_mode, file_manager_layout, ssh_max_background_sessions, ssh_enable_auto_cleanup, ssh_cleanup_interval_minutes, file_manager_sftp_buffer_size, connection_timeout_secs, jump_host_timeout_secs, local_forward_timeout_secs, command_timeout_secs, sftp_operation_timeout_secs, reconnect_max_attempts, reconnect_initial_delay_ms, reconnect_max_delay_ms, reconnect_backoff_multiplier, reconnect_enabled, heartbeat_tcp_keepalive_interval_secs, heartbeat_ssh_keepalive_interval_secs, heartbeat_app_heartbeat_interval_secs, heartbeat_timeout_secs, heartbeat_failed_heartbeats_before_action, pool_health_check_interval_secs, pool_session_warmup_count, pool_max_session_age_minutes, pool_unhealthy_threshold, network_adaptive_enabled, network_latency_check_interval_secs, network_high_latency_threshold_ms, network_low_bandwidth_threshold_kbps FROM settings WHERE id = 1")
-        .map_err(|e| e.to_string())?;
+        ?;
 
     let mut rows = stmt
         .query_map([], |row| {
@@ -964,20 +1011,16 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
                 },
             })
         })
-        .map_err(|e| e.to_string())?;
+        ?;
 
     if let Some(row) = rows.next() {
-        row.map_err(|e| e.to_string())
+        row
     } else {
-        Err("Settings not found".to_string())
+        Err(rusqlite::Error::QueryReturnedNoRows)
     }
 }
 
-#[tauri::command]
-pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(), String> {
-    let db_path = get_db_path(&app_handle);
-    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-
+pub fn save_settings_with_conn(conn: &Connection, settings: AppSettings) -> Result<()> {
     conn.execute(
         "UPDATE settings SET theme=?1, language=?2, account_mode=?3, account_user_id=?4, account_display_name=?5, account_email=?6, account_enterprise_id=?7, account_enterprise_name=?8, account_sub_account_id=?9, account_access_token=?10, account_refresh_token=?11, account_expires_at=?12, account_refresh_expires_at=?13, sync_enabled=?14, sync_endpoint_url=?15, sync_organization_scope=?16, sync_assets=?17, sync_settings=?18, sync_last_cloud_sync_at=?19, ai_api_url=?20, ai_api_key=?21, ai_model_name=?22, ai_provider_type=?23, ai_subscription_plan=?24, ai_subscription_status=?25, ai_subscription_seats=?26, ai_subscription_billing_scope=?27, ai_subscription_price_per_seat=?28, ai_subscription_currency=?29, ai_subscription_plan_display_name=?30, ai_subscription_started_at=?31, ai_subscription_renewal_at=?32, ai_subscription_allow_custom_endpoint=?33, ai_subscription_use_custom_endpoint=?34, ai_subscription_sync_to_cloud=?35, ai_custom_endpoint_name=?36, ai_custom_endpoint_url=?37, ai_custom_endpoint_key=?38, ai_custom_endpoint_model_name=?39, ai_custom_endpoint_provider_type=?40, ai_pending_checkout_invoice_id=?41, ai_pending_checkout_provider_key=?42, ai_pending_checkout_url=?43, ai_pending_checkout_external_reference=?44, ai_pending_checkout_created_at=?45, ai_pending_checkout_expires_at=?46, terminal_font_size=?47, terminal_font_family=?48, terminal_cursor_style=?49, terminal_line_height=?50, file_manager_view_mode=?51, file_manager_layout=?52, ssh_max_background_sessions=?53, ssh_enable_auto_cleanup=?54, ssh_cleanup_interval_minutes=?55, file_manager_sftp_buffer_size=?56, connection_timeout_secs=?57, jump_host_timeout_secs=?58, local_forward_timeout_secs=?59, command_timeout_secs=?60, sftp_operation_timeout_secs=?61, reconnect_max_attempts=?62, reconnect_initial_delay_ms=?63, reconnect_max_delay_ms=?64, reconnect_backoff_multiplier=?65, reconnect_enabled=?66, heartbeat_tcp_keepalive_interval_secs=?67, heartbeat_ssh_keepalive_interval_secs=?68, heartbeat_app_heartbeat_interval_secs=?69, heartbeat_timeout_secs=?70, heartbeat_failed_heartbeats_before_action=?71, pool_health_check_interval_secs=?72, pool_session_warmup_count=?73, pool_max_session_age_minutes=?74, pool_unhealthy_threshold=?75, network_adaptive_enabled=?76, network_latency_check_interval_secs=?77, network_high_latency_threshold_ms=?78, network_low_bandwidth_threshold_kbps=?79 WHERE id = 1",
         params![
@@ -1061,9 +1104,23 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(),
             settings.network_adaptive.high_latency_threshold_ms,
             settings.network_adaptive.low_bandwidth_threshold_kbps,
         ],
-    ).map_err(|e| e.to_string())?;
+    )?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    get_settings_with_conn(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    save_settings_with_conn(&conn, settings).map_err(|e| e.to_string())
 }
 
 // --- SSH Key Commands ---

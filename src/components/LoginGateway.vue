@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { useSettingsStore } from "../stores/settings";
-import { useAssetStore } from "../stores/assets";
+import type { AccountMode } from "../types";
 import { useI18n } from "../composables/useI18n";
 
 const emit = defineEmits<{
@@ -9,14 +9,21 @@ const emit = defineEmits<{
 }>();
 
 const settingsStore = useSettingsStore();
-const assetStore = useAssetStore();
 const { t } = useI18n();
 
 const isSubmitting = ref(false);
 const errorMessage = ref("");
 
-const form = reactive({
-  mode: settingsStore.account.mode,
+const form = reactive<{
+  mode: AccountMode;
+  identifier: string;
+  secret: string;
+  endpointUrl: string;
+  enterpriseId: string;
+  enterpriseName: string;
+  organizationScope: string;
+}>({
+  mode: settingsStore.account.mode === "local" ? "personal" : settingsStore.account.mode,
   identifier:
     settingsStore.account.email ||
     settingsStore.account.userId ||
@@ -24,13 +31,22 @@ const form = reactive({
     "",
   secret: "",
   endpointUrl: settingsStore.sync.endpointUrl || "http://localhost:5047",
+  enterpriseId: settingsStore.account.enterpriseId || "",
+  enterpriseName: settingsStore.account.enterpriseName || "",
   organizationScope: settingsStore.sync.organizationScope || "",
 });
 
 watch(
   () => settingsStore.account.mode,
   (mode) => {
-    form.mode = mode;
+    form.mode = mode === "local" ? "personal" : mode;
+    if (mode !== "enterpriseSubAccount") {
+      form.enterpriseId = "";
+      form.enterpriseName = "";
+    } else {
+      form.enterpriseId = settingsStore.account.enterpriseId || form.enterpriseId;
+      form.enterpriseName = settingsStore.account.enterpriseName || form.enterpriseName;
+    }
   },
 );
 
@@ -54,39 +70,63 @@ async function submit() {
   errorMessage.value = "";
 
   try {
-    await settingsStore.saveSettings({
-      account: {
-        ...settingsStore.account,
-        mode: form.mode,
-        email: form.mode === "personal" ? form.identifier : settingsStore.account.email,
-        userId: form.mode === "personal" ? form.identifier : settingsStore.account.userId,
-        subAccountId:
-          form.mode === "enterpriseSubAccount"
-            ? form.identifier
-            : settingsStore.account.subAccountId,
-      },
-      sync: {
-        ...settingsStore.sync,
-        endpointUrl: form.endpointUrl,
-        organizationScope: form.organizationScope,
-      },
-    });
-
-    if (!isLocalMode.value) {
-      await settingsStore.loginToCloud(form.secret);
-      await settingsStore.pullCloudState();
-      await assetStore.pullAssetsFromCloud(
-        settingsStore.sync.endpointUrl || form.endpointUrl,
-        settingsStore.account.mode,
-        settingsStore.account.userId ||
-          settingsStore.account.subAccountId ||
-          "local-workspace",
-        settingsStore.account.accessToken || "",
-      );
+    const previousMode = settingsStore.account.mode;
+    const shouldPreserveLocalSnapshot =
+      previousMode === "local" &&
+      form.mode !== "local" &&
+      !settingsStore.isLoginGatewayRequired();
+    if (shouldPreserveLocalSnapshot) {
+      await settingsStore.saveCurrentLocalWorkspaceSnapshot().catch(() => undefined);
+    }
+    if (isLocalMode.value) {
+      await settingsStore.logoutFromCloud({
+        nextMode: "local",
+        preserveIdentity: false,
+      });
     } else {
-      await assetStore.loadAssets();
+      settingsStore.resetCloudManagedAiState();
+
+      await settingsStore.saveSettings({
+        account: {
+          mode: form.mode,
+          displayName:
+            form.mode === "enterpriseSubAccount"
+              ? form.enterpriseName.trim() ||
+                form.identifier.trim() ||
+                settingsStore.account.displayName ||
+                "Enterprise Sub-Account"
+              : form.identifier.trim() ||
+                settingsStore.account.displayName ||
+                "Personal Account",
+          email: form.mode === "personal" ? form.identifier.trim() || null : null,
+          userId: form.mode === "personal" ? form.identifier.trim() || null : null,
+          enterpriseId:
+            form.mode === "enterpriseSubAccount"
+              ? form.enterpriseId.trim() || settingsStore.account.enterpriseId || null
+              : null,
+          enterpriseName:
+            form.mode === "enterpriseSubAccount"
+              ? form.enterpriseName.trim() || settingsStore.account.enterpriseName || null
+              : null,
+          subAccountId:
+            form.mode === "enterpriseSubAccount"
+              ? form.identifier.trim() || null
+              : null,
+          accessToken: null,
+          refreshToken: null,
+          expiresAt: null,
+          refreshExpiresAt: null,
+        },
+        sync: {
+          ...settingsStore.sync,
+          endpointUrl: form.endpointUrl,
+          organizationScope: form.organizationScope,
+        },
+      });
+      await settingsStore.loginToCloud(form.secret);
     }
 
+    settingsStore.clearLoginGatewayRequired();
     emit("authenticated");
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -96,9 +136,8 @@ async function submit() {
 }
 
 async function enterLocalMode() {
-  await settingsStore.logoutFromCloud()
-  await assetStore.loadAssets()
-  emit("authenticated")
+  form.mode = "local";
+  await submit();
 }
 </script>
 
@@ -172,6 +211,26 @@ async function enterLocalMode() {
               placeholder="user@example.com"
             />
           </div>
+
+          <template v-if="form.mode === 'enterpriseSubAccount'">
+            <div>
+              <label class="mb-2 block text-sm font-medium text-slate-700">企业 ID</label>
+              <input
+                v-model="form.enterpriseId"
+                class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+                placeholder="ent-001"
+              />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-medium text-slate-700">企业名称</label>
+              <input
+                v-model="form.enterpriseName"
+                class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+                placeholder="Enterprise Name"
+              />
+            </div>
+          </template>
 
           <div v-if="!isLocalMode">
             <label class="mb-2 block text-sm font-medium text-slate-700">登录密钥</label>

@@ -3,12 +3,13 @@ use crate::models::{
     AccessEndpoint, AssetFolder, AssetSessionConnectResult, AssetTag, AssetUpsertPayload,
     AuditEvent, Connection as SshConnection, CredentialRef, Environment, HostAsset,
     CloudAssetRecord, JobBatchPreview, JobBatchPreviewTarget, JobBatchRequest, JobBatchResult, JobBatchResultItem,
-    JobRun, JobRunArchive, JobTemplate, OpsConsoleAnswer, OpsMatchedAsset, OpsPlanStep,
-    OpsSession, SavedAssetView, SyncChangeLogEntry, SyncObjectVersionSummary, SyncOverview,
-    SyncServiceConfig, SyncState,
+    JobRun, JobRunArchive, JobTemplate, LocalWorkspaceAccessHistoryEntry,
+    LocalWorkspaceSnapshot, OpsConsoleAnswer, OpsMatchedAsset, OpsPlanStep, OpsSession,
+    SavedAssetView, SyncChangeLogEntry, SyncObjectVersionSummary, SyncOverview,
+    SyncObjectVersionEntry, SyncServiceConfig, SyncState,
 };
 use crate::ssh::{client, client::AppState, command};
-use rusqlite::{params, Connection as SqliteConnection};
+use rusqlite::{params, Connection as SqliteConnection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, State};
@@ -1366,6 +1367,530 @@ fn archive_job_run_with_conn(
     .map_err(|e| e.to_string())
 }
 
+fn clear_asset_workspace(tx: &SqliteConnection) -> Result<(), String> {
+    tx.execute("DELETE FROM access_endpoints", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM credential_refs", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM host_asset_tags", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM saved_views", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM audit_events WHERE asset_id IS NOT NULL", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM job_run_archives WHERE asset_id IS NOT NULL", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM job_runs WHERE asset_id IS NOT NULL", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM job_templates", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM sync_change_log", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM sync_object_versions", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM sync_services", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM sync_state", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM audit_events WHERE asset_id IS NULL", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM job_run_archives WHERE asset_id IS NULL", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM job_runs WHERE asset_id IS NULL", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM host_assets", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM asset_folders", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM connection_groups", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM environments", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM asset_tags", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT OR IGNORE INTO sync_state (id, state_key, status, version, updated_at)
+         VALUES (1, 'local-default', 'idle', 1, strftime('%s','now'))",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT OR IGNORE INTO sync_services (
+            id, service_key, display_name, base_url, auth_mode, auth_token, enabled, metadata_json, created_at, updated_at
+         ) VALUES (
+            1, 'local-first', 'Local First Mirror', NULL, 'none', NULL, 1,
+            '{\"kind\":\"noop\",\"supportsPush\":false,\"supportsPull\":false}', strftime('%s','now'), strftime('%s','now')
+         )",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn export_local_workspace_snapshot(conn: &SqliteConnection) -> Result<LocalWorkspaceSnapshot, String> {
+    let settings = crate::db::get_settings_with_conn(conn).map_err(|e| e.to_string())?;
+
+    let mut assets_stmt = conn
+        .prepare(
+            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+                    default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, folder_id
+             FROM host_assets
+             ORDER BY id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let asset_rows = assets_stmt
+        .query_map([], map_host_asset_row)
+        .map_err(|e| e.to_string())?;
+
+    let mut records = Vec::new();
+    for row in asset_rows {
+        let asset = row.map_err(|e| e.to_string())?;
+        let asset_id = asset
+            .id
+            .ok_or_else(|| "Asset ID missing while exporting workspace".to_string())?;
+        let (_, default_access_endpoint, default_credential_ref) =
+            resolve_asset_bundle(conn, asset_id, asset.access_endpoint_id)?;
+
+        records.push(CloudAssetRecord {
+            asset,
+            default_access_endpoint,
+            default_credential_ref,
+        });
+    }
+
+    let mut folders_stmt = conn
+        .prepare("SELECT id, name, parent_id, color FROM asset_folders ORDER BY id ASC")
+        .map_err(|e| e.to_string())?;
+    let folders = folders_stmt
+        .query_map([], map_folder_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut environments_stmt = conn
+        .prepare("SELECT id, name, slug, color, description FROM environments ORDER BY id ASC")
+        .map_err(|e| e.to_string())?;
+    let environments = environments_stmt
+        .query_map([], map_environment_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut tags_stmt = conn
+        .prepare("SELECT id, name, color FROM asset_tags ORDER BY id ASC")
+        .map_err(|e| e.to_string())?;
+    let tags = tags_stmt
+        .query_map([], map_tag_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut views_stmt = conn
+        .prepare("SELECT id, name, query_json, created_at, updated_at FROM saved_views ORDER BY id ASC")
+        .map_err(|e| e.to_string())?;
+    let saved_views = views_stmt
+        .query_map([], map_saved_view_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut history_stmt = conn
+        .prepare(
+            "SELECT asset_id, created_at, status, detail, source
+             FROM (
+                SELECT
+                    asset_id,
+                    created_at,
+                    CASE WHEN event_type = 'session.connected' THEN 'success' ELSE 'failed' END AS status,
+                    CASE WHEN event_type = 'session.connected' THEN NULL ELSE detail END AS detail,
+                    COALESCE(json_extract(metadata_json, '$.source'), 'tree') AS source
+                FROM audit_events
+                WHERE asset_id IS NOT NULL
+                  AND event_type IN ('session.connected', 'session.connectFailed')
+             )
+             ORDER BY created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let access_history = history_stmt
+        .query_map([], |row| {
+            Ok(LocalWorkspaceAccessHistoryEntry {
+                asset_id: row.get(0)?,
+                connected_at: row.get(1)?,
+                status: row.get(2)?,
+                reason: row.get(3)?,
+                source: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut templates_stmt = conn
+        .prepare(
+            "SELECT id, name, command, scope_type, scope_value, risk_level, requires_confirmation, created_at, updated_at
+             FROM job_templates
+             ORDER BY updated_at DESC, id DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let job_templates = templates_stmt
+        .query_map([], map_job_template_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut job_runs_stmt = conn
+        .prepare(
+            "SELECT id, asset_id, session_id, template_id, command, status, output, risk_level, initiated_by, source, created_at, completed_at
+             FROM job_runs
+             ORDER BY created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let job_runs = job_runs_stmt
+        .query_map([], map_job_run_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut job_archives_stmt = conn
+        .prepare(
+            "SELECT id, job_run_id, asset_id, session_id, command, status, risk_level, output, summary, archived_at, created_at, completed_at, source
+             FROM job_run_archives
+             ORDER BY archived_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let job_archives = job_archives_stmt
+        .query_map([], map_job_run_archive_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut audit_stmt = conn
+        .prepare(
+            "SELECT id, event_type, asset_id, session_id, job_run_id, title, detail, severity, metadata_json, created_at
+             FROM audit_events
+             ORDER BY created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let audit_events = audit_stmt
+        .query_map([], map_audit_event_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let sync_state = conn
+        .query_row(
+            "SELECT id, state_key, status, version, endpoint_url, last_synced_at, last_error, metadata_json, updated_at
+             FROM sync_state ORDER BY id ASC LIMIT 1",
+            [],
+            |row| {
+                Ok(SyncState {
+                    id: row.get(0)?,
+                    state_key: row.get(1)?,
+                    status: row.get(2)?,
+                    version: row.get(3)?,
+                    endpoint_url: row.get(4)?,
+                    last_synced_at: row.get(5)?,
+                    last_error: row.get(6)?,
+                    metadata_json: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    let mut sync_versions_stmt = conn
+        .prepare(
+            "SELECT object_type, object_id, version, updated_at
+             FROM sync_object_versions
+             ORDER BY object_type ASC, object_id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let sync_object_versions = sync_versions_stmt
+        .query_map([], |row| {
+            Ok(SyncObjectVersionEntry {
+                object_type: row.get(0)?,
+                object_id: row.get(1)?,
+                version: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut sync_changes_stmt = conn
+        .prepare(
+            "SELECT id, object_type, object_id, operation, object_version, summary, payload_json, sync_status, service_key, created_at, synced_at
+             FROM sync_change_log
+             ORDER BY created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let sync_changes = sync_changes_stmt
+        .query_map([], map_sync_change_log_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut sync_services_stmt = conn
+        .prepare(
+            "SELECT id, service_key, display_name, base_url, auth_mode, auth_token, enabled, metadata_json, created_at, updated_at
+             FROM sync_services
+             ORDER BY enabled DESC, display_name COLLATE NOCASE ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let sync_services = sync_services_stmt
+        .query_map([], map_sync_service_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(LocalWorkspaceSnapshot {
+        settings,
+        records,
+        folders,
+        environments,
+        tags,
+        saved_views,
+        access_history,
+        job_templates,
+        job_runs,
+        job_archives,
+        audit_events,
+        sync_state,
+        sync_object_versions,
+        sync_changes,
+        sync_services,
+    })
+}
+
+fn restore_local_workspace_snapshot(
+    tx: &SqliteConnection,
+    snapshot: LocalWorkspaceSnapshot,
+) -> Result<(), String> {
+    clear_asset_workspace(tx)?;
+
+    for folder in snapshot.folders {
+        tx.execute(
+            "INSERT INTO connection_groups (id, name, parent_id) VALUES (?1, ?2, ?3)",
+            params![folder.id, folder.name, folder.parent_id],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO asset_folders (id, name, parent_id, color) VALUES (?1, ?2, ?3, ?4)",
+            params![folder.id, folder.name, folder.parent_id, folder.color],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for environment in snapshot.environments {
+        tx.execute(
+            "INSERT INTO environments (id, name, slug, color, description) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                environment.id,
+                environment.name,
+                environment.slug,
+                environment.color,
+                environment.description
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for tag in snapshot.tags {
+        tx.execute(
+            "INSERT INTO asset_tags (id, name, color) VALUES (?1, ?2, ?3)",
+            params![tag.id, tag.name, tag.color],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for view in snapshot.saved_views {
+        tx.execute(
+            "INSERT INTO saved_views (id, name, query_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![view.id, view.name, view.query_json, view.created_at, view.updated_at],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for record in snapshot.records {
+        let asset_id = record
+            .asset
+            .id
+            .ok_or_else(|| "Asset ID missing while restoring workspace".to_string())?;
+        let payload = AssetUpsertPayload {
+            asset: record.asset,
+            default_access_endpoint: AccessEndpoint {
+                asset_id,
+                ..record.default_access_endpoint
+            },
+            default_credential_ref: record.default_credential_ref,
+        };
+        let _ = save_asset_bundle(tx, Some(asset_id), payload)?;
+    }
+
+    for template in snapshot.job_templates {
+        tx.execute(
+            "INSERT INTO job_templates (id, name, command, scope_type, scope_value, risk_level, requires_confirmation, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                template.id,
+                template.name,
+                template.command,
+                template.scope_type,
+                template.scope_value,
+                template.risk_level,
+                template.requires_confirmation as i64,
+                template.created_at,
+                template.updated_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for run in snapshot.job_runs {
+        tx.execute(
+            "INSERT INTO job_runs (id, asset_id, session_id, template_id, command, status, output, risk_level, initiated_by, source, created_at, completed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                run.id,
+                run.asset_id,
+                run.session_id,
+                run.template_id,
+                run.command,
+                run.status,
+                run.output,
+                run.risk_level,
+                run.initiated_by,
+                run.source,
+                run.created_at,
+                run.completed_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for archive in snapshot.job_archives {
+        tx.execute(
+            "INSERT INTO job_run_archives (id, job_run_id, asset_id, session_id, command, status, risk_level, output, summary, archived_at, created_at, completed_at, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                archive.id,
+                archive.job_run_id,
+                archive.asset_id,
+                archive.session_id,
+                archive.command,
+                archive.status,
+                archive.risk_level,
+                archive.output,
+                archive.summary,
+                archive.archived_at,
+                archive.created_at,
+                archive.completed_at,
+                archive.source
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for audit in snapshot.audit_events {
+        tx.execute(
+            "INSERT INTO audit_events (id, event_type, asset_id, session_id, job_run_id, title, detail, severity, metadata_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                audit.id,
+                audit.event_type,
+                audit.asset_id,
+                audit.session_id,
+                audit.job_run_id,
+                audit.title,
+                audit.detail,
+                audit.severity,
+                audit.metadata_json,
+                audit.created_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    if let Some(sync_state) = snapshot.sync_state {
+        tx.execute(
+            "INSERT OR REPLACE INTO sync_state (id, state_key, status, version, endpoint_url, last_synced_at, last_error, metadata_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                sync_state.id.unwrap_or(1),
+                sync_state.state_key,
+                sync_state.status,
+                sync_state.version,
+                sync_state.endpoint_url,
+                sync_state.last_synced_at,
+                sync_state.last_error,
+                sync_state.metadata_json,
+                sync_state.updated_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for version_entry in snapshot.sync_object_versions {
+        tx.execute(
+            "INSERT INTO sync_object_versions (object_type, object_id, version, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                version_entry.object_type,
+                version_entry.object_id,
+                version_entry.version,
+                version_entry.updated_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for change in snapshot.sync_changes {
+        tx.execute(
+            "INSERT INTO sync_change_log (id, object_type, object_id, operation, object_version, summary, payload_json, sync_status, service_key, created_at, synced_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                change.id,
+                change.object_type,
+                change.object_id,
+                change.operation,
+                change.object_version,
+                change.summary,
+                change.payload_json,
+                change.sync_status,
+                change.service_key,
+                change.created_at,
+                change.synced_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for service in snapshot.sync_services {
+        tx.execute(
+            "INSERT OR REPLACE INTO sync_services (id, service_key, display_name, base_url, auth_mode, auth_token, enabled, metadata_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                service.id,
+                service.service_key,
+                service.display_name,
+                service.base_url,
+                service.auth_mode,
+                service.auth_token,
+                service.enabled as i64,
+                service.metadata_json,
+                service.created_at,
+                service.updated_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    crate::db::save_settings_with_conn(tx, snapshot.settings).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn asset_get_host_assets(app_handle: AppHandle) -> Result<Vec<HostAsset>, String> {
     let db_path = get_db_path(&app_handle);
@@ -1387,6 +1912,38 @@ pub fn asset_get_host_assets(app_handle: AppHandle) -> Result<Vec<HostAsset>, St
         items.push(row.map_err(|e| e.to_string())?);
     }
     Ok(items)
+}
+
+#[tauri::command]
+pub fn asset_export_local_workspace_snapshot(
+    app_handle: AppHandle,
+) -> Result<LocalWorkspaceSnapshot, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    export_local_workspace_snapshot(&conn)
+}
+
+#[tauri::command]
+pub fn asset_clear_workspace(app_handle: AppHandle) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    clear_asset_workspace(&tx)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn asset_restore_local_workspace_snapshot(
+    app_handle: AppHandle,
+    snapshot: LocalWorkspaceSnapshot,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    restore_local_workspace_snapshot(&tx, snapshot)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

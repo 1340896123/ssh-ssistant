@@ -363,6 +363,29 @@ const activeSessionDuration = computed(() => {
   return parts.join(" ");
 });
 
+const activeAccountSummary = computed(() => {
+  const account = settingsStore.account;
+  const identity =
+    account.email ||
+    account.userId ||
+    account.subAccountId ||
+    account.displayName ||
+    "Local Workspace";
+
+  return {
+    displayName: account.displayName || identity,
+    identity,
+    mode: account.mode,
+    enterprise:
+      account.mode === "enterpriseSubAccount"
+        ? account.enterpriseName || account.enterpriseId || null
+        : null,
+    scope: settingsStore.sync.organizationScope || "global",
+    endpoint: settingsStore.sync.endpointUrl || "local-only",
+    subscription: settingsStore.activeSubscriptionSummary().label,
+  };
+});
+
 function persistWorkspaceLayoutState() {
   if (typeof localStorage === "undefined") return;
 
@@ -806,6 +829,108 @@ async function handlePaymentDeepLink(url: string) {
   }
 }
 
+async function prepareWorkspaceForAccountSwitch(options?: {
+  preserveLocalSnapshot?: boolean;
+  restoreLocalSnapshot?: boolean;
+}) {
+  if (options?.preserveLocalSnapshot && settingsStore.account.mode === "local") {
+    await settingsStore.saveCurrentLocalWorkspaceSnapshot().catch((error) => {
+      console.warn("Local workspace snapshot save skipped:", error);
+    });
+  }
+
+  await transferStore.cancelAllAndReset().catch((error) => {
+    console.warn("Transfer reset skipped:", error);
+  });
+  await sessionStore.disconnectAllSessions().catch((error) => {
+    console.warn("Session reset skipped:", error);
+  });
+  sessionStore.cleanupEventListeners();
+  transferStore.clearLocalState();
+
+  if (options?.restoreLocalSnapshot) {
+    const restored = await settingsStore.restoreSavedLocalWorkspaceSnapshot().catch(
+      (error) => {
+        console.warn("Local workspace restore skipped:", error);
+        return false;
+      }
+    );
+    if (!restored) {
+      await assetStore.clearWorkspace().catch((error) => {
+        console.warn("Workspace clear skipped after missing local snapshot:", error);
+      });
+    }
+    return;
+  }
+
+  await assetStore.clearWorkspace().catch((error) => {
+    console.warn("Workspace clear skipped:", error);
+  });
+}
+
+async function initializeWorkbenchRuntime() {
+  if (sessionStore._unlistenFns.length === 0) {
+    await sessionStore.setupEventListeners();
+  }
+  await transferStore.initListeners();
+  await sessionStore.hydrateSessionsFromBackend().catch((error) => {
+    console.warn("Session hydration skipped:", error);
+  });
+}
+
+function initializeShellUiRuntime() {
+  setWindowWidth();
+  window.addEventListener("resize", setWindowWidth);
+  window.addEventListener("mousemove", handleMouseMove);
+  window.addEventListener("mouseup", handleMouseUp);
+  window.addEventListener("keydown", handleGlobalKeydown);
+  window.addEventListener("focus", handleWindowFocus);
+
+  if (clockTimer.value === null) {
+    clockTimer.value = window.setInterval(() => {
+      now.value = Date.now();
+    }, 1000);
+  }
+
+  if (statusTimer.value === null) {
+    statusTimer.value = window.setInterval(() => {
+      void refreshActiveSessionStatus();
+    }, 3000);
+  }
+}
+
+async function bootstrapAuthenticatedSession(options?: { restoreLocalSnapshot?: boolean }) {
+  if (settingsStore.account.mode === "local") {
+    if (options?.restoreLocalSnapshot) {
+      await prepareWorkspaceForAccountSwitch({ restoreLocalSnapshot: true });
+    }
+    await assetStore.loadAssets();
+  } else {
+    await settingsStore.pullCloudState().catch((error) => {
+      console.warn("Cloud state pull skipped:", error);
+    });
+    await assetStore.clearWorkspace().catch((error) => {
+      console.warn("Workspace clear before cloud bootstrap skipped:", error);
+    });
+    await assetStore.loadAssets();
+    if (settingsStore.sync.enabled) {
+      await assetStore.pullAssetsFromCloud(
+        settingsStore.sync.endpointUrl || "http://localhost:5047",
+        settingsStore.account.mode,
+        settingsStore.account.userId ||
+          settingsStore.account.subAccountId ||
+          "local-workspace",
+        settingsStore.account.accessToken || "",
+      );
+    }
+  }
+
+  await reconcilePendingCheckoutStatus().catch((error) => {
+    console.warn("Pending checkout reconciliation skipped:", error);
+  });
+  await initializeWorkbenchRuntime();
+}
+
 onMounted(async () => {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, label: string) {
@@ -824,8 +949,14 @@ onMounted(async () => {
   };
 
   await settingsStore.loadSettings();
-  const hasCloudIdentity =
-    settingsStore.account.mode === "local" ||
+  initializeShellUiRuntime();
+  if (settingsStore.isLoginGatewayRequired()) {
+    requiresLogin.value = true;
+    appReady.value = true;
+    return;
+  }
+  const hasCloudIdentity = () =>
+    settingsStore.account.mode !== "local" &&
     Boolean(
       settingsStore.account.accessToken &&
         (settingsStore.account.userId ||
@@ -833,31 +964,37 @@ onMounted(async () => {
           settingsStore.account.email),
     );
 
-  if (!hasCloudIdentity) {
+  if (settingsStore.account.mode !== "local" && !hasCloudIdentity()) {
     requiresLogin.value = true;
     appReady.value = true;
     return;
   }
 
-  if (settingsStore.isCloudSessionExpired()) {
+  if (
+    settingsStore.account.mode !== "local" &&
+    settingsStore.isCloudSessionExpired()
+  ) {
     if (!settingsStore.isCloudRefreshExpired()) {
       await settingsStore.refreshCloudSession().catch(async () => {
-        await settingsStore.logoutFromCloud();
+        await settingsStore.logoutFromCloud({
+          preserveIdentity: true,
+        });
       });
     } else {
-      await settingsStore.logoutFromCloud();
+      await settingsStore.logoutFromCloud({
+        preserveIdentity: true,
+      });
       requiresLogin.value = true;
       appReady.value = true;
       return;
     }
   }
 
-  await settingsStore.pullCloudState().catch((error) => {
-    console.warn("Cloud state pull skipped:", error);
-  });
-  await reconcilePendingCheckoutStatus().catch((error) => {
-    console.warn("Pending checkout reconciliation skipped:", error);
-  });
+  if (settingsStore.account.mode !== "local" && !hasCloudIdentity()) {
+    requiresLogin.value = true;
+    appReady.value = true;
+    return;
+  }
   await getCurrent()
     .then(async (urls: string[] | null) => {
       for (const url of urls ?? []) {
@@ -867,57 +1004,34 @@ onMounted(async () => {
     .catch((error: unknown) => {
       console.warn("Deep link current URL fetch skipped:", error);
     });
-  await assetStore.loadAssets();
-  if (settingsStore.sync.enabled) {
-    await assetStore.pullAssetsFromCloud(
-      settingsStore.sync.endpointUrl || "http://localhost:5047",
-      settingsStore.account.mode,
-      settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
-      settingsStore.account.accessToken || "",
-    ).catch((error) => {
-      console.warn("Cloud asset pull skipped:", error);
-    });
-  }
-  await sessionStore.setupEventListeners();
-  await transferStore.initListeners();
-
-  setWindowWidth();
-  window.addEventListener("resize", setWindowWidth);
-  window.addEventListener("mousemove", handleMouseMove);
-  window.addEventListener("mouseup", handleMouseUp);
-  window.addEventListener("keydown", handleGlobalKeydown);
-  window.addEventListener("focus", handleWindowFocus);
-
-  clockTimer.value = window.setInterval(() => {
-    now.value = Date.now();
-  }, 1000);
-
-  statusTimer.value = window.setInterval(() => {
-    void refreshActiveSessionStatus();
-  }, 3000);
+  await bootstrapAuthenticatedSession({
+    restoreLocalSnapshot: false,
+  }).catch((error) => {
+    console.warn("Workbench bootstrap skipped:", error);
+  });
 
   appReady.value = true;
 });
 
 async function handleAuthenticated() {
+  settingsStore.clearLoginGatewayRequired();
   requiresLogin.value = false;
-  await assetStore.loadAssets();
-  if (settingsStore.sync.enabled) {
-    await assetStore.pullAssetsFromCloud(
-      settingsStore.sync.endpointUrl || "http://localhost:5047",
-      settingsStore.account.mode,
-      settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
-      settingsStore.account.accessToken || "",
-    );
-  }
-  if (sessionStore._unlistenFns.length === 0) {
-    await sessionStore.setupEventListeners();
-  }
+  await bootstrapAuthenticatedSession({
+    restoreLocalSnapshot: settingsStore.account.mode === "local",
+  });
   appReady.value = true;
 }
 
 async function handleSwitchAccount() {
-  await settingsStore.logoutFromCloud();
+  const nextMode = settingsStore.account.mode;
+  await prepareWorkspaceForAccountSwitch({
+    preserveLocalSnapshot: settingsStore.account.mode === "local",
+  });
+  settingsStore.markLoginGatewayRequired();
+  await settingsStore.logoutFromCloud({
+    nextMode,
+    preserveIdentity: nextMode !== "local",
+  });
   requiresLogin.value = true;
   appReady.value = true;
 }
@@ -1235,6 +1349,21 @@ onUnmounted(() => {
                     ? activeSession.status
                     : t("workbench.statusIdle")
                 }}
+              </span>
+              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                {{ activeAccountSummary.displayName }} · {{ activeAccountSummary.mode }}
+              </span>
+              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                {{ activeAccountSummary.identity }} · {{ activeAccountSummary.scope }}
+              </span>
+              <span
+                v-if="activeAccountSummary.enterprise"
+                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+              >
+                {{ activeAccountSummary.enterprise }}
+              </span>
+              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                {{ activeAccountSummary.subscription }} · {{ activeAccountSummary.endpoint }}
               </span>
               <span v-if="activeSession" class="shrink-0 whitespace-nowrap">
                 {{ t("app.sessionDuration") }} {{ activeSessionDuration }}
