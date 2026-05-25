@@ -25,6 +25,7 @@ import {
 } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import { useI18n } from "../composables/useI18n";
+import { cloudService, resolveAiRuntimeConfig } from "../services";
 
 const md = new MarkdownIt({
   html: false,
@@ -709,8 +710,29 @@ ${activeWorkspace.value.context}
   apiMessages.unshift({ role: "system", content: systemContent });
 
   try {
-    const providerType = settingsStore.ai.providerType || "openai";
-    const apiBaseUrl = normalizeApiBaseUrl(settingsStore.ai.apiUrl);
+    const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
+    if (!runtimeConfig.enabled) {
+      notificationStore.warning(
+        runtimeConfig.reason === "subscription-inactive"
+          ? t("aiAssistant.subscriptionInactive")
+          : runtimeConfig.reason === "custom-endpoint-incomplete"
+            ? t("aiAssistant.customEndpointIncomplete")
+            : t("aiAssistant.platformEndpointIncomplete"),
+      );
+      messages.value.push({
+        role: "assistant",
+        content:
+          runtimeConfig.reason === "subscription-inactive"
+            ? t("aiAssistant.subscriptionInactive")
+            : runtimeConfig.reason === "custom-endpoint-incomplete"
+              ? t("aiAssistant.customEndpointIncomplete")
+              : t("aiAssistant.platformEndpointIncomplete"),
+      });
+      return;
+    }
+
+    const providerType = runtimeConfig.providerType || "openai";
+    const apiBaseUrl = normalizeApiBaseUrl(runtimeConfig.apiUrl);
     let response: Response;
     let message: any;
 
@@ -721,60 +743,91 @@ ${activeWorkspace.value.context}
       const anthropicMessages = buildAnthropicMessages(apiMessages);
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        "x-api-key": settingsStore.ai.apiKey,
         "anthropic-version": ANTHROPIC_VERSION,
         "x-coding-tool": codingToolHeaderValue,
       };
       if (tools.length > 0) {
         headers["anthropic-beta"] = ANTHROPIC_TOOLS_BETA;
       }
-      response = await fetch(
-        resolveAnthropicEndpoint(settingsStore.ai.apiUrl),
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            model: settingsStore.ai.modelName,
-            max_tokens: ANTHROPIC_MAX_TOKENS,
-            system: systemContent,
-            messages: anthropicMessages,
-            tools: buildAnthropicTools(),
-          }),
-          signal: abortController.value?.signal,
-        },
-      );
+      const anthropicPayload = {
+        model: runtimeConfig.modelName,
+        max_tokens: ANTHROPIC_MAX_TOKENS,
+        system: systemContent,
+        messages: anthropicMessages,
+        tools: buildAnthropicTools(),
+      };
+      if (runtimeConfig.usingCustomEndpoint) {
+        headers["x-api-key"] = runtimeConfig.apiKey;
+        response = await fetch(
+          resolveAnthropicEndpoint(runtimeConfig.apiUrl),
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify(anthropicPayload),
+            signal: abortController.value?.signal,
+          },
+        );
+      } else {
+        const data = await cloudService.proxyManagedAnthropic(
+          settingsStore.sync.endpointUrl,
+          settingsStore.account.accessToken || "",
+          anthropicPayload,
+          ANTHROPIC_VERSION,
+          tools.length > 0 ? ANTHROPIC_TOOLS_BETA : undefined,
+          codingToolHeaderValue,
+        );
+        message = parseAnthropicMessage(data);
+        response = new Response(JSON.stringify(data), { status: 200 });
+      }
     } else {
-      response = await fetch(`${apiBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${settingsStore.ai.apiKey}`,
-          "x-coding-tool": codingToolHeaderValue,
-        },
-        body: JSON.stringify({
-          model: settingsStore.ai.modelName,
-          messages: apiMessages,
-          tools: tools,
-          tool_choice: "auto",
-        }),
-        signal: abortController.value?.signal,
-      });
+      const openAiPayload = {
+        model: runtimeConfig.modelName,
+        messages: apiMessages,
+        tools: tools,
+        tool_choice: "auto",
+      };
+      if (runtimeConfig.usingCustomEndpoint) {
+        response = await fetch(`${apiBaseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${runtimeConfig.apiKey}`,
+            "x-coding-tool": codingToolHeaderValue,
+          },
+          body: JSON.stringify(openAiPayload),
+          signal: abortController.value?.signal,
+        });
+      } else {
+        const data = await cloudService.proxyManagedOpenAi(
+          settingsStore.sync.endpointUrl,
+          settingsStore.account.accessToken || "",
+          openAiPayload,
+        );
+        const choice = data.choices?.[0];
+        if (!choice?.message) {
+          throw new Error("API Error: Missing message in managed proxy response");
+        }
+        message = choice.message;
+        response = new Response(JSON.stringify(data), { status: 200 });
+      }
     }
 
-    if (!response.ok) {
+    if (!message && !response.ok) {
       const errText = await response.text();
       throw new Error(`API Error: ${response.status} - ${errText}`);
     }
 
-    const data = await response.json();
-    if (providerType === "anthropic") {
-      message = parseAnthropicMessage(data);
-    } else {
-      const choice = data.choices?.[0];
-      if (!choice?.message) {
-        throw new Error("API Error: Missing message in response");
+    if (!message) {
+      const data = await response.json();
+      if (providerType === "anthropic") {
+        message = parseAnthropicMessage(data);
+      } else {
+        const choice = data.choices?.[0];
+        if (!choice?.message) {
+          throw new Error("API Error: Missing message in response");
+        }
+        message = choice.message;
       }
-      message = choice.message;
     }
 
     if (message.tool_calls) {

@@ -1,21 +1,43 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useSshKeyStore } from '../stores/sshKeys';
+import { useAssetStore } from '../stores/assets';
 import { useI18n } from '../composables/useI18n';
 import { X, Plus, Trash2, Key } from 'lucide-vue-next';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits(['close']);
 const store = useSettingsStore();
+const assetStore = useAssetStore();
 const sshKeyStore = useSshKeyStore();
 const { t } = useI18n();
 
 const activeTab = ref('general');
+const cloudSecret = ref('');
+const cloudStatusMessage = ref('');
+const isCloudLoggingIn = ref(false);
+const isCloudSyncing = ref(false);
+const subscriptionSummary = ref(store.activeSubscriptionSummary());
+const isCloudManagedSubscription = computed(() => store.isCloudManagedSubscription());
+const subscriptionSnapshot = computed(() => store.ai.subscriptionSnapshot);
+const isCreatingCheckout = ref<string | null>(null);
+const isRefreshingBilling = ref(false);
+const selectedCheckoutProvider = ref('manual');
+
+function formatMoney(value: number, currency = 'USD') {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 2,
+  }).format(value || 0);
+}
 
 const form = ref({
   theme: store.theme,
   language: store.language,
+  account: { ...store.account },
+  sync: { ...store.sync },
   ai: { ...store.ai },
   terminalAppearance: { ...store.terminalAppearance },
   fileManager: { ...store.fileManager },
@@ -49,6 +71,8 @@ watch(() => props.show, (val) => {
     form.value = {
       theme: store.theme,
       language: store.language,
+      account: { ...store.account },
+      sync: { ...store.sync },
       ai: { ...store.ai },
       terminalAppearance: { ...store.terminalAppearance },
       fileManager: { ...store.fileManager },
@@ -59,6 +83,8 @@ watch(() => props.show, (val) => {
       poolHealth: { ...store.poolHealth },
       networkAdaptive: { ...store.networkAdaptive }
     };
+    subscriptionSummary.value = store.activeSubscriptionSummary();
+    selectedCheckoutProvider.value = store.ai.subscriptionSnapshot?.paymentProviders?.[0]?.providerKey || 'manual';
     sshKeyStore.loadKeys();
     showAddKeyForm.value = false;
     newKey.value = { name: '', content: '', passphrase: '' };
@@ -68,6 +94,117 @@ watch(() => props.show, (val) => {
 function save() {
   store.saveSettings(form.value);
   emit('close');
+}
+
+async function loginToCloud() {
+  isCloudLoggingIn.value = true;
+  cloudStatusMessage.value = '';
+  try {
+    await store.saveSettings(form.value);
+    const response = await store.loginToCloud(cloudSecret.value);
+    await store.loadClientSubscriptionSnapshot().catch(() => null);
+    form.value.account = { ...store.account };
+    form.value.sync = { ...store.sync };
+    form.value.ai = { ...store.ai };
+    subscriptionSummary.value = store.activeSubscriptionSummary();
+    cloudStatusMessage.value = `${response.mode} connected`;
+  } catch (error) {
+    cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    isCloudLoggingIn.value = false;
+  }
+}
+
+async function syncSettingsNow() {
+  isCloudSyncing.value = true;
+  cloudStatusMessage.value = '';
+  try {
+    await store.saveSettings(form.value);
+    const response = await store.syncSettingsToCloud();
+    await store.loadClientSubscriptionSnapshot().catch(() => null);
+    if (store.sync.enabled) {
+      await assetStore.syncAssetsToCloud(
+        store.sync.endpointUrl || 'http://localhost:5047',
+        store.account.mode,
+        store.account.userId || store.account.subAccountId || 'local-workspace',
+        store.account.accessToken || '',
+        () => store.logoutFromCloud(),
+      );
+      await assetStore.pullAssetsFromCloud(
+        store.sync.endpointUrl || 'http://localhost:5047',
+        store.account.mode,
+        store.account.userId || store.account.subAccountId || 'local-workspace',
+        store.account.accessToken || '',
+      );
+    }
+    form.value.account = { ...store.account };
+    form.value.sync = { ...store.sync };
+    form.value.ai = { ...store.ai };
+    subscriptionSummary.value = store.activeSubscriptionSummary();
+    cloudStatusMessage.value = response ? `Synced at ${new Date(response.syncedAt).toLocaleString()}` : 'Cloud sync disabled';
+  } catch (error) {
+    cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    isCloudSyncing.value = false;
+  }
+}
+
+async function openInvoiceCheckout(invoiceId: string) {
+  isCreatingCheckout.value = invoiceId;
+  cloudStatusMessage.value = '';
+  try {
+    const transaction = await store.createClientCheckoutSession(invoiceId, selectedCheckoutProvider.value || 'manual');
+    if (transaction.checkoutUrl) {
+      window.open(transaction.checkoutUrl, '_blank', 'noopener,noreferrer');
+      cloudStatusMessage.value = 'Payment link opened';
+    } else {
+      cloudStatusMessage.value = 'Payment link created';
+    }
+    let refreshCount = 0;
+    const refreshLoop = async () => {
+      refreshCount += 1;
+      await store.loadClientSubscriptionSnapshot().catch(() => null);
+      form.value.ai = { ...store.ai };
+      subscriptionSummary.value = store.activeSubscriptionSummary();
+      const invoice = store.ai.subscriptionSnapshot?.recentInvoices?.find((item) => item.id === invoiceId);
+      if (!invoice) {
+        return;
+      }
+
+      if (invoice.status === 'paid') {
+        cloudStatusMessage.value = 'Payment status updated: paid';
+        return;
+      }
+
+      if (refreshCount < 3) {
+        window.setTimeout(() => {
+          void refreshLoop();
+        }, 2000);
+      }
+    };
+    window.setTimeout(() => {
+      void refreshLoop();
+    }, 1500);
+  } catch (error) {
+    cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    isCreatingCheckout.value = null;
+  }
+}
+
+async function refreshBillingSnapshot() {
+  isRefreshingBilling.value = true;
+  cloudStatusMessage.value = '';
+  try {
+    await store.loadClientSubscriptionSnapshot();
+    form.value.ai = { ...store.ai };
+    subscriptionSummary.value = store.activeSubscriptionSummary();
+    cloudStatusMessage.value = 'Billing status refreshed';
+  } catch (error) {
+    cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    isRefreshingBilling.value = false;
+  }
 }
 
 function clearCache() {
@@ -122,6 +259,7 @@ function formatDate(timestamp: number) {
 const tabs = [
   { id: 'general', label: 'settings.general' },
   { id: 'ai', label: 'settings.aiAssistant' },
+  { id: 'account', label: 'settings.accountAndSync' },
   { id: 'terminal', label: 'settings.terminalAppearance' },
   { id: 'fileManager', label: 'settings.fileManagement' },
   { id: 'connection', label: 'settings.connection' },
@@ -203,7 +341,8 @@ const tabs = [
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.providerType') }}</label>
                   <select v-model="form.ai.providerType"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
+                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60">
                     <option value="openai">{{ t('aiProviders.openai') }}</option>
                     <option value="anthropic">{{ t('aiProviders.anthropic') }}</option>
                   </select>
@@ -211,20 +350,308 @@ const tabs = [
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.apiUrl') }}</label>
                   <input v-model="form.ai.apiUrl" type="text"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="https://api.openai.com/v1" />
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.apiKey') }}</label>
                   <input v-model="form.ai.apiKey" type="password"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="sk-..." />
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.modelName') }}</label>
                   <input v-model="form.ai.modelName" type="text"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="gpt-3.5-turbo" />
+                </div>
+                <div class="rounded border border-border-primary bg-bg-tertiary/50 p-4 space-y-4">
+                  <div>
+                    <h4 class="text-sm font-semibold text-text-primary">{{ t('settings.aiSubscriptionTitle') }}</h4>
+                    <p class="mt-1 text-xs text-text-secondary">{{ t('settings.aiSubscriptionDesc') }}</p>
+                  </div>
+                  <div class="flex flex-wrap gap-2 text-xs text-text-secondary">
+                    <span class="rounded-full border border-border-primary bg-bg-secondary px-3 py-1">{{ subscriptionSummary.label }}</span>
+                    <span class="rounded-full border border-border-primary bg-bg-secondary px-3 py-1">{{ subscriptionSummary.scope }}</span>
+                    <span class="rounded-full border border-border-primary bg-bg-secondary px-3 py-1">{{ subscriptionSummary.billing }}</span>
+                    <span v-if="subscriptionSummary.renewal" class="rounded-full border border-border-primary bg-bg-secondary px-3 py-1">renew {{ subscriptionSummary.renewal }}</span>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.subscriptionPlan') }}</label>
+                    <select v-model="form.ai.subscription.plan"
+                      :disabled="isCloudManagedSubscription"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60">
+                      <option value="free">{{ t('settings.subscriptionPlans.free') }}</option>
+                      <option value="personal">{{ t('settings.subscriptionPlans.personal') }}</option>
+                      <option value="team">{{ t('settings.subscriptionPlans.team') }}</option>
+                      <option value="enterprise">{{ t('settings.subscriptionPlans.enterprise') }}</option>
+                      <option value="custom">{{ t('settings.subscriptionPlans.custom') }}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.subscriptionStatus') }}</label>
+                    <select v-model="form.ai.subscription.status"
+                      :disabled="isCloudManagedSubscription"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60">
+                      <option value="inactive">{{ t('settings.subscriptionStatuses.inactive') }}</option>
+                      <option value="trialing">{{ t('settings.subscriptionStatuses.trialing') }}</option>
+                      <option value="active">{{ t('settings.subscriptionStatuses.active') }}</option>
+                      <option value="pastDue">{{ t('settings.subscriptionStatuses.pastDue') }}</option>
+                      <option value="cancelled">{{ t('settings.subscriptionStatuses.cancelled') }}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.subscriptionSeats') }}</label>
+                    <input v-model.number="form.ai.subscription.seats" type="number" min="1" max="9999"
+                      :disabled="isCloudManagedSubscription"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60" />
+                  </div>
+                  <div v-if="isCloudManagedSubscription" class="rounded border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-text-secondary">
+                    {{ t('settings.subscriptionManagedNotice') }}
+                  </div>
+                  <label class="flex items-center gap-2 text-sm text-text-secondary">
+                    <input v-model="form.ai.subscription.useCustomEndpoint" type="checkbox"
+                      class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                    <span>{{ t('settings.useCustomEndpoint') }}</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm text-text-secondary">
+                    <input v-model="form.ai.subscription.syncToCloud" type="checkbox"
+                      :disabled="isCloudManagedSubscription"
+                      class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                    <span>{{ t('settings.syncCustomEndpointToCloud') }}</span>
+                  </label>
+                  <div v-if="subscriptionSnapshot" class="rounded border border-border-primary bg-bg-secondary/60 p-4 space-y-3">
+                    <div>
+                      <h5 class="text-sm font-semibold text-text-primary">{{ t('settings.currentInvoiceTitle') }}</h5>
+                      <p class="mt-1 text-xs text-text-secondary">{{ t('settings.currentInvoiceDesc') }}</p>
+                    </div>
+                    <div class="flex justify-end">
+                      <button
+                        class="rounded border border-border-primary px-3 py-1 text-xs text-text-primary transition-all-fast hover:bg-bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                        :disabled="isRefreshingBilling"
+                        @click="refreshBillingSnapshot"
+                      >
+                        {{ isRefreshingBilling ? t('settings.refreshingBilling') : t('settings.refreshBilling') }}
+                      </button>
+                    </div>
+                    <div v-if="subscriptionSnapshot.currentInvoice" class="grid gap-2 text-xs text-text-secondary md:grid-cols-2">
+                      <div>{{ t('settings.invoiceStatus') }}: {{ subscriptionSnapshot.currentInvoice.status }}</div>
+                      <div>{{ t('settings.invoiceMonth') }}: {{ subscriptionSnapshot.currentInvoice.billingMonth }}</div>
+                      <div>{{ t('settings.invoiceTotal') }}: {{ formatMoney(subscriptionSnapshot.currentInvoice.totalAmount, subscriptionSnapshot.currentInvoice.currency) }}</div>
+                      <div>{{ t('settings.invoiceRemaining') }}: {{ formatMoney(subscriptionSnapshot.currentInvoice.remainingAmount, subscriptionSnapshot.currentInvoice.currency) }}</div>
+                    </div>
+                    <p v-else class="text-xs text-text-secondary">{{ t('settings.noCurrentInvoice') }}</p>
+                    <div class="grid gap-2 text-xs text-text-secondary md:grid-cols-2">
+                      <div>{{ t('settings.usageRequests') }}: {{ subscriptionSnapshot.usage.totalRequests }}</div>
+                      <div>{{ t('settings.usageManagedRequests') }}: {{ subscriptionSnapshot.usage.managedRequests }}</div>
+                      <div>{{ t('settings.usageTokens') }}: {{ subscriptionSnapshot.usage.totalTokens }}</div>
+                      <div>{{ t('settings.usageEstimatedCost') }}: {{ formatMoney(subscriptionSnapshot.usage.estimatedCost, subscriptionSnapshot.usage.currency) }}</div>
+                    </div>
+                    <div v-if="subscriptionSnapshot.paymentProviders?.length" class="space-y-2">
+                      <label class="block text-xs font-semibold text-text-primary">{{ t('settings.paymentProvider') }}</label>
+                      <select
+                        v-model="selectedCheckoutProvider"
+                        class="w-full rounded border border-border-primary bg-bg-tertiary/60 px-3 py-2 text-xs text-text-primary outline-none transition-all-fast"
+                      >
+                        <option
+                          v-for="provider in subscriptionSnapshot.paymentProviders"
+                          :key="provider.providerKey"
+                          :value="provider.providerKey"
+                        >
+                          {{ provider.displayName }} ({{ provider.providerType }})
+                        </option>
+                      </select>
+                    </div>
+                    <div v-if="subscriptionSnapshot.recentInvoices?.length" class="space-y-2">
+                      <p class="text-xs font-semibold text-text-primary">{{ t('settings.recentInvoicesTitle') }}</p>
+                      <div
+                        v-for="invoice in subscriptionSnapshot.recentInvoices"
+                        :key="invoice.id"
+                        class="rounded border border-border-primary bg-bg-tertiary/60 px-3 py-3 text-xs text-text-secondary"
+                      >
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div class="font-medium text-text-primary">{{ invoice.billingMonth }} · {{ invoice.status }}</div>
+                            <div class="mt-1">{{ formatMoney(invoice.totalAmount, invoice.currency) }} · {{ t('settings.invoiceRemaining') }} {{ formatMoney(invoice.remainingAmount, invoice.currency) }}</div>
+                            <div v-if="invoice.payments?.length" class="mt-2 space-y-1">
+                              <div
+                                v-for="payment in invoice.payments"
+                                :key="payment.id"
+                                class="text-[11px] text-text-secondary"
+                              >
+                                {{ payment.paymentMethod }} · {{ payment.status }} · {{ formatMoney(payment.amount, payment.currency) }}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            v-if="invoice.remainingAmount > 0"
+                            class="rounded border border-border-primary px-3 py-1 text-xs text-text-primary transition-all-fast hover:bg-bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                            :disabled="isCreatingCheckout === invoice.id"
+                            @click="openInvoiceCheckout(invoice.id)"
+                          >
+                            {{ isCreatingCheckout === invoice.id ? t('settings.openingCheckout') : t('settings.payInvoice') }}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="rounded border border-border-primary bg-bg-tertiary/50 p-4 space-y-4">
+                  <div>
+                    <h4 class="text-sm font-semibold text-text-primary">{{ t('settings.customEndpointTitle') }}</h4>
+                    <p class="mt-1 text-xs text-text-secondary">{{ t('settings.customEndpointDesc') }}</p>
+                  </div>
+                  <div v-if="!form.ai.subscription.useCustomEndpoint" class="rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-text-secondary">
+                    {{ t('settings.customEndpointLocked') }}
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.endpointName') }}</label>
+                    <input v-model="form.ai.customEndpoint.endpointName" type="text"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                      :placeholder="t('settings.endpointNamePlaceholder')" :disabled="!form.ai.subscription.useCustomEndpoint" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiUrl') }}</label>
+                    <input v-model="form.ai.customEndpoint.apiUrl" type="text"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                      placeholder="https://api.openai.com/v1" :disabled="!form.ai.subscription.useCustomEndpoint" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiKey') }}</label>
+                    <input v-model="form.ai.customEndpoint.apiKey" type="password"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                      placeholder="sk-..." :disabled="!form.ai.subscription.useCustomEndpoint" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customModelName') }}</label>
+                    <input v-model="form.ai.customEndpoint.modelName" type="text"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                      placeholder="gpt-4o-mini" :disabled="!form.ai.subscription.useCustomEndpoint" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customProviderType') }}</label>
+                    <select v-model="form.ai.customEndpoint.providerType"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                      :disabled="!form.ai.subscription.useCustomEndpoint">
+                      <option value="openai">{{ t('aiProviders.openai') }}</option>
+                      <option value="anthropic">{{ t('aiProviders.anthropic') }}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div v-if="activeTab === 'account'" class="space-y-6">
+            <section>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.accountModeTitle') }}</h3>
+              <p class="text-sm text-text-secondary mb-4">{{ t('settings.accountModeDesc') }}</p>
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountMode') }}</label>
+                  <select v-model="form.account.mode"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
+                    <option value="local">{{ t('settings.accountModes.local') }}</option>
+                    <option value="personal">{{ t('settings.accountModes.personal') }}</option>
+                    <option value="enterpriseSubAccount">{{ t('settings.accountModes.enterpriseSubAccount') }}</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.displayName') }}</label>
+                  <input v-model="form.account.displayName" type="text"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountEmail') }}</label>
+                  <input v-model="form.account.email" type="email"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                </div>
+                <div v-if="form.account.mode !== 'local'">
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountId') }}</label>
+                  <input v-model="form.account.userId" type="text"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                </div>
+                <div v-if="form.account.mode === 'enterpriseSubAccount'">
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.enterpriseId') }}</label>
+                  <input v-model="form.account.enterpriseId" type="text"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                </div>
+                <div v-if="form.account.mode === 'enterpriseSubAccount'">
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.enterpriseName') }}</label>
+                  <input v-model="form.account.enterpriseName" type="text"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                </div>
+                <div v-if="form.account.mode === 'enterpriseSubAccount'">
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.subAccountId') }}</label>
+                  <input v-model="form.account.subAccountId" type="text"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                </div>
+                <div v-if="form.account.mode !== 'local'">
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.cloudAccessToken') }}</label>
+                  <input v-model="form.account.accessToken" type="password"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.cloudSyncTitle') }}</h3>
+              <p class="text-sm text-text-secondary mb-4">{{ t('settings.cloudSyncDesc') }}</p>
+              <div class="space-y-4">
+                <label class="flex items-center gap-2 text-sm text-text-secondary">
+                  <input v-model="form.sync.enabled" type="checkbox"
+                    class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                  <span>{{ t('settings.cloudSyncEnabled') }}</span>
+                </label>
+                <div>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.cloudSyncEndpoint') }}</label>
+                  <input v-model="form.sync.endpointUrl" type="text"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                    placeholder="https://sync.example.com/api" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.organizationScope') }}</label>
+                  <input v-model="form.sync.organizationScope" type="text"
+                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                    :placeholder="t('settings.organizationScopePlaceholder')" />
+                </div>
+                <label class="flex items-center gap-2 text-sm text-text-secondary">
+                  <input v-model="form.sync.syncAssets" type="checkbox"
+                    class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                  <span>{{ t('settings.syncAssets') }}</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm text-text-secondary">
+                  <input v-model="form.sync.syncSettings" type="checkbox"
+                    class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
+                  <span>{{ t('settings.syncSettingsLabel') }}</span>
+                </label>
+                <div v-if="form.account.mode !== 'local'" class="space-y-3 rounded border border-border-primary bg-bg-tertiary/50 p-4">
+                  <div>
+                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.cloudAccessToken') }}</label>
+                    <input v-model="cloudSecret" type="password"
+                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                      placeholder="temporary login secret" />
+                  </div>
+                  <div class="flex flex-wrap gap-3">
+                    <button
+                      class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded disabled:opacity-50"
+                      :disabled="isCloudLoggingIn"
+                      @click="loginToCloud"
+                    >
+                      {{ isCloudLoggingIn ? 'Connecting...' : 'Cloud Login' }}
+                    </button>
+                    <button
+                      class="px-4 py-2 text-sm bg-success hover:bg-success/80 text-text-primary rounded disabled:opacity-50"
+                      :disabled="isCloudSyncing"
+                      @click="syncSettingsNow"
+                    >
+                      {{ isCloudSyncing ? 'Syncing...' : 'Sync Settings Now' }}
+                    </button>
+                  </div>
+                  <p v-if="cloudStatusMessage" class="text-xs text-text-secondary">{{ cloudStatusMessage }}</p>
                 </div>
               </div>
             </section>

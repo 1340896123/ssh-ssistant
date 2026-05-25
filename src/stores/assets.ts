@@ -3,6 +3,7 @@ import {
   accessService,
   assetService,
   auditService,
+  cloudService,
   opsService,
   syncService,
 } from "../services";
@@ -13,6 +14,7 @@ import type {
   AssetTag,
   AssetUpsertPayload,
   AuditEvent,
+  CloudAssetRecord,
   ConnectionHistoryEntry,
   ConnectionHistorySource,
   CredentialRef,
@@ -560,6 +562,70 @@ export const useAssetStore = defineStore("assets", {
     ) {
       this.auditEvents = await auditService.search(query, severity, assetId, limit);
       return this.auditEvents;
+    },
+    buildCloudAssetRecords(): CloudAssetRecord[] {
+      return this.assets.map((asset) => ({
+        asset,
+        defaultAccessEndpoint: this.defaultAccessEndpointForAsset(asset.id) ?? {
+          assetId: asset.id ?? 0,
+          name: `${asset.name} default endpoint`,
+          host: asset.host,
+          port: asset.port,
+          username: "root",
+          authType: "password",
+          credentialRefId: null,
+          sshKeyId: null,
+          jumpHost: null,
+          jumpPort: null,
+          jumpUsername: null,
+          jumpPassword: null,
+        },
+        defaultCredentialRef: this.credentialRefById(
+          this.defaultAccessEndpointForAsset(asset.id)?.credentialRefId ?? null,
+        ),
+      }));
+    },
+    async syncAssetsToCloud(
+      baseUrl: string,
+      mode: string,
+      accountKey: string,
+      accessToken: string,
+      onUnauthorized?: () => Promise<void> | void,
+    ) {
+      let response;
+      try {
+        response = await cloudService.syncAssets(baseUrl, {
+          mode,
+          accountKey,
+          accessToken,
+          assetsJson: JSON.stringify(this.buildCloudAssetRecords()),
+        });
+      } catch (error) {
+        if (String(error).includes("401") && onUnauthorized) {
+          await onUnauthorized();
+        }
+        throw error;
+      }
+
+      const parsed = JSON.parse(response.assetsJson || "[]") as CloudAssetRecord[];
+      if (parsed.length > 0) {
+        await assetService.importCloudRecords(parsed, true);
+        await this.loadAssets();
+      }
+
+      return response;
+    },
+    async pullAssetsFromCloud(
+      baseUrl: string,
+      mode: string,
+      accountKey: string,
+      accessToken: string,
+    ) {
+      const response = await cloudService.pull(baseUrl, mode, accountKey, accessToken);
+      const parsed = JSON.parse(response.assetsJson || "[]") as CloudAssetRecord[];
+      await assetService.importCloudRecords(parsed, true);
+      await this.loadAssets();
+      return response;
     },
   },
 });

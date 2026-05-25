@@ -2,7 +2,7 @@ use crate::db::get_db_path;
 use crate::models::{
     AccessEndpoint, AssetFolder, AssetSessionConnectResult, AssetTag, AssetUpsertPayload,
     AuditEvent, Connection as SshConnection, CredentialRef, Environment, HostAsset,
-    JobBatchPreview, JobBatchPreviewTarget, JobBatchRequest, JobBatchResult, JobBatchResultItem,
+    CloudAssetRecord, JobBatchPreview, JobBatchPreviewTarget, JobBatchRequest, JobBatchResult, JobBatchResultItem,
     JobRun, JobRunArchive, JobTemplate, OpsConsoleAnswer, OpsMatchedAsset, OpsPlanStep,
     OpsSession, SavedAssetView, SyncChangeLogEntry, SyncObjectVersionSummary, SyncOverview,
     SyncServiceConfig, SyncState,
@@ -2073,6 +2073,123 @@ pub fn asset_delete_host_asset(app_handle: AppHandle, id: i64) -> Result<(), Str
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn asset_import_cloud_records(
+    app_handle: AppHandle,
+    records: Vec<CloudAssetRecord>,
+    replace_existing: bool,
+) -> Result<usize, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    if replace_existing {
+        tx.execute("DELETE FROM access_endpoints", [])
+            .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM credential_refs", [])
+            .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM host_assets", [])
+            .map_err(|e| e.to_string())?;
+    }
+
+    let mut imported = 0usize;
+    for record in records {
+        let asset = record.asset;
+        let asset_id = asset.id;
+        let payload = AssetUpsertPayload {
+            asset,
+            default_access_endpoint: record.default_access_endpoint,
+            default_credential_ref: record.default_credential_ref,
+        };
+
+        let saved_asset = if let Some(existing_id) = asset_id {
+            let exists: i64 = tx
+                .query_row(
+                    "SELECT COUNT(1) FROM host_assets WHERE id = ?1",
+                    params![existing_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+
+            if exists > 0 {
+                let (_, updated_asset) = save_asset_bundle(&tx, Some(existing_id), payload)?;
+                updated_asset
+            } else {
+                tx.execute(
+                    "INSERT INTO host_assets (
+                        id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
+                        access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?8, ?8)",
+                    params![
+                        existing_id,
+                        payload.asset.name,
+                        payload.asset.host,
+                        payload.asset.port,
+                        payload.asset.platform,
+                        payload.asset.folder_id.or(payload.asset.group_id),
+                        payload.asset.env_id,
+                        now_ts()
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+                let (_, created_asset) = save_asset_bundle(&tx, Some(existing_id), payload)?;
+                created_asset
+            }
+        } else {
+            tx.execute(
+                "INSERT INTO host_assets (
+                    name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
+                    access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?7, ?7)",
+                params![
+                    payload.asset.name,
+                    payload.asset.host,
+                    payload.asset.port,
+                    payload.asset.platform,
+                    payload.asset.folder_id.or(payload.asset.group_id),
+                    payload.asset.env_id,
+                    now_ts()
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+            let created_id = tx.last_insert_rowid();
+            let (_, created_asset) = save_asset_bundle(
+                &tx,
+                Some(created_id),
+                AssetUpsertPayload {
+                    asset: HostAsset {
+                        id: Some(created_id),
+                        ..payload.asset
+                    },
+                    default_access_endpoint: AccessEndpoint {
+                        asset_id: created_id,
+                        ..payload.default_access_endpoint
+                    },
+                    default_credential_ref: payload.default_credential_ref,
+                },
+            )?;
+            created_asset
+        };
+
+        append_audit_event_with_conn(
+            &tx,
+            "asset.cloudImported",
+            saved_asset.id,
+            None,
+            None,
+            "Imported cloud asset",
+            Some(saved_asset.name.as_str()),
+            "info",
+            None,
+        )?;
+
+        imported += 1;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(imported)
 }
 
 #[tauri::command]

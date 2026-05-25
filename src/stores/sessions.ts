@@ -120,9 +120,13 @@ export const useSessionStore = defineStore('sessions', {
         if (asset.id === undefined) {
           throw new Error('Asset ID is required');
         }
+        const authorizedAsset = assetStore.assets.find((item) => item.id === asset.id);
+        if (!authorizedAsset || authorizedAsset.id === undefined) {
+          throw new Error('Asset is not available in the current account scope');
+        }
         const connectionResult = await sessionService.connectAsset(
-          asset.id,
-          asset.accessEndpointId ?? null,
+          authorizedAsset.id,
+          authorizedAsset.accessEndpointId ?? null,
           null,
           source,
         );
@@ -131,18 +135,18 @@ export const useSessionStore = defineStore('sessions', {
           assetId: connectionResult.assetId,
           assetName: connectionResult.assetName,
           createdAt: connectionResult.createdAt,
-          accessEndpointId: connectionResult.accessEndpointId ?? asset.accessEndpointId ?? null,
+          accessEndpointId: connectionResult.accessEndpointId ?? authorizedAsset.accessEndpointId ?? null,
           credentialRefId: connectionResult.credentialRefId ?? null,
-          bastionChainId: connectionResult.bastionChainId ?? asset.bastionChainId ?? null,
+          bastionChainId: connectionResult.bastionChainId ?? authorizedAsset.bastionChainId ?? null,
           currentPath: '.',
-          riskLevel: connectionResult.riskLevel ?? asset.criticality ?? 'medium',
-          healthSummary: connectionResult.healthSummary ?? asset.healthSummary ?? null,
+          riskLevel: connectionResult.riskLevel ?? authorizedAsset.criticality ?? 'medium',
+          healthSummary: connectionResult.healthSummary ?? authorizedAsset.healthSummary ?? null,
           lastJobRunId: null,
           status: 'connected',
           activeTab: 'terminal',
           files: [],
           connectedAt: Date.now(),
-          envId: connectionResult.envId ?? asset.envId ?? null,
+          envId: connectionResult.envId ?? authorizedAsset.envId ?? null,
           os: connectionResult.osInfo,
         };
 

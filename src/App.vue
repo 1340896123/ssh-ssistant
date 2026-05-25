@@ -9,7 +9,9 @@ import {
   watch,
 } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrent } from "@tauri-apps/plugin-deep-link";
 import AssetCenter from "./components/AssetCenter.vue";
+import LoginGateway from "./components/LoginGateway.vue";
 import ConnectionModal from "./components/ConnectionModal.vue";
 import TunnelModal from "./components/TunnelModal.vue";
 import TunnelPanel from "./components/TunnelPanel.vue";
@@ -107,6 +109,8 @@ const settingsStore = useSettingsStore();
 const notificationStore = useNotificationStore();
 const transferStore = useTransferStore();
 const { t } = useI18n();
+const appReady = ref(false);
+const requiresLogin = ref(false);
 
 const WORKSPACE_LAYOUT_STORAGE_KEY = "appWorkspaceLayout";
 const RESOURCE_PANE_MIN = 260;
@@ -751,6 +755,57 @@ function openOpsWorkbench() {
   activateActivity("ops");
 }
 
+async function reconcilePendingCheckoutStatus() {
+  const result = await settingsStore.reconcilePendingCheckoutSession();
+  if (!result) {
+    return;
+  }
+
+  if (result.settled) {
+    notificationStore.success("Payment received and invoice status updated.");
+    return;
+  }
+
+  if (result.expired) {
+    notificationStore.warning("Payment session expired. Please create a new payment link.");
+    return;
+  }
+
+  if (result.invoice.status === "overdue") {
+    notificationStore.warning("Invoice is overdue and still awaiting payment.");
+  }
+}
+
+function handleWindowFocus() {
+  void reconcilePendingCheckoutStatus().catch((error) => {
+    console.warn("Pending checkout reconciliation on focus skipped:", error);
+  });
+}
+
+async function handlePaymentDeepLink(url: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    console.warn("Invalid deep link URL:", url, error);
+    return;
+  }
+
+  if (parsed.protocol !== "sshstar:" || parsed.hostname !== "billing") {
+    return;
+  }
+
+  await reconcilePendingCheckoutStatus().catch((error) => {
+    console.warn("Pending checkout reconciliation after deep link skipped:", error);
+  });
+
+  if (parsed.pathname === "/success") {
+    notificationStore.success(t("settings.paymentReturnSuccess"));
+  } else if (parsed.pathname === "/cancel") {
+    notificationStore.info(t("settings.paymentReturnCancelled"));
+  }
+}
+
 onMounted(async () => {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, label: string) {
@@ -769,7 +824,60 @@ onMounted(async () => {
   };
 
   await settingsStore.loadSettings();
+  const hasCloudIdentity =
+    settingsStore.account.mode === "local" ||
+    Boolean(
+      settingsStore.account.accessToken &&
+        (settingsStore.account.userId ||
+          settingsStore.account.subAccountId ||
+          settingsStore.account.email),
+    );
+
+  if (!hasCloudIdentity) {
+    requiresLogin.value = true;
+    appReady.value = true;
+    return;
+  }
+
+  if (settingsStore.isCloudSessionExpired()) {
+    if (!settingsStore.isCloudRefreshExpired()) {
+      await settingsStore.refreshCloudSession().catch(async () => {
+        await settingsStore.logoutFromCloud();
+      });
+    } else {
+      await settingsStore.logoutFromCloud();
+      requiresLogin.value = true;
+      appReady.value = true;
+      return;
+    }
+  }
+
+  await settingsStore.pullCloudState().catch((error) => {
+    console.warn("Cloud state pull skipped:", error);
+  });
+  await reconcilePendingCheckoutStatus().catch((error) => {
+    console.warn("Pending checkout reconciliation skipped:", error);
+  });
+  await getCurrent()
+    .then(async (urls: string[] | null) => {
+      for (const url of urls ?? []) {
+        await handlePaymentDeepLink(url);
+      }
+    })
+    .catch((error: unknown) => {
+      console.warn("Deep link current URL fetch skipped:", error);
+    });
   await assetStore.loadAssets();
+  if (settingsStore.sync.enabled) {
+    await assetStore.pullAssetsFromCloud(
+      settingsStore.sync.endpointUrl || "http://localhost:5047",
+      settingsStore.account.mode,
+      settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
+      settingsStore.account.accessToken || "",
+    ).catch((error) => {
+      console.warn("Cloud asset pull skipped:", error);
+    });
+  }
   await sessionStore.setupEventListeners();
   await transferStore.initListeners();
 
@@ -778,6 +886,7 @@ onMounted(async () => {
   window.addEventListener("mousemove", handleMouseMove);
   window.addEventListener("mouseup", handleMouseUp);
   window.addEventListener("keydown", handleGlobalKeydown);
+  window.addEventListener("focus", handleWindowFocus);
 
   clockTimer.value = window.setInterval(() => {
     now.value = Date.now();
@@ -786,13 +895,39 @@ onMounted(async () => {
   statusTimer.value = window.setInterval(() => {
     void refreshActiveSessionStatus();
   }, 3000);
+
+  appReady.value = true;
 });
+
+async function handleAuthenticated() {
+  requiresLogin.value = false;
+  await assetStore.loadAssets();
+  if (settingsStore.sync.enabled) {
+    await assetStore.pullAssetsFromCloud(
+      settingsStore.sync.endpointUrl || "http://localhost:5047",
+      settingsStore.account.mode,
+      settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
+      settingsStore.account.accessToken || "",
+    );
+  }
+  if (sessionStore._unlistenFns.length === 0) {
+    await sessionStore.setupEventListeners();
+  }
+  appReady.value = true;
+}
+
+async function handleSwitchAccount() {
+  await settingsStore.logoutFromCloud();
+  requiresLogin.value = true;
+  appReady.value = true;
+}
 
 onUnmounted(() => {
   window.removeEventListener("resize", setWindowWidth);
   window.removeEventListener("mousemove", handleMouseMove);
   window.removeEventListener("mouseup", handleMouseUp);
   window.removeEventListener("keydown", handleGlobalKeydown);
+  window.removeEventListener("focus", handleWindowFocus);
   sessionStore.cleanupEventListeners();
   if (clockTimer.value !== null) {
     clearInterval(clockTimer.value);
@@ -808,7 +943,18 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-screen w-screen overflow-hidden bg-bg-primary text-text-primary">
+  <div v-if="!appReady" class="flex min-h-screen items-center justify-center bg-bg-primary text-text-primary">
+    <div class="rounded-2xl border border-border-primary bg-bg-secondary px-6 py-4 text-sm">
+      {{ t("app.loadingStatus") }}
+    </div>
+  </div>
+
+  <LoginGateway
+    v-else-if="requiresLogin"
+    @authenticated="handleAuthenticated"
+  />
+
+  <div v-else class="h-screen w-screen overflow-hidden bg-bg-primary text-text-primary">
     <div ref="shellViewportRef" class="flex h-full w-full min-w-0 overflow-hidden">
       <aside
         class="flex h-full w-14 shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
@@ -879,6 +1025,12 @@ onUnmounted(() => {
             @click="showSettingsModal = true"
           >
             <Settings class="h-[18px] w-[18px]" />
+          </button>
+          <button
+            class="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary"
+            @click="handleSwitchAccount"
+          >
+            Switch
           </button>
         </div>
       </aside>

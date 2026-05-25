@@ -140,6 +140,12 @@ export interface AssetUpsertPayload {
   defaultCredentialRef?: CredentialRef | null;
 }
 
+export interface CloudAssetRecord {
+  asset: HostAsset;
+  defaultAccessEndpoint: AccessEndpoint;
+  defaultCredentialRef?: CredentialRef | null;
+}
+
 export interface AssetSessionConnectResult {
   sessionId: string;
   assetId: number;
@@ -402,14 +408,185 @@ export interface FilePageResponse {
 }
 
 export type ColumnKey = "name" | "size" | "date" | "owner";
+export type AccountMode = "personal" | "enterpriseSubAccount" | "local";
+export type AISubscriptionPlan =
+  | "free"
+  | "personal"
+  | "team"
+  | "enterprise"
+  | "custom";
+export type AISubscriptionStatus =
+  | "inactive"
+  | "trialing"
+  | "active"
+  | "pastDue"
+  | "cancelled";
 
 export type AIProviderType = "openai" | "anthropic";
+
+export interface AccountProfile {
+  mode: AccountMode;
+  userId?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  enterpriseId?: string | null;
+  enterpriseName?: string | null;
+  subAccountId?: string | null;
+  accessToken?: string | null;
+  refreshToken?: string | null;
+  expiresAt?: number | null;
+  refreshExpiresAt?: number | null;
+}
+
+export interface SyncPreferences {
+  enabled: boolean;
+  endpointUrl?: string | null;
+  organizationScope?: string | null;
+  syncAssets: boolean;
+  syncSettings: boolean;
+  lastCloudSyncAt?: number | null;
+}
+
+export interface AIEndpointConfig {
+  endpointName: string;
+  apiUrl: string;
+  apiKey: string;
+  modelName: string;
+  providerType: AIProviderType;
+}
+
+export interface AISubscriptionConfig {
+  plan: AISubscriptionPlan;
+  status: AISubscriptionStatus;
+  seats: number;
+  billingScope?: "global" | "enterprise" | "personal";
+  pricePerSeat?: number;
+  currency?: string;
+  planDisplayName?: string;
+  startedAt?: number | null;
+  renewalAt?: number | null;
+  allowCustomEndpoint?: boolean;
+  useCustomEndpoint: boolean;
+  syncToCloud: boolean;
+}
+
+export interface SubscriptionInvoiceLineItem {
+  id: string;
+  invoiceId: string;
+  itemType: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  currency: string;
+  totalTokens?: number | null;
+  createdAt: string;
+}
+
+export interface SubscriptionPaymentTransaction {
+  id: string;
+  invoiceId: string;
+  targetType: string;
+  targetId: string;
+  providerKey: string;
+  amount: number;
+  currency: string;
+  paymentMethod: string;
+  status: string;
+  externalReference: string;
+  note: string;
+  checkoutUrl: string;
+  expiresAt?: string | null;
+  paidAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionPaymentProvider {
+  providerKey: string;
+  displayName: string;
+  providerType: string;
+  webhookSecret: string;
+  enabled: boolean;
+  metadataJson: string;
+  checkoutBaseUrl: string;
+  webhookMode: string;
+  apiBaseUrl: string;
+  secretApiKey: string;
+  successUrl: string;
+  cancelUrl: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionInvoiceSummary {
+  id: string;
+  targetType: string;
+  targetId: string;
+  planCode: string;
+  status: "open" | "paid" | "overdue" | "voided";
+  seatCount: number;
+  unitPrice: number;
+  subscriptionAmount: number;
+  aiUsageAmount: number;
+  totalAmount: number;
+  currency: string;
+  billingMonth: string;
+  dueAt: string;
+  createdAt: string;
+  updatedAt: string;
+  paidAmount: number;
+  remainingAmount: number;
+  lineItems: SubscriptionInvoiceLineItem[];
+  payments: SubscriptionPaymentTransaction[];
+}
+
+export interface SubscriptionUsageAccountSummary {
+  accountId: string;
+  accountMode: string;
+  requests: number;
+  totalTokens: number;
+  estimatedCost: number;
+  currency: string;
+}
+
+export interface SubscriptionUsageSummary {
+  billingMonth: string;
+  totalRequests: number;
+  managedRequests: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+  currency: string;
+  topAccounts: SubscriptionUsageAccountSummary[];
+}
+
+export interface ClientSubscriptionSnapshot {
+  subscription: AISubscriptionConfig;
+  currentInvoice?: SubscriptionInvoiceSummary | null;
+  recentInvoices: SubscriptionInvoiceSummary[];
+  paymentProviders: SubscriptionPaymentProvider[];
+  usage: SubscriptionUsageSummary;
+}
+
+export interface PendingCheckoutSession {
+  invoiceId: string;
+  providerKey: string;
+  checkoutUrl?: string | null;
+  externalReference?: string | null;
+  createdAt: number;
+  expiresAt?: number | null;
+}
 
 export interface AIConfig {
   apiUrl: string;
   apiKey: string;
   modelName: string;
   providerType: AIProviderType;
+  subscription: AISubscriptionConfig;
+  customEndpoint: AIEndpointConfig;
+  subscriptionSnapshot?: ClientSubscriptionSnapshot | null;
+  pendingCheckoutSession?: PendingCheckoutSession | null;
 }
 
 export type TerminalCursorStyle = "block" | "underline" | "bar";
@@ -493,6 +670,8 @@ export interface AdaptiveParams {
 export interface Settings {
   theme: "light" | "dark";
   language: "en" | "zh";
+  account: AccountProfile;
+  sync: SyncPreferences;
   ai: AIConfig;
   terminalAppearance: TerminalAppearanceSettings;
   fileManager: FileManagerSettings;

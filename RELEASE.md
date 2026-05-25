@@ -73,9 +73,9 @@ npm run tauri build
 
 项目使用统一的版本管理：
 - 只需修改 `package.json` 中的版本号
-- `tauri.conf.json` 和 `Cargo.toml` 会自动同步
+- `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 和根目录 `Cargo.toml` 会在 `npm version` 时自动同步
 
 ```bash
-# 设置特定版本
+# 设置特定版本，并同步 Tauri / Rust 版本号
 npm version 1.6.0 --no-git-tag-version
 ```

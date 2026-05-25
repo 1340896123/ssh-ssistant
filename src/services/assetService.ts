@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AssetAccessHistoryEntry,
+  CloudAssetRecord,
   AssetUpsertPayload,
   AssetFolder,
   AssetTag,
@@ -50,4 +51,6 @@ export const assetService = {
       favoriteAssetIds,
       historyEntries,
     }),
+  importCloudRecords: (records: CloudAssetRecord[], replaceExisting = true) =>
+    invoke<number>("asset_import_cloud_records", { records, replaceExisting }),
 };

@@ -25,3 +25,5 @@ dist-ssr
 target/
 .omc/
 .trae/
+backend/SshAssistant.AdminApi/bin/
+backend/SshAssistant.AdminApi/obj/

@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/SshAssistant.AdminApi/SshAssistant.AdminApi.csproj" />
+  </Folder>
+</Solution>

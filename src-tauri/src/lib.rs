@@ -15,6 +15,7 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -70,6 +71,7 @@ pub fn run() {
             ops::asset_create_host_asset,
             ops::asset_update_host_asset,
             ops::asset_delete_host_asset,
+            ops::asset_import_cloud_records,
             ops::asset_touch_host_asset,
             ops::asset_toggle_favorite,
             ops::asset_get_asset_folders,

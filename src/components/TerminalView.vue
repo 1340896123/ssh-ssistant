@@ -14,6 +14,7 @@ import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown
 import { useSettingsStore } from '../stores/settings';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
+import { cloudService, resolveAiRuntimeConfig } from '../services';
 
 const props = defineProps<{ sessionId: string }>();
 const { t } = useI18n();
@@ -696,58 +697,91 @@ async function triggerAiCompletion() {
   previewText.value = ''; // Clear traditional preview
 
   try {
-    const providerType = settingsStore.ai.providerType || 'openai';
+    const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
+    if (!runtimeConfig.enabled) {
+      console.warn('AI completion unavailable:', runtimeConfig.reason);
+      return;
+    }
+
+    const providerType = runtimeConfig.providerType || 'openai';
     const systemPrompt = `你是一名Linux专家，用户给定一个Linux命令，给出3-5个可能的补全方式，例如用户输入"ls",你必须直接返回JSON数组，例如：["ls -la", "ls -lh"],绝对禁止返回其他内容`;
     const codingToolHeaderValue = providerType === 'anthropic' ? 'claude codel' : 'opencode';
     let response: Response;
     let content = '';
 
     if (providerType === 'anthropic') {
-      response = await fetch(resolveAnthropicEndpoint(settingsStore.ai.apiUrl), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': settingsStore.ai.apiKey,
-          'anthropic-version': ANTHROPIC_VERSION,
-          'x-coding-tool': codingToolHeaderValue
-        },
-        body: JSON.stringify({
-          model: settingsStore.ai.modelName,
-          max_tokens: 500,
-          temperature: 0,
-          system: systemPrompt,
-          messages: [
-            {
-              role: 'user',
-              content: `"${commandInput.value}"`
-            }
-          ]
-        })
-      });
+      const anthropicPayload = {
+        model: runtimeConfig.modelName,
+        max_tokens: 500,
+        temperature: 0,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: `"${commandInput.value}"`
+          }
+        ]
+      };
+
+      if (runtimeConfig.usingCustomEndpoint) {
+        response = await fetch(resolveAnthropicEndpoint(runtimeConfig.apiUrl), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': runtimeConfig.apiKey,
+            'anthropic-version': ANTHROPIC_VERSION,
+            'x-coding-tool': codingToolHeaderValue
+          },
+          body: JSON.stringify(anthropicPayload)
+        });
+      } else {
+        const data = await cloudService.proxyManagedAnthropic(
+          settingsStore.sync.endpointUrl,
+          settingsStore.account.accessToken || '',
+          anthropicPayload,
+          ANTHROPIC_VERSION,
+          undefined,
+          codingToolHeaderValue,
+        );
+        content = extractAnthropicText(data).trim();
+        response = new Response(JSON.stringify(data), { status: 200 });
+      }
     } else {
-      const apiBaseUrl = normalizeApiBaseUrl(settingsStore.ai.apiUrl);
-      response = await fetch(`${apiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settingsStore.ai.apiKey}`,
-          'x-coding-tool': codingToolHeaderValue
-        },
-        body: JSON.stringify({
-          model: settingsStore.ai.modelName,
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt
-            },
-            {
-              role: 'user',
-              content: `"${commandInput.value}"`
-            }],
-          max_tokens: 500,
-          temperature: 0
-        })
-      });
+      const openAiPayload = {
+        model: runtimeConfig.modelName,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: `"${commandInput.value}"`
+          }],
+        max_tokens: 500,
+        temperature: 0
+      };
+
+      if (runtimeConfig.usingCustomEndpoint) {
+        const apiBaseUrl = normalizeApiBaseUrl(runtimeConfig.apiUrl);
+        response = await fetch(`${apiBaseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${runtimeConfig.apiKey}`,
+            'x-coding-tool': codingToolHeaderValue
+          },
+          body: JSON.stringify(openAiPayload)
+        });
+      } else {
+        const data = await cloudService.proxyManagedOpenAi(
+          settingsStore.sync.endpointUrl,
+          settingsStore.account.accessToken || '',
+          openAiPayload,
+        );
+        content = data.choices?.[0]?.message?.content?.trim() ?? '';
+        response = new Response(JSON.stringify(data), { status: 200 });
+      }
     }
 
     if (!response.ok) {
@@ -755,11 +789,13 @@ async function triggerAiCompletion() {
       throw new Error(`API Error: ${response.status} - ${errText}`);
     }
 
-    const data = await response.json();
-    if (providerType === 'anthropic') {
-      content = extractAnthropicText(data).trim();
-    } else {
-      content = data.choices?.[0]?.message?.content?.trim() ?? '';
+    if (!content) {
+      const data = await response.json();
+      if (providerType === 'anthropic') {
+        content = extractAnthropicText(data).trim();
+      } else {
+        content = data.choices?.[0]?.message?.content?.trim() ?? '';
+      }
     }
 
     // Try to parse JSON

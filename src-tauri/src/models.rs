@@ -223,6 +223,14 @@ pub struct AssetUpsertPayload {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct CloudAssetRecord {
+    pub asset: HostAsset,
+    pub default_access_endpoint: AccessEndpoint,
+    pub default_credential_ref: Option<CredentialRef>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AssetSessionConnectResult {
     pub session_id: String,
     pub asset_id: i64,
@@ -550,11 +558,155 @@ pub struct FileEntry {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct AccountProfile {
+    pub mode: String,
+    pub user_id: Option<String>,
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+    pub enterprise_id: Option<String>,
+    pub enterprise_name: Option<String>,
+    pub sub_account_id: Option<String>,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub expires_at: Option<i64>,
+    pub refresh_expires_at: Option<i64>,
+}
+
+impl Default for AccountProfile {
+    fn default() -> Self {
+        Self {
+            mode: "local".to_string(),
+            user_id: None,
+            display_name: None,
+            email: None,
+            enterprise_id: None,
+            enterprise_name: None,
+            sub_account_id: None,
+            access_token: None,
+            refresh_token: None,
+            expires_at: None,
+            refresh_expires_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPreferences {
+    pub enabled: bool,
+    pub endpoint_url: Option<String>,
+    pub organization_scope: Option<String>,
+    pub sync_assets: bool,
+    pub sync_settings: bool,
+    pub last_cloud_sync_at: Option<i64>,
+}
+
+impl Default for SyncPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint_url: None,
+            organization_scope: None,
+            sync_assets: true,
+            sync_settings: true,
+            last_cloud_sync_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AIEndpointConfig {
+    pub endpoint_name: String,
+    pub api_url: String,
+    pub api_key: String,
+    pub model_name: String,
+    pub provider_type: String,
+}
+
+impl Default for AIEndpointConfig {
+    fn default() -> Self {
+        Self {
+            endpoint_name: "default".to_string(),
+            api_url: String::new(),
+            api_key: String::new(),
+            model_name: String::new(),
+            provider_type: "openai".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AISubscriptionConfig {
+    pub plan: String,
+    pub status: String,
+    pub seats: i32,
+    pub billing_scope: Option<String>,
+    pub price_per_seat: Option<f64>,
+    pub currency: Option<String>,
+    pub plan_display_name: Option<String>,
+    pub started_at: Option<i64>,
+    pub renewal_at: Option<i64>,
+    pub allow_custom_endpoint: Option<bool>,
+    pub use_custom_endpoint: bool,
+    pub sync_to_cloud: bool,
+}
+
+impl Default for AISubscriptionConfig {
+    fn default() -> Self {
+        Self {
+            plan: "free".to_string(),
+            status: "inactive".to_string(),
+            seats: 1,
+            billing_scope: Some("global".to_string()),
+            price_per_seat: Some(0.0),
+            currency: Some("USD".to_string()),
+            plan_display_name: Some("Free".to_string()),
+            started_at: None,
+            renewal_at: None,
+            allow_custom_endpoint: Some(true),
+            use_custom_endpoint: false,
+            sync_to_cloud: false,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AIConfig {
     pub api_url: String,
     pub api_key: String,
     pub model_name: String,
     pub provider_type: String,
+    pub subscription: AISubscriptionConfig,
+    pub custom_endpoint: AIEndpointConfig,
+    pub pending_checkout_session: Option<PendingCheckoutSession>,
+}
+
+impl Default for AIConfig {
+    fn default() -> Self {
+        Self {
+            api_url: String::new(),
+            api_key: String::new(),
+            model_name: String::new(),
+            provider_type: "openai".to_string(),
+            subscription: AISubscriptionConfig::default(),
+            custom_endpoint: AIEndpointConfig::default(),
+            pending_checkout_session: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingCheckoutSession {
+    pub invoice_id: String,
+    pub provider_key: String,
+    pub checkout_url: Option<String>,
+    pub external_reference: Option<String>,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -673,6 +825,8 @@ impl Default for PoolHealthSettings {
 pub struct AppSettings {
     pub theme: String,
     pub language: String,
+    pub account: AccountProfile,
+    pub sync: SyncPreferences,
     pub ai: AIConfig,
     pub terminal_appearance: TerminalAppearanceSettings,
     pub file_manager: FileManagerSettings,
