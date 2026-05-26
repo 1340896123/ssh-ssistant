@@ -1,5 +1,6 @@
 use super::client::{AppState, ClientType};
 use super::manager::SshCommand;
+use super::wsl;
 use crate::models::FileEntry;
 use crate::models::Transfer;
 use crate::ssh::client::TransferState;
@@ -13,12 +14,6 @@ use std::time::SystemTime;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::ssh::ProgressPayload;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone, serde::Serialize)]
 struct ErrorPayload {
@@ -58,10 +53,67 @@ fn append_file_audit_event(
     }
 }
 
-fn to_wsl_path(distro: &str, path: &str) -> PathBuf {
-    let clean_path = path.replace("/", "\\");
-    let trimmed = clean_path.trim_start_matches('\\');
-    PathBuf::from(format!("\\\\wsl$\\{}\\{}", distro, trimmed))
+fn escape_shell_arg(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
+
+fn normalize_wsl_dir(path: &str) -> &str {
+    if path.is_empty() || path == "." {
+        "~"
+    } else {
+        path
+    }
+}
+
+fn list_wsl_entries(distro: &str, path: &str) -> Result<Vec<FileEntry>, String> {
+    let normalized = normalize_wsl_dir(path).to_string();
+    let script = r#"target="$1"
+cd "$target" >/dev/null 2>&1 || exit 1
+find . -mindepth 1 -maxdepth 1 -printf '%P\t%y\t%s\t%T@\n'
+"#;
+    let output = wsl::run_bash_text(distro, script, &[normalized])?;
+    let mut entries = Vec::new();
+
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 4 {
+            continue;
+        }
+
+        let name = parts[0].trim();
+        if name.is_empty() {
+            continue;
+        }
+
+        let file_type = parts[1].trim();
+        let size = parts[2].trim().parse::<u64>().unwrap_or(0);
+        let mtime = parts[3]
+            .trim()
+            .split('.')
+            .next()
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
+
+        entries.push(FileEntry {
+            name: name.to_string(),
+            is_dir: file_type == "d",
+            size,
+            mtime,
+            permissions: 0o755,
+            uid: 0,
+            owner: "root".to_string(),
+        });
+    }
+
+    entries.sort_by(|a, b| {
+        if a.is_dir == b.is_dir {
+            a.name.cmp(&b.name)
+        } else {
+            b.is_dir.cmp(&a.is_dir)
+        }
+    });
+
+    Ok(entries)
 }
 
 #[tauri::command]
@@ -100,16 +152,24 @@ pub async fn read_remote_file(
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &path);
-                let mut file = std::fs::File::open(wsl_path).map_err(|e| e.to_string())?;
-                let mut buf = Vec::new();
-                if let Some(max) = max_bytes {
-                    let mut handle = file.take(max);
-                    handle.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+                let mut args = vec![path];
+                let script = if max_bytes.is_some() {
+                    args.push(max_bytes.unwrap().to_string());
+                    r#"target="$1"
+limit="$2"
+head -c "$limit" -- "$target"
+"#
                 } else {
-                    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+                    r#"target="$1"
+cat -- "$target"
+"#
+                };
+                let output = wsl::run_bash_output(&distro, script, &args)?;
+                if output.status.success() {
+                    String::from_utf8(output.stdout).map_err(|e| e.to_string())
+                } else {
+                    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
                 }
-                String::from_utf8(buf).map_err(|e| e.to_string())
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -160,25 +220,39 @@ pub async fn write_remote_file(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
-            let wsl_path_value = path.clone();
             let wsl_mode = mode.clone();
             let wsl_content = content.clone();
+            let path = path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
-                let open_mode = wsl_mode.unwrap_or_else(|| "overwrite".to_string());
-
-                let mut options = std::fs::OpenOptions::new();
-                options.write(true).create(true);
-                if open_mode == "append" {
-                    options.append(true);
+                let script = if wsl_mode.as_deref() == Some("append") {
+                    r#"target="$1"
+cat >> "$target"
+"#
                 } else {
-                    options.truncate(true);
-                }
+                    r#"target="$1"
+cat > "$target"
+"#
+                };
 
-                let mut file = options.open(wsl_path).map_err(|e| e.to_string())?;
-                file.write_all(wsl_content.as_bytes())
-                    .map_err(|e| e.to_string())?;
-                Ok(())
+                let mut child = wsl::spawn_bash(
+                    &distro,
+                    script,
+                    &[path],
+                    std::process::Stdio::piped(),
+                    std::process::Stdio::null(),
+                    std::process::Stdio::piped(),
+                )?;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    stdin
+                        .write_all(wsl_content.as_bytes())
+                        .map_err(|e| e.to_string())?;
+                }
+                let output = child.wait_with_output().map_err(|e| e.to_string())?;
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+                }
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -227,40 +301,7 @@ pub async fn list_files(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
-            tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &path);
-                let entries = std::fs::read_dir(wsl_path).map_err(|e| e.to_string())?;
-                let mut file_entries = Vec::new();
-                for entry in entries {
-                    let entry = entry.map_err(|e| e.to_string())?;
-                    let meta = entry.metadata().map_err(|e| e.to_string())?;
-                    let name = entry.file_name().to_string_lossy().to_string();
-
-                    file_entries.push(FileEntry {
-                        name,
-                        is_dir: meta.is_dir(),
-                        size: meta.len(),
-                        mtime: meta
-                            .modified()
-                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64,
-                        permissions: 0o755,
-                        uid: 0,
-                        owner: "root".to_string(),
-                    });
-                }
-
-                file_entries.sort_by(|a, b| {
-                    if a.is_dir == b.is_dir {
-                        a.name.cmp(&b.name)
-                    } else {
-                        b.is_dir.cmp(&a.is_dir)
-                    }
-                });
-                Ok(file_entries)
-            })
+            tokio::task::spawn_blocking(move || list_wsl_entries(&distro, &path))
             .await
             .map_err(|e| format!("Task join error: {}", e))?
         }
@@ -305,37 +346,7 @@ pub async fn list_files_page(
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &path);
-                let entries = std::fs::read_dir(wsl_path).map_err(|e| e.to_string())?;
-                let mut file_entries = Vec::new();
-                for entry in entries {
-                    let entry = entry.map_err(|e| e.to_string())?;
-                    let meta = entry.metadata().map_err(|e| e.to_string())?;
-                    let name = entry.file_name().to_string_lossy().to_string();
-
-                    file_entries.push(FileEntry {
-                        name,
-                        is_dir: meta.is_dir(),
-                        size: meta.len(),
-                        mtime: meta
-                            .modified()
-                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64,
-                        permissions: 0o755,
-                        uid: 0,
-                        owner: "root".to_string(),
-                    });
-                }
-
-                file_entries.sort_by(|a, b| {
-                    if a.is_dir == b.is_dir {
-                        a.name.cmp(&b.name)
-                    } else {
-                        b.is_dir.cmp(&a.is_dir)
-                    }
-                });
+                let file_entries = list_wsl_entries(&distro, &path)?;
 
                 let start = cursor as usize;
                 let end = start.saturating_add(limit).min(file_entries.len());
@@ -392,10 +403,10 @@ pub async fn create_directory(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
-            let wsl_path_value = path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
-                std::fs::create_dir(wsl_path).map_err(|e| e.to_string())
+                let escaped_path = escape_shell_arg(&path);
+                let command = format!("mkdir '{}'", escaped_path);
+                wsl::run_bash_text(&distro, &command, &[]).map(|_| ())
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -450,11 +461,10 @@ pub async fn create_file(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
-            let wsl_path_value = path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
-                std::fs::File::create(wsl_path).map_err(|e| e.to_string())?;
-                Ok(())
+                let escaped_path = escape_shell_arg(&path);
+                let command = format!(": > '{}'", escaped_path);
+                wsl::run_bash_text(&distro, &command, &[]).map(|_| ())
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -511,14 +521,14 @@ pub async fn delete_item(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
-            let wsl_path_value = path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_path = to_wsl_path(&distro, &wsl_path_value);
-                if is_dir {
-                    std::fs::remove_dir_all(wsl_path).map_err(|e| e.to_string())
+                let escaped_path = escape_shell_arg(&path);
+                let command = if is_dir {
+                    format!("rm -rf '{}'", escaped_path)
                 } else {
-                    std::fs::remove_file(wsl_path).map_err(|e| e.to_string())
-                }
+                    format!("rm -f '{}'", escaped_path)
+                };
+                wsl::run_bash_text(&distro, &command, &[]).map(|_| ())
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -583,12 +593,11 @@ pub async fn rename_item(
         }
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
-            let wsl_old_path = old_path.clone();
-            let wsl_new_path = new_path.clone();
             tokio::task::spawn_blocking(move || {
-                let wsl_old = to_wsl_path(&distro, &wsl_old_path);
-                let wsl_new = to_wsl_path(&distro, &wsl_new_path);
-                std::fs::rename(wsl_old, wsl_new).map_err(|e| e.to_string())
+                let escaped_old = escape_shell_arg(&old_path);
+                let escaped_new = escape_shell_arg(&new_path);
+                let command = format!("mv '{}' '{}'", escaped_old, escaped_new);
+                wsl::run_bash_text(&distro, &command, &[]).map(|_| ())
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -643,24 +652,10 @@ pub async fn change_file_permission(
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
             tokio::task::spawn_blocking(move || {
-                // wsl -d distro chmod octal path
                 let octal = format!("{:o}", permission);
-                let mut cmd = std::process::Command::new("wsl");
-                #[cfg(target_os = "windows")]
-                cmd.creation_flags(CREATE_NO_WINDOW);
-
-                let output = cmd
-                    .arg("-d")
-                    .arg(&distro)
-                    .arg("chmod")
-                    .arg(octal)
-                    .arg(&path)
-                    .output()
-                    .map_err(|e| e.to_string())?;
-                if !output.status.success() {
-                    return Err(String::from_utf8_lossy(&output.stderr).to_string());
-                }
-                Ok(())
+                let escaped_path = escape_shell_arg(&path);
+                let command = format!("chmod {} '{}'", octal, escaped_path);
+                wsl::run_bash_text(&distro, &command, &[]).map(|_| ())
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -838,15 +833,33 @@ pub async fn download_file(
                     data.status = "running".to_string();
                 }
 
-                let wsl_path = to_wsl_path(&distro, &remote_path);
-                let mut remote = std::fs::File::open(wsl_path).map_err(|e| e.to_string())?;
-                let mut local = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
-                let metadata = remote.metadata().map_err(|e| e.to_string())?;
-                let total_size = metadata.len();
+                let escaped_remote = escape_shell_arg(&remote_path);
+                let total_size = wsl::run_bash_text(
+                    &distro,
+                    &format!("stat -c %s '{}'", escaped_remote),
+                    &[],
+                )
+                .ok()
+                .and_then(|value| value.trim().parse::<u64>().ok())
+                .unwrap_or(0);
                 {
                     let mut data = transfer_state_wsl.data.lock().unwrap();
                     data.total_size = total_size;
                 }
+
+                let mut remote = wsl::spawn_bash(
+                    &distro,
+                    &format!("cat '{}'", escaped_remote),
+                    &[],
+                    std::process::Stdio::null(),
+                    std::process::Stdio::piped(),
+                    std::process::Stdio::piped(),
+                )?;
+                let mut remote_stdout = remote
+                    .stdout
+                    .take()
+                    .ok_or("Failed to capture WSL download stdout".to_string())?;
+                let mut local = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
 
                 let mut buffer = [0u8; 8192];
                 let mut transferred = 0u64;
@@ -860,7 +873,7 @@ pub async fn download_file(
                         }
                         return Err("Download cancelled".to_string());
                     }
-                    let n = remote.read(&mut buffer).map_err(|e| e.to_string())?;
+                    let n = remote_stdout.read(&mut buffer).map_err(|e| e.to_string())?;
                     if n == 0 {
                         break;
                     }
@@ -898,6 +911,14 @@ pub async fn download_file(
                         total: total_size,
                     },
                 );
+
+                let output = remote.wait_with_output().map_err(|e| e.to_string())?;
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    if !stderr.is_empty() {
+                        return Err(stderr);
+                    }
+                }
 
                 Ok(())
             });
@@ -1071,12 +1092,6 @@ pub async fn upload_file(
                     data.status = "running".to_string();
                 }
 
-                let wsl_path = to_wsl_path(&distro, &remote_path);
-
-                if let Some(parent) = wsl_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-
                 let mut local = std::fs::File::open(&local_path).map_err(|e| e.to_string())?;
                 let metadata = local.metadata().map_err(|e| e.to_string())?;
                 let total_size = metadata.len();
@@ -1085,7 +1100,24 @@ pub async fn upload_file(
                     data.total_size = total_size;
                 }
 
-                let mut remote = std::fs::File::create(wsl_path).map_err(|e| e.to_string())?;
+                let escaped_remote = escape_shell_arg(&remote_path);
+                let _ = wsl::run_bash_text(
+                    &distro,
+                    &format!("mkdir -p \"$(dirname '{}')\"", escaped_remote),
+                    &[],
+                );
+                let mut remote = wsl::spawn_bash(
+                    &distro,
+                    &format!("cat > '{}'", escaped_remote),
+                    &[],
+                    std::process::Stdio::piped(),
+                    std::process::Stdio::null(),
+                    std::process::Stdio::piped(),
+                )?;
+                let mut remote_stdin = remote
+                    .stdin
+                    .take()
+                    .ok_or("Failed to capture WSL upload stdin".to_string())?;
 
                 let mut buffer = [0u8; 8192];
                 let mut transferred = 0u64;
@@ -1103,7 +1135,9 @@ pub async fn upload_file(
                     if n == 0 {
                         break;
                     }
-                    remote.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
+                    remote_stdin
+                        .write_all(&buffer[..n])
+                        .map_err(|e| e.to_string())?;
                     transferred += n as u64;
 
                     {
@@ -1137,6 +1171,15 @@ pub async fn upload_file(
                         total: total_size,
                     },
                 );
+
+                drop(remote_stdin);
+                let output = remote.wait_with_output().map_err(|e| e.to_string())?;
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    if !stderr.is_empty() {
+                        return Err(stderr);
+                    }
+                }
 
                 Ok(())
             });

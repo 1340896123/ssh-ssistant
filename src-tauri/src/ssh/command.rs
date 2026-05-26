@@ -1,4 +1,5 @@
 use super::client::{AppState, ClientType};
+use super::wsl;
 use crate::ssh::{
     emit_command_output, execute_ssh_operation, ExecStreamContext, ExecTarget, SshCommand,
 };
@@ -10,12 +11,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, State};
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 enum WslStreamEvent {
     Chunk { data: String, stream: &'static str },
@@ -126,20 +121,14 @@ pub async fn exec_command(
                     }
                 }
 
-                let mut cmd = std::process::Command::new("wsl");
-                #[cfg(target_os = "windows")]
-                cmd.creation_flags(CREATE_NO_WINDOW);
-
-                let mut child = cmd
-                    .arg("-d")
-                    .arg(&distro)
-                    .arg("bash")
-                    .arg("-c")
-                    .arg(&command)
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .map_err(|e| e.to_string())?;
+                let mut child = wsl::spawn_bash(
+                    &distro,
+                    &command,
+                    &[],
+                    Stdio::null(),
+                    Stdio::piped(),
+                    Stdio::piped(),
+                )?;
 
                 let stdout = child
                     .stdout
@@ -237,23 +226,7 @@ pub async fn get_working_directory(
         ClientType::Wsl(distro) => {
             let distro = distro.clone();
             tokio::task::spawn_blocking(move || {
-                let mut cmd = std::process::Command::new("wsl");
-                #[cfg(target_os = "windows")]
-                cmd.creation_flags(CREATE_NO_WINDOW);
-
-                let output = cmd
-                    .arg("-d")
-                    .arg(&distro)
-                    .arg("exec")
-                    .arg("pwd")
-                    .output()
-                    .map_err(|e| e.to_string())?;
-
-                if output.status.success() {
-                    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-                } else {
-                    Err(String::from_utf8_lossy(&output.stderr).to_string())
-                }
+                wsl::run_bash_text(&distro, "pwd", &[])
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?

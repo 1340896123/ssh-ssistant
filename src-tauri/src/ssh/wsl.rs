@@ -1,14 +1,17 @@
 use crate::db;
 use crate::models::{Connection, ConnectionGroup};
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
 use tauri::AppHandle;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn get_distributions() -> Result<Vec<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
         let output = Command::new("wsl")
             .arg("--list")
             .arg("--quiet")
@@ -54,6 +57,63 @@ pub fn get_distributions() -> Result<Vec<String>, String> {
     {
         Ok(Vec::new())
     }
+}
+
+pub fn bash_command(distro: &str, script: &str, args: &[String]) -> Command {
+    let mut cmd = Command::new("wsl");
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd.arg("-d")
+        .arg(distro)
+        .arg("bash")
+        .arg("-lc")
+        .arg(script)
+        .arg("_");
+
+    for arg in args {
+        cmd.arg(arg);
+    }
+
+    cmd
+}
+
+pub fn run_bash_output(distro: &str, script: &str, args: &[String]) -> Result<Output, String> {
+    bash_command(distro, script, args)
+        .output()
+        .map_err(|e| format!("Failed to execute WSL command: {}", e))
+}
+
+pub fn run_bash_text(distro: &str, script: &str, args: &[String]) -> Result<String, String> {
+    let output = run_bash_output(distro, script, args)?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            Err(format!("WSL command failed with status {}", output.status))
+        } else {
+            Err(stderr)
+        }
+    }
+}
+
+pub fn spawn_bash(
+    distro: &str,
+    script: &str,
+    args: &[String],
+    stdin: Stdio,
+    stdout: Stdio,
+    stderr: Stdio,
+) -> Result<Child, String> {
+    bash_command(distro, script, args)
+        .stdin(stdin)
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn WSL command: {}", e))
 }
 
 pub fn import_wsl_to_db(app: &AppHandle) -> Result<(), String> {

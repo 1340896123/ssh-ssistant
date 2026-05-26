@@ -2674,36 +2674,32 @@ pub fn asset_import_cloud_records(
                 let (_, updated_asset) = save_asset_bundle(&tx, Some(existing_id), payload)?;
                 updated_asset
             } else {
-                tx.execute(
-                    "INSERT INTO host_assets (
-                        id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
-                        access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?8, ?8)",
-                    params![
-                        existing_id,
-                        payload.asset.name,
-                        payload.asset.host,
-                        payload.asset.port,
-                        payload.asset.platform,
-                        payload.asset.folder_id.or(payload.asset.group_id),
-                        payload.asset.env_id,
-                        now_ts()
-                    ],
-                )
-                .map_err(|e| e.to_string())?;
                 let (_, created_asset) = save_asset_bundle(&tx, Some(existing_id), payload)?;
                 created_asset
             }
         } else {
+            let endpoint_username = if payload.default_access_endpoint.username.trim().is_empty() {
+                "root".to_string()
+            } else {
+                payload.default_access_endpoint.username.clone()
+            };
+            let endpoint_auth_type = payload
+                .default_access_endpoint
+                .auth_type
+                .clone()
+                .unwrap_or_else(|| "password".to_string());
             tx.execute(
                 "INSERT INTO host_assets (
-                    name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
+                    name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
+                    platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
                     access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?7, ?7)",
+                ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, NULL, NULL, NULL, NULL, NULL, ?6, ?7, ?8, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?9, ?9)",
                 params![
                     payload.asset.name,
                     payload.asset.host,
                     payload.asset.port,
+                    endpoint_username,
+                    endpoint_auth_type,
                     payload.asset.platform,
                     payload.asset.folder_id.or(payload.asset.group_id),
                     payload.asset.env_id,

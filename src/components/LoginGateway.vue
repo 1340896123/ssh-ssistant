@@ -62,8 +62,24 @@ const modeDescription = computed(() => {
   return "本地模式不会强制云登录，但仍可进入工作台使用离线资产。";
 });
 
-const subscriptionSummary = computed(() => settingsStore.activeSubscriptionSummary());
-const currentInvoice = computed(() => settingsStore.ai.subscriptionSnapshot?.currentInvoice ?? null);
+const subscriptionSummary = computed(() => {
+  if (settingsStore.account.mode === "local" && !settingsStore.account.accessToken) {
+    return {
+      label: "Free",
+      scope: "global",
+      billing: "USD 0/seat",
+      renewal: null,
+    };
+  }
+  return settingsStore.activeSubscriptionSummary();
+});
+
+const currentInvoice = computed(() => {
+  if (settingsStore.account.mode === "local" && !settingsStore.account.accessToken) {
+    return null;
+  }
+  return settingsStore.ai.subscriptionSnapshot?.currentInvoice ?? null;
+});
 
 async function submit() {
   isSubmitting.value = true;

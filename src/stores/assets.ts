@@ -126,6 +126,54 @@ function mapHistoryStatus(raw?: string): "success" | "failed" {
   return raw === "failed" ? "failed" : "success";
 }
 
+function normalizeCloudRecord(record: CloudAssetRecord): CloudAssetRecord {
+  const rawAsset = record.asset as HostAsset & { id?: number | string | null };
+  const normalizedAssetId =
+    typeof rawAsset.id === "number"
+      ? rawAsset.id
+      : rawAsset.id == null
+        ? undefined
+        : Number.NaN;
+
+  return {
+    ...record,
+    asset: {
+      ...record.asset,
+      id: Number.isFinite(normalizedAssetId) ? normalizedAssetId : undefined,
+      folderId: record.asset.folderId ?? null,
+      envId: record.asset.envId ?? null,
+      labels: record.asset.labels ?? [],
+      owner: record.asset.owner ?? "",
+      criticality: record.asset.criticality ?? "medium",
+      defaultWorkspacePath: record.asset.defaultWorkspacePath ?? undefined,
+      accessEndpointId: record.asset.accessEndpointId ?? null,
+      bastionChainId: record.asset.bastionChainId ?? null,
+      healthSummary: record.asset.healthSummary ?? null,
+      lastAccessedAt: record.asset.lastAccessedAt ?? null,
+      groupId: record.asset.groupId ?? null,
+    },
+    defaultAccessEndpoint: {
+      ...record.defaultAccessEndpoint,
+      id: typeof record.defaultAccessEndpoint.id === "number" ? record.defaultAccessEndpoint.id : undefined,
+      assetId: Number.isFinite(normalizedAssetId) ? (normalizedAssetId as number) : 0,
+      credentialRefId: record.defaultAccessEndpoint.credentialRefId ?? null,
+      sshKeyId: record.defaultAccessEndpoint.sshKeyId ?? null,
+      jumpHost: record.defaultAccessEndpoint.jumpHost ?? null,
+      jumpPort: record.defaultAccessEndpoint.jumpPort ?? null,
+      jumpUsername: record.defaultAccessEndpoint.jumpUsername ?? null,
+      jumpPassword: record.defaultAccessEndpoint.jumpPassword ?? null,
+    },
+    defaultCredentialRef: record.defaultCredentialRef
+      ? {
+          ...record.defaultCredentialRef,
+          id: typeof record.defaultCredentialRef.id === "number" ? record.defaultCredentialRef.id : undefined,
+          sshKeyId: record.defaultCredentialRef.sshKeyId ?? null,
+          assetId: record.defaultCredentialRef.assetId ?? null,
+        }
+      : null,
+  };
+}
+
 function dedupeAccessHistory(
   entries: AssetAccessHistoryEntry[],
 ): AssetAccessHistoryEntry[] {
@@ -640,7 +688,9 @@ export const useAssetStore = defineStore("assets", {
         throw error;
       }
 
-      const parsed = JSON.parse(response.assetsJson || "[]") as CloudAssetRecord[];
+      const parsed = (JSON.parse(response.assetsJson || "[]") as CloudAssetRecord[]).map(
+        normalizeCloudRecord,
+      );
       if (parsed.length > 0) {
         await assetService.importCloudRecords(parsed, true);
         await this.loadAssets();
@@ -655,7 +705,9 @@ export const useAssetStore = defineStore("assets", {
       accessToken: string,
     ) {
       const response = await cloudService.pull(baseUrl, mode, accountKey, accessToken);
-      const parsed = JSON.parse(response.assetsJson || "[]") as CloudAssetRecord[];
+      const parsed = (JSON.parse(response.assetsJson || "[]") as CloudAssetRecord[]).map(
+        normalizeCloudRecord,
+      );
       await assetService.importCloudRecords(parsed, true);
       await this.loadAssets();
       return response;

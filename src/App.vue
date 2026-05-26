@@ -381,7 +381,10 @@ const activeAccountSummary = computed(() => {
         ? account.enterpriseName || account.enterpriseId || null
         : null,
     scope: settingsStore.sync.organizationScope || "global",
-    endpoint: settingsStore.sync.endpointUrl || "local-only",
+    endpoint:
+      account.mode === "local" && !account.accessToken
+        ? "local-only"
+        : settingsStore.sync.endpointUrl || "local-only",
     subscription: settingsStore.activeSubscriptionSummary().label,
   };
 });

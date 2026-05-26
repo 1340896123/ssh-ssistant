@@ -330,6 +330,11 @@ export const useSettingsStore = defineStore('settings', {
         organizationScope: '',
         lastCloudSyncAt: null,
       };
+      this.ai = {
+        ...this.ai,
+        subscriptionSnapshot: null,
+        pendingCheckoutSession: null,
+      };
       this.applyTheme();
       await this.applyLanguage();
       await invoke('save_settings', { settings: this.$state });
@@ -657,6 +662,17 @@ export const useSettingsStore = defineStore('settings', {
       return this.account.mode !== 'local' && this.sync.enabled;
     },
     activeSubscriptionSummary() {
+      if (this.account.mode === 'local' && !this.account.accessToken) {
+        return {
+          label: 'Free',
+          billing: 'USD 0/seat',
+          scope: 'global',
+          renewal: null,
+          canUseCustomEndpoint: true,
+          usingCustomEndpoint: true,
+        };
+      }
+
       const subscription = this.ai.subscription;
       const planLabel = subscription.planDisplayName || subscription.plan;
       const renewal = subscription.renewalAt

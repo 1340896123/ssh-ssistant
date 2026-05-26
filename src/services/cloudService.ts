@@ -4,7 +4,7 @@ import type { CloudAssetRecord } from "../types";
 interface CloudSubscriptionPayload {
   planName: string;
   planDisplayName?: string;
-  status: Settings["ai"]["subscription"]["status"];
+  status: Settings["ai"]["subscription"]["status"] | number | string;
   seats: number;
   pricePerSeat?: number;
   currency?: string;
@@ -117,7 +117,7 @@ interface ClientSubscriptionInvoicePayload {
   targetType: string;
   targetId: string;
   planCode: string;
-  status: "open" | "paid" | "overdue" | "voided";
+  status: "open" | "paid" | "overdue" | "voided" | number | string;
   seatCount: number;
   unitPrice: number;
   subscriptionAmount: number;
@@ -234,12 +234,14 @@ function mapClientSubscriptionSnapshot(
     currentInvoice: payload.currentInvoice
       ? {
           ...payload.currentInvoice,
+          status: mapInvoiceStatus(payload.currentInvoice.status),
           lineItems: payload.currentInvoice.lineItems ?? [],
           payments: payload.currentInvoice.payments ?? [],
         }
       : null,
     recentInvoices: payload.recentInvoices?.map((invoice) => ({
       ...invoice,
+      status: mapInvoiceStatus(invoice.status),
       lineItems: invoice.lineItems ?? [],
       payments: invoice.payments ?? [],
     })) ?? [],
@@ -255,6 +257,76 @@ function normalizeBaseUrl(baseUrl?: string | null) {
   return (baseUrl?.trim() || "http://localhost:5047").replace(/\/+$/, "");
 }
 
+function mapSubscriptionStatus(
+  status: CloudSubscriptionPayload["status"],
+): Settings["ai"]["subscription"]["status"] {
+  if (typeof status === "string") {
+    const normalized = status.trim();
+    switch (normalized) {
+      case "inactive":
+      case "trialing":
+      case "active":
+      case "pastDue":
+      case "cancelled":
+        return normalized;
+      case "Inactive":
+        return "inactive";
+      case "Trialing":
+        return "trialing";
+      case "Active":
+        return "active";
+      case "PastDue":
+      case "Pastdue":
+      case "pastdue":
+        return "pastDue";
+      case "Cancelled":
+        return "cancelled";
+      default:
+        break;
+    }
+  }
+
+  switch (Number(status)) {
+    case 1:
+      return "trialing";
+    case 2:
+      return "active";
+    case 3:
+      return "pastDue";
+    case 4:
+      return "cancelled";
+    case 0:
+    default:
+      return "inactive";
+  }
+}
+
+function mapInvoiceStatus(status: ClientSubscriptionInvoicePayload["status"]) {
+  if (typeof status === "string") {
+    const normalized = status.trim().toLowerCase();
+    if (
+      normalized === "open" ||
+      normalized === "paid" ||
+      normalized === "overdue" ||
+      normalized === "voided"
+    ) {
+      return normalized as "open" | "paid" | "overdue" | "voided";
+    }
+  }
+
+  switch (Number(status)) {
+    case 1:
+      return "paid";
+    case 2:
+      return "overdue";
+    case 3:
+      return "voided";
+    case 0:
+    default:
+      return "open";
+  }
+}
+
 export function mapCloudSubscription(
   payload?: CloudSubscriptionPayload | null,
 ): Settings["ai"]["subscription"] | null {
@@ -265,7 +337,7 @@ export function mapCloudSubscription(
   return {
     plan: payload.planName as Settings["ai"]["subscription"]["plan"],
     planDisplayName: payload.planDisplayName || payload.planName,
-    status: payload.status,
+    status: mapSubscriptionStatus(payload.status),
     seats: payload.seats,
     pricePerSeat: payload.pricePerSeat ?? 0,
     currency: payload.currency ?? "USD",
