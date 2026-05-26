@@ -27,3 +27,12 @@ target/
 .trae/
 backend/SshAssistant.AdminApi/bin/
 backend/SshAssistant.AdminApi/obj/
+ssh-assistant-admin.db
+*.db-shm
+*.db-wal
+.enterprise-login.json
+.enterprise-pull.json
+.personal-login.json
+.personal-pull.json
+.playwright-cli/
+-
