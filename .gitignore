@@ -35,4 +35,4 @@ ssh-assistant-admin.db
 .personal-login.json
 .personal-pull.json
 .playwright-cli/
--
+.omx/*

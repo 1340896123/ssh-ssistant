@@ -194,9 +194,17 @@ public sealed class ClientSyncController(AdminDataStore store) : ControllerBase
         {
             return Ok(await store.HandlePaymentWebhookAsync(request));
         }
+        catch (UnauthorizedAccessException error)
+        {
+            return Unauthorized(new { error = error.Message });
+        }
         catch (KeyNotFoundException error)
         {
             return NotFound(new { error = error.Message });
+        }
+        catch (InvalidOperationException error)
+        {
+            return Conflict(new { error = error.Message });
         }
     }
 }

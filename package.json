@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "verify:g3": "node scripts/verify-billing-ai-flow.mjs",
     "i18n:check": "node scripts/i18n-check.mjs",
+    "verify:enterprise": "node scripts/verify-enterprise-flow.mjs",
     "preview": "vite preview",
     "sync:version": "node scripts/sync-tauri-version.mjs",
     "tauri": "tauri",

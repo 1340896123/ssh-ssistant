@@ -209,11 +209,26 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             return null;
         }
 
-        session.Token = Convert.ToHexString(Guid.NewGuid().ToByteArray());
-        session.ExpiresAt = DateTimeOffset.UtcNow.Add(
-            sessionType == "admin" ? AdminSessionLifetime : ClientSessionLifetime);
+        session.RevokedAt = DateTimeOffset.UtcNow;
+
+        var refreshedSession = new AuthSessionEntity
+        {
+            Token = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
+            RefreshToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
+            SessionType = session.SessionType,
+            SubjectId = session.SubjectId,
+            SubjectMode = session.SubjectMode,
+            Role = session.Role,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.Add(
+                sessionType == "admin" ? AdminSessionLifetime : ClientSessionLifetime),
+            RefreshExpiresAt = DateTimeOffset.UtcNow.Add(
+                sessionType == "admin" ? AdminRefreshLifetime : ClientRefreshLifetime),
+        };
+
+        dbContext.AuthSessions.Add(refreshedSession);
         await dbContext.SaveChangesAsync();
-        return session;
+        return refreshedSession;
     }
 
     private async Task<bool> IsSessionSubjectStillValidAsync(AuthSessionEntity session)
@@ -308,13 +323,24 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
 
     private static ClientAiEndpointConfig BuildCustomEndpoint(ClientAccountSyncStateEntity state) => new()
     {
-        UseCustomEndpoint = state.UseCustomEndpoint,
+        UseCustomEndpoint = state.UseCustomEndpoint && (HasConfiguredCustomEndpoint(state) || HasCustomEndpointDraft(state)),
         EndpointName = state.EndpointName,
         Provider = state.Provider,
         BaseUrl = state.BaseUrl,
         ApiKey = state.ApiKey,
         ModelName = state.ModelName,
     };
+
+    private static bool HasCustomEndpointDraft(ClientAccountSyncStateEntity state) =>
+        !string.IsNullOrWhiteSpace(state.EndpointName) ||
+        !string.IsNullOrWhiteSpace(state.BaseUrl) ||
+        !string.IsNullOrWhiteSpace(state.ApiKey) ||
+        !string.IsNullOrWhiteSpace(state.ModelName);
+
+    private static bool HasConfiguredCustomEndpoint(ClientAccountSyncStateEntity state) =>
+        !string.IsNullOrWhiteSpace(state.BaseUrl) &&
+        !string.IsNullOrWhiteSpace(state.ApiKey) &&
+        !string.IsNullOrWhiteSpace(state.ModelName);
 
     public async Task<AdminDashboardSnapshot> GetSnapshotAsync()
     {
@@ -544,7 +570,24 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         var entity = await dbContext.BillingInvoices.FirstOrDefaultAsync(item => item.Id == invoiceId)
             ?? throw new KeyNotFoundException($"Billing invoice '{invoiceId}' was not found.");
 
-        entity.Status = request.Status.ToString().ToLowerInvariant();
+        var netPaidAmount = await CalculateNetPaidAmountAsync(invoiceId);
+        if (request.Status == BillingInvoiceStatus.Paid && netPaidAmount + 0.0001d < entity.TotalAmount)
+        {
+            throw new InvalidOperationException(
+                $"Billing invoice '{invoiceId}' cannot be marked as paid until recorded payments cover the invoice total.");
+        }
+
+        if (request.Status == BillingInvoiceStatus.Voided && netPaidAmount > 0.0001d)
+        {
+            throw new InvalidOperationException(
+                $"Billing invoice '{invoiceId}' cannot be voided while it still has recorded net payments.");
+        }
+
+        entity.Status = request.Status == BillingInvoiceStatus.Voided
+            ? BillingInvoiceStatus.Voided.ToString().ToLowerInvariant()
+            : DeriveInvoiceStatus(entity, netPaidAmount, preserveVoidedIfUnpaid: false)
+                .ToString()
+                .ToLowerInvariant();
         entity.UpdatedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync();
         var lineItems = await dbContext.BillingInvoiceLineItems.AsNoTracking()
@@ -561,6 +604,45 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         var invoice = await dbContext.BillingInvoices.FirstOrDefaultAsync(item => item.Id == request.InvoiceId)
             ?? throw new KeyNotFoundException($"Billing invoice '{request.InvoiceId}' was not found.");
 
+        if (request.Amount <= 0)
+        {
+            throw new InvalidOperationException("Payment amount must be greater than zero.");
+        }
+
+        if (string.Equals(invoice.Status, BillingInvoiceStatus.Voided.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Billing invoice '{request.InvoiceId}' is voided and cannot accept payments.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ExternalReference))
+        {
+            var existing = await dbContext.PaymentTransactions.FirstOrDefaultAsync(
+                item => item.ProviderKey == request.ProviderKey && item.ExternalReference == request.ExternalReference);
+            if (existing is not null)
+            {
+                if (!string.Equals(existing.InvoiceId, invoice.Id, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"External reference '{request.ExternalReference}' is already attached to another invoice.");
+                }
+
+                existing.Amount = request.Amount;
+                existing.Currency = request.Currency;
+                existing.PaymentMethod = request.PaymentMethod;
+                existing.Status = request.Status;
+                existing.Note = request.Note;
+                existing.PaidAt = ShouldRecordPaidAt(request.Status)
+                    ? request.PaidAt ?? existing.PaidAt ?? DateTimeOffset.UtcNow
+                    : null;
+                existing.UpdatedAt = DateTimeOffset.UtcNow;
+
+                await dbContext.SaveChangesAsync();
+                await RefreshInvoicePaymentStatusAsync(invoice.Id);
+                return Map(existing);
+            }
+        }
+
         var transaction = new PaymentTransactionEntity
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -576,7 +658,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             Note = request.Note,
             CheckoutUrl = string.Empty,
             ExpiresAt = null,
-            PaidAt = request.PaidAt ?? DateTimeOffset.UtcNow,
+            PaidAt = ShouldRecordPaidAt(request.Status)
+                ? request.PaidAt ?? DateTimeOffset.UtcNow
+                : null,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
@@ -596,7 +680,36 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             .FirstOrDefaultAsync(item => item.ProviderKey == request.ProviderKey && item.Enabled)
             ?? throw new KeyNotFoundException($"Payment provider '{request.ProviderKey}' was not found.");
 
+        if (string.Equals(invoice.Status, BillingInvoiceStatus.Voided.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Billing invoice '{request.InvoiceId}' is voided and cannot create a checkout session.");
+        }
+
         var outstandingAmount = invoice.TotalAmount - await CalculateNetPaidAmountAsync(invoice.Id);
+        if (outstandingAmount <= 0.0001d)
+        {
+            throw new InvalidOperationException(
+                $"Billing invoice '{request.InvoiceId}' is already fully paid.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var pendingCheckoutCandidates = await dbContext.PaymentTransactions.AsNoTracking()
+            .Where(item =>
+                item.InvoiceId == invoice.Id &&
+                item.ProviderKey == provider.ProviderKey &&
+                item.Status == "pending")
+            .ToListAsync();
+        var existingPendingCheckout = pendingCheckoutCandidates
+            .OrderByDescending(item => item.CreatedAt.UtcDateTime)
+            .FirstOrDefault(item =>
+            !string.IsNullOrWhiteSpace(item.CheckoutUrl) &&
+            (!item.ExpiresAt.HasValue || item.ExpiresAt > now));
+        if (existingPendingCheckout is not null)
+        {
+            return Map(existingPendingCheckout);
+        }
+
         var externalReference = $"checkout-{Guid.NewGuid():N}";
         string checkoutUrl;
 
@@ -767,7 +880,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
                 Note = AppendWebhookNote(request.Note, eventType),
                 CheckoutUrl = string.Empty,
                 ExpiresAt = null,
-                PaidAt = DateTimeOffset.UtcNow,
+                PaidAt = ShouldRecordPaidAt(normalizedStatus) ? DateTimeOffset.UtcNow : null,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
@@ -779,7 +892,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             transaction.Amount = amount;
             transaction.Currency = currency;
             transaction.Note = AppendWebhookNote(request.Note, eventType);
-            transaction.PaidAt ??= DateTimeOffset.UtcNow;
+            transaction.PaidAt = ShouldRecordPaidAt(normalizedStatus)
+                ? transaction.PaidAt ?? DateTimeOffset.UtcNow
+                : null;
             transaction.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
@@ -1064,7 +1179,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
                 continue;
             }
 
-            await UpsertMonthlyInvoiceAsync(
+            if (await UpsertMonthlyInvoiceAsync(
                 targetType: "enterprise",
                 targetId: subscription.EnterpriseId,
                 planCode: subscription.PlanCode,
@@ -1073,8 +1188,10 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
                 currency: plan.Currency,
                 status: subscription.Status.Equals("pastdue", StringComparison.OrdinalIgnoreCase)
                     ? BillingInvoiceStatus.Overdue
-                    : BillingInvoiceStatus.Open);
-            generated++;
+                    : BillingInvoiceStatus.Open))
+            {
+                generated++;
+            }
         }
 
         foreach (var subscription in personalSubscriptions)
@@ -1084,7 +1201,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
                 continue;
             }
 
-            await UpsertMonthlyInvoiceAsync(
+            if (await UpsertMonthlyInvoiceAsync(
                 targetType: "personal",
                 targetId: subscription.AccountId,
                 planCode: subscription.PlanCode,
@@ -1093,8 +1210,10 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
                 currency: plan.Currency,
                 status: subscription.Status.Equals("pastdue", StringComparison.OrdinalIgnoreCase)
                     ? BillingInvoiceStatus.Overdue
-                    : BillingInvoiceStatus.Open);
-            generated++;
+                    : BillingInvoiceStatus.Open))
+            {
+                generated++;
+            }
         }
 
         var invoices = (await dbContext.BillingInvoices.AsNoTracking().ToListAsync())
@@ -1124,13 +1243,19 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             session.SubjectId,
             string.Empty,
             string.Empty);
-        var useCustomEndpoint = state.UseCustomEndpoint;
+        var hasCustomEndpoint = state.UseCustomEndpoint && HasConfiguredCustomEndpoint(state);
+        var useCustomEndpoint = hasCustomEndpoint;
+        var missingCustomEndpointConfig = state.UseCustomEndpoint && HasCustomEndpointDraft(state) && !hasCustomEndpoint;
 
         return new ClientAiRuntimeResponse
         {
             Enabled = runtimeState.Enabled && (useCustomEndpoint || endpoint.SyncToClients),
             Reason = runtimeState.Enabled
-                ? (useCustomEndpoint || endpoint.SyncToClients ? string.Empty : "managed-endpoint-disabled")
+                ? (useCustomEndpoint || endpoint.SyncToClients
+                    ? string.Empty
+                    : missingCustomEndpointConfig
+                        ? "custom-endpoint-incomplete"
+                        : "managed-endpoint-disabled")
                 : runtimeState.Reason,
             Provider = useCustomEndpoint ? state.Provider : endpoint.Provider,
             BaseUrl = useCustomEndpoint ? state.BaseUrl : endpoint.BaseUrl,
@@ -2168,7 +2293,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         await dbContext.SaveChangesAsync();
     }
 
-    private async Task UpsertMonthlyInvoiceAsync(
+    private async Task<bool> UpsertMonthlyInvoiceAsync(
         string targetType,
         string targetId,
         string planCode,
@@ -2180,6 +2305,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         var billingMonth = DateTimeOffset.UtcNow.ToString("yyyy-MM");
         var invoiceId = $"inv-{targetId}-{billingMonth}";
         var entity = await dbContext.BillingInvoices.FirstOrDefaultAsync(item => item.Id == invoiceId);
+        var created = entity is null;
         if (entity is null)
         {
             entity = new BillingInvoiceEntity
@@ -2207,6 +2333,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
 
         await RewriteInvoiceLineItemsAsync(entity, targetType, targetId, seatCount, unitPrice, currency, billingMonth);
         await RefreshInvoicePaymentStatusAsync(entity.Id);
+        return created;
     }
 
     private async Task RefreshInvoicePaymentStatusAsync(string invoiceId)
@@ -2218,19 +2345,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         }
 
         var paidAmount = await CalculateNetPaidAmountAsync(invoiceId);
-
-        if (paidAmount >= invoice.TotalAmount && invoice.TotalAmount > 0)
-        {
-            invoice.Status = BillingInvoiceStatus.Paid.ToString().ToLowerInvariant();
-        }
-        else if (invoice.DueAt < DateTimeOffset.UtcNow && paidAmount < invoice.TotalAmount)
-        {
-            invoice.Status = BillingInvoiceStatus.Overdue.ToString().ToLowerInvariant();
-        }
-        else if (paidAmount > 0)
-        {
-            invoice.Status = BillingInvoiceStatus.Open.ToString().ToLowerInvariant();
-        }
+        invoice.Status = DeriveInvoiceStatus(invoice, paidAmount, preserveVoidedIfUnpaid: true)
+            .ToString()
+            .ToLowerInvariant();
 
         invoice.UpdatedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync();
@@ -2242,17 +2359,51 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             .Where(item => item.InvoiceId == invoiceId)
             .ToListAsync();
 
-        var creditStatuses = new[] { "completed", "settled", "paid" };
-        var refundStatuses = new[] { "refunded", "refund" };
-
         var paid = transactions
-            .Where(item => creditStatuses.Contains(item.Status, StringComparer.OrdinalIgnoreCase))
+            .Where(item => IsCreditPaymentStatus(item.Status))
             .Sum(item => item.Amount);
         var refunded = transactions
-            .Where(item => refundStatuses.Contains(item.Status, StringComparer.OrdinalIgnoreCase))
+            .Where(item => IsRefundPaymentStatus(item.Status))
             .Sum(item => item.Amount);
 
         return paid - refunded;
+    }
+
+    private static bool IsCreditPaymentStatus(string status) =>
+        string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "settled", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "paid", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRefundPaymentStatus(string status) =>
+        string.Equals(status, "refunded", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "refund", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ShouldRecordPaidAt(string status) =>
+        IsCreditPaymentStatus(status) || IsRefundPaymentStatus(status);
+
+    private static BillingInvoiceStatus DeriveInvoiceStatus(
+        BillingInvoiceEntity invoice,
+        double paidAmount,
+        bool preserveVoidedIfUnpaid)
+    {
+        if (preserveVoidedIfUnpaid &&
+            string.Equals(invoice.Status, BillingInvoiceStatus.Voided.ToString(), StringComparison.OrdinalIgnoreCase) &&
+            paidAmount <= 0.0001d)
+        {
+            return BillingInvoiceStatus.Voided;
+        }
+
+        if (paidAmount + 0.0001d >= invoice.TotalAmount && invoice.TotalAmount > 0)
+        {
+            return BillingInvoiceStatus.Paid;
+        }
+
+        if (invoice.DueAt < DateTimeOffset.UtcNow && paidAmount + 0.0001d < invoice.TotalAmount)
+        {
+            return BillingInvoiceStatus.Overdue;
+        }
+
+        return BillingInvoiceStatus.Open;
     }
 
     private async Task RewriteInvoiceLineItemsAsync(

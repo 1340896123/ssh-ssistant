@@ -1,4 +1,4 @@
-@SshAssistant.AdminApi_HostAddress = http://localhost:5056
+@SshAssistant.AdminApi_HostAddress = http://localhost:5047
 
 GET {{SshAssistant.AdminApi_HostAddress}}/weatherforecast/
 Accept: application/json

@@ -166,6 +166,10 @@ public sealed class AdminController(AdminDataStore store) : ControllerBase
         {
             return Ok(await store.UpdateBillingInvoiceAsync(invoiceId, request));
         }
+        catch (InvalidOperationException error)
+        {
+            return Conflict(new { error = error.Message });
+        }
         catch (KeyNotFoundException error)
         {
             return NotFound(new { error = error.Message });
@@ -185,6 +189,10 @@ public sealed class AdminController(AdminDataStore store) : ControllerBase
         {
             return Ok(await store.CreatePaymentTransactionAsync(request));
         }
+        catch (InvalidOperationException error)
+        {
+            return Conflict(new { error = error.Message });
+        }
         catch (KeyNotFoundException error)
         {
             return NotFound(new { error = error.Message });
@@ -203,6 +211,10 @@ public sealed class AdminController(AdminDataStore store) : ControllerBase
         try
         {
             return Ok(await store.CreateCheckoutSessionAsync(request));
+        }
+        catch (InvalidOperationException error)
+        {
+            return Conflict(new { error = error.Message });
         }
         catch (KeyNotFoundException error)
         {
