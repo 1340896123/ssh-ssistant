@@ -118,6 +118,32 @@ fn shutdown_client(client: SshClient) {
 pub async fn test_connection(app: AppHandle, config: SshConnConfig) -> Result<String, String> {
     let mut populated_config = config.clone();
 
+    if populated_config
+        .jump_host
+        .as_deref()
+        .map(|host| !host.trim().is_empty())
+        .unwrap_or(false)
+        && populated_config
+            .jump_password
+            .as_deref()
+            .map(|password| password.trim().is_empty())
+            .unwrap_or(true)
+    {
+        if let Some(asset_id) = populated_config.id {
+            let conn = rusqlite::Connection::open(crate::db::get_db_path(&app))
+                .map_err(|e| format!("Failed to open database: {}", e))?;
+            if let Ok((_, endpoint, _)) = crate::ops::resolve_asset_bundle(&conn, asset_id, None) {
+                populated_config.jump_password = endpoint.jump_password;
+                if populated_config.jump_username.is_none() {
+                    populated_config.jump_username = endpoint.jump_username;
+                }
+                if populated_config.jump_port.is_none() {
+                    populated_config.jump_port = endpoint.jump_port;
+                }
+            }
+        }
+    }
+
     if populated_config.auth_type.as_deref() == Some("key") {
         if let Some(key_id) = populated_config.ssh_key_id {
             match crate::db::get_ssh_key_by_id(&app, key_id) {

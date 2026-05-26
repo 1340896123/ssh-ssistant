@@ -276,7 +276,8 @@
       "sshKey": "SSH 密钥",
       "jumpHost": "跳板机主机",
       "jumpPort": "跳板机端口",
-      "jumpUsername": "跳板机用户名"
+      "jumpUsername": "跳板机用户名",
+      "jumpPassword": "跳板机密码"
     },
     "platformOptions": {
       "linux": "Linux",
@@ -306,7 +307,8 @@
       "endpointUsername": "root",
       "password": "••••••",
       "jumpHost": "jump.example.com",
-      "jumpUsername": "jumpuser"
+      "jumpUsername": "jumpuser",
+      "jumpPassword": "留空则保留当前已保存密码"
     },
     "testResult": {
       "hostRequired": "主机和端点用户名为必填项",

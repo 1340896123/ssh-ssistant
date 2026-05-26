@@ -276,7 +276,8 @@
       "sshKey": "SSH Key",
       "jumpHost": "Jump Host",
       "jumpPort": "Jump Port",
-      "jumpUsername": "Jump Username"
+      "jumpUsername": "Jump Username",
+      "jumpPassword": "Jump Password"
     },
     "platformOptions": {
       "linux": "Linux",
@@ -306,7 +307,8 @@
       "endpointUsername": "root",
       "password": "••••••",
       "jumpHost": "jump.example.com",
-      "jumpUsername": "jumpuser"
+      "jumpUsername": "jumpuser",
+      "jumpPassword": "Leave blank to keep the saved password"
     },
     "testResult": {
       "hostRequired": "Host and endpoint username are required.",

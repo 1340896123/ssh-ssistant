@@ -391,7 +391,7 @@ export const useAssetStore = defineStore("assets", {
         jumpHost: endpoint?.jumpHost ?? null,
         jumpPort: endpoint?.jumpPort ?? null,
         jumpUsername: endpoint?.jumpUsername ?? null,
-        jumpPassword: null,
+        jumpPassword: endpoint?.jumpPassword,
       };
 
       const nextCredentialRef =

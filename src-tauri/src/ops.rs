@@ -1056,6 +1056,10 @@ pub fn map_connection_from_endpoint(
     let ssh_key_id = endpoint
         .ssh_key_id
         .or_else(|| credential_ref.and_then(|credential| credential.ssh_key_id));
+    let jump_password = endpoint
+        .jump_password
+        .clone()
+        .and_then(|value| normalize_optional_string(Some(value)));
 
     SshConnection {
         id: asset.id,
@@ -1069,7 +1073,7 @@ pub fn map_connection_from_endpoint(
         jump_host: endpoint.jump_host.clone(),
         jump_port: endpoint.jump_port,
         jump_username: endpoint.jump_username.clone(),
-        jump_password: None,
+        jump_password,
         group_id: asset.folder_id.or(asset.group_id),
         os_type: Some(asset.platform.clone()),
         key_content: None,
@@ -1162,13 +1166,35 @@ fn save_asset_bundle(
     let endpoint_ssh_key_id = default_access_endpoint
         .ssh_key_id
         .or_else(|| default_credential_ref.as_ref().and_then(|credential_ref| credential_ref.ssh_key_id));
+    let normalized_jump_host = normalize_optional_string(default_access_endpoint.jump_host.clone());
+    let normalized_jump_username =
+        normalize_optional_string(default_access_endpoint.jump_username.clone());
+    let incoming_jump_password =
+        normalize_optional_string(default_access_endpoint.jump_password.clone());
+    let current_jump_password = if existing_asset_id.is_some() {
+        tx.query_row(
+            "SELECT jump_password FROM access_endpoints WHERE id = ?1",
+            params![default_access_endpoint.id.unwrap_or(asset_id)],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .and_then(|value| normalize_optional_string(Some(value)))
+    } else {
+        None
+    };
+    let effective_jump_password = if normalized_jump_host.is_some() {
+        incoming_jump_password.or(current_jump_password.clone())
+    } else {
+        None
+    };
 
     tx.execute(
         "INSERT INTO host_assets (
             id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
             platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
             access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, ?19, ?20, ?21, ?22, ?23, ?24)
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, NULL, ?20, ?21, ?22, ?23, ?24, ?25)
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -1201,9 +1227,10 @@ fn save_asset_bundle(
             endpoint_password,
             endpoint_auth_type,
             endpoint_ssh_key_id,
-            normalize_optional_string(default_access_endpoint.jump_host.clone()),
+            normalized_jump_host.clone(),
             default_access_endpoint.jump_port,
-            normalize_optional_string(default_access_endpoint.jump_username.clone()),
+            normalized_jump_username.clone(),
+            effective_jump_password.clone(),
             asset.platform,
             folder_id,
             asset.env_id,
@@ -1278,7 +1305,7 @@ fn save_asset_bundle(
     };
     tx.execute(
         "INSERT INTO access_endpoints (id, asset_id, name, host, port, username, auth_type, credential_ref_id, ssh_key_id, jump_host, jump_port, jump_username, jump_password)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(id) DO UPDATE SET
             asset_id = excluded.asset_id,
             name = excluded.name,
@@ -1291,7 +1318,7 @@ fn save_asset_bundle(
             jump_host = excluded.jump_host,
             jump_port = excluded.jump_port,
             jump_username = excluded.jump_username,
-            jump_password = NULL",
+            jump_password = excluded.jump_password",
         params![
             endpoint_id,
             asset_id,
@@ -1302,9 +1329,10 @@ fn save_asset_bundle(
             Some(endpoint_auth_type),
             credential_ref_id,
             endpoint_ssh_key_id,
-            normalize_optional_string(default_access_endpoint.jump_host.clone()),
+            normalized_jump_host,
             default_access_endpoint.jump_port,
-            normalize_optional_string(default_access_endpoint.jump_username.clone())
+            normalized_jump_username,
+            effective_jump_password
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -2261,7 +2289,7 @@ pub fn access_create_access_endpoint(
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT INTO access_endpoints (asset_id, name, host, port, username, auth_type, credential_ref_id, ssh_key_id, jump_host, jump_port, jump_username, jump_password)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             endpoint.asset_id,
             endpoint.name,
@@ -2273,7 +2301,12 @@ pub fn access_create_access_endpoint(
             endpoint.ssh_key_id,
             normalize_optional_string(endpoint.jump_host.clone()),
             endpoint.jump_port,
-            normalize_optional_string(endpoint.jump_username.clone())
+            normalize_optional_string(endpoint.jump_username.clone()),
+            if normalize_optional_string(endpoint.jump_host.clone()).is_some() {
+                normalize_optional_string(endpoint.jump_password.clone())
+            } else {
+                None
+            }
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -2307,11 +2340,26 @@ pub fn access_update_access_endpoint(
         .ok_or_else(|| "Endpoint ID is required".to_string())?;
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    let normalized_jump_host = normalize_optional_string(endpoint.jump_host.clone());
+    let effective_jump_password = if normalized_jump_host.is_some() {
+        normalize_optional_string(endpoint.jump_password.clone()).or_else(|| {
+            conn.query_row(
+                "SELECT jump_password FROM access_endpoints WHERE id = ?1",
+                params![endpoint_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
+            .and_then(|value| normalize_optional_string(Some(value)))
+        })
+    } else {
+        None
+    };
     conn.execute(
         "UPDATE access_endpoints
          SET asset_id = ?1, name = ?2, host = ?3, port = ?4, username = ?5, auth_type = ?6, credential_ref_id = ?7, ssh_key_id = ?8,
-             jump_host = ?9, jump_port = ?10, jump_username = ?11, jump_password = NULL
-         WHERE id = ?12",
+             jump_host = ?9, jump_port = ?10, jump_username = ?11, jump_password = ?12
+         WHERE id = ?13",
         params![
             endpoint.asset_id,
             endpoint.name,
@@ -2321,9 +2369,10 @@ pub fn access_update_access_endpoint(
             endpoint.auth_type,
             endpoint.credential_ref_id,
             endpoint.ssh_key_id,
-            normalize_optional_string(endpoint.jump_host.clone()),
+            normalized_jump_host,
             endpoint.jump_port,
             normalize_optional_string(endpoint.jump_username.clone()),
+            effective_jump_password,
             endpoint_id
         ],
     )

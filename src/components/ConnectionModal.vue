@@ -81,6 +81,7 @@ const formCredentialRef = ref<CredentialRef | null>({
 
 const labelsInput = ref("");
 const showPassword = ref(false);
+const showJumpPassword = ref(false);
 const isTesting = ref(false);
 const testResult = ref<{ success: boolean; message: string } | null>(null);
 
@@ -156,6 +157,7 @@ function resetForms() {
 
   labelsInput.value = (formAsset.value.labels ?? []).join(", ");
   showPassword.value = false;
+  showJumpPassword.value = false;
   isTesting.value = false;
   testResult.value = null;
 }
@@ -214,7 +216,14 @@ function buildPayload() {
     jumpHost: formEndpoint.value.jumpHost?.trim() || null,
     jumpPort: formEndpoint.value.jumpHost ? Number(formEndpoint.value.jumpPort || 22) : null,
     jumpUsername: formEndpoint.value.jumpUsername?.trim() || null,
-    jumpPassword: null,
+    jumpPassword: formEndpoint.value.jumpHost
+      ? (() => {
+          const trimmed = formEndpoint.value.jumpPassword?.trim();
+          if (trimmed) return trimmed;
+          if (formEndpoint.value.id) return undefined;
+          return null;
+        })()
+      : null,
   };
 
   const credentialRef =
@@ -286,6 +295,7 @@ async function testConnection() {
 
   try {
     await sessionService.testConnection({
+      id: payload.asset.id,
       name: payload.asset.name,
       host: payload.endpoint.host,
       port: payload.endpoint.port,
@@ -299,7 +309,7 @@ async function testConnection() {
       jumpHost: payload.endpoint.jumpHost ?? undefined,
       jumpPort: payload.endpoint.jumpPort ?? undefined,
       jumpUsername: payload.endpoint.jumpUsername ?? undefined,
-      jumpPassword: undefined,
+      jumpPassword: payload.endpoint.jumpPassword ?? undefined,
       groupId: payload.asset.folderId ?? null,
       osType: payload.asset.platform ?? "Linux",
       platform: payload.asset.platform ?? "Linux",
@@ -563,6 +573,25 @@ function save() {
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               :placeholder="t('connectionModal.placeholders.jumpUsername')"
             />
+          </div>
+
+          <div>
+            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpPassword') }}</label>
+            <div class="relative">
+              <input
+                v-model="formEndpoint.jumpPassword"
+                :type="showJumpPassword ? 'text' : 'password'"
+                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
+                :placeholder="t('connectionModal.placeholders.jumpPassword')"
+              />
+              <button
+                class="absolute right-2 top-2 text-text-secondary hover:text-text-primary"
+                @click="showJumpPassword = !showJumpPassword"
+              >
+                <Eye v-if="!showJumpPassword" class="h-5 w-5" />
+                <EyeOff v-else class="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </section>
       </div>
