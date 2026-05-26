@@ -14,6 +14,7 @@ pub struct SshKey {
 #[serde(rename_all = "camelCase")]
 pub struct HostAsset {
     pub id: Option<i64>,
+    pub cloud_id: Option<String>,
     pub name: String,
     pub host: String,
     pub port: u16,
@@ -37,6 +38,7 @@ impl Default for HostAsset {
     fn default() -> Self {
         Self {
             id: None,
+            cloud_id: None,
             name: String::new(),
             host: String::new(),
             port: 22,
@@ -105,6 +107,7 @@ impl From<Connection> for HostAsset {
     fn from(value: Connection) -> Self {
         Self {
             id: value.id,
+            cloud_id: None,
             name: value.name,
             host: value.host,
             port: value.port,

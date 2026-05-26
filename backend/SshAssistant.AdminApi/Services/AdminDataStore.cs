@@ -36,10 +36,74 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         public string Status { get; set; } = string.Empty;
     }
 
+    private sealed class ClientCloudAssetRecord
+    {
+        public ClientCloudAsset? Asset { get; set; }
+        public ClientCloudAccessEndpoint? DefaultAccessEndpoint { get; set; }
+        public ClientCloudCredentialRef? DefaultCredentialRef { get; set; }
+    }
+
+    private sealed class ClientCloudAsset
+    {
+        public long? Id { get; set; }
+        public string? CloudId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; } = 22;
+        public string Platform { get; set; } = "Linux";
+        public int? FolderId { get; set; }
+        public int? EnvId { get; set; }
+        public string[] Labels { get; set; } = Array.Empty<string>();
+        public string? Owner { get; set; }
+        public string Criticality { get; set; } = "medium";
+        public string? DefaultWorkspacePath { get; set; }
+        public int? AccessEndpointId { get; set; }
+        public string? BastionChainId { get; set; }
+        public string? HealthSummary { get; set; }
+        public long? LastAccessedAt { get; set; }
+        public bool IsFavorite { get; set; }
+        public int? GroupId { get; set; }
+    }
+
+    private sealed class ClientCloudAccessEndpoint
+    {
+        public long? Id { get; set; }
+        public long AssetId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; } = 22;
+        public string Username { get; set; } = "root";
+        public string? AuthType { get; set; }
+        public long? CredentialRefId { get; set; }
+        public long? SshKeyId { get; set; }
+        public string? JumpHost { get; set; }
+        public int? JumpPort { get; set; }
+        public string? JumpUsername { get; set; }
+        public string? JumpPassword { get; set; }
+    }
+
+    private sealed class ClientCloudCredentialRef
+    {
+        public long? Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string CredentialKind { get; set; } = "password";
+        public string? Username { get; set; }
+        public string? Secret { get; set; }
+        public long? SshKeyId { get; set; }
+        public long? AssetId { get; set; }
+        public long CreatedAt { get; set; }
+        public long UpdatedAt { get; set; }
+    }
+
     private static readonly TimeSpan AdminSessionLifetime = TimeSpan.FromHours(8);
     private static readonly TimeSpan ClientSessionLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan AdminRefreshLifetime = TimeSpan.FromDays(14);
     private static readonly TimeSpan ClientRefreshLifetime = TimeSpan.FromDays(30);
+
+    private sealed record ScopedSubscriptionAccessState(
+        bool Enabled,
+        string Reason,
+        AiSubscriptionOverview Subscription);
 
     private static string EnsureHashedSecret(string secret)
     {
@@ -111,6 +175,13 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             return null;
         }
 
+        if (!await IsSessionSubjectStillValidAsync(session))
+        {
+            session.RevokedAt = DateTimeOffset.UtcNow;
+            await dbContext.SaveChangesAsync();
+            return null;
+        }
+
         return session;
     }
 
@@ -131,11 +202,108 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             return null;
         }
 
+        if (!await IsSessionSubjectStillValidAsync(session))
+        {
+            session.RevokedAt = DateTimeOffset.UtcNow;
+            await dbContext.SaveChangesAsync();
+            return null;
+        }
+
         session.Token = Convert.ToHexString(Guid.NewGuid().ToByteArray());
         session.ExpiresAt = DateTimeOffset.UtcNow.Add(
             sessionType == "admin" ? AdminSessionLifetime : ClientSessionLifetime);
         await dbContext.SaveChangesAsync();
         return session;
+    }
+
+    private async Task<bool> IsSessionSubjectStillValidAsync(AuthSessionEntity session)
+    {
+        if (session.SessionType.Equals("admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return await dbContext.AdminUsers.AsNoTracking().AnyAsync(item => item.Id == session.SubjectId);
+        }
+
+        if (!session.SessionType.Equals("client", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (session.SubjectMode.Equals("local", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (session.SubjectMode.Equals("personal", StringComparison.OrdinalIgnoreCase))
+        {
+            return await dbContext.PersonalAccounts.AsNoTracking().AnyAsync(item => item.Id == session.SubjectId);
+        }
+
+        if (session.SubjectMode.Equals("enterpriseSubAccount", StringComparison.OrdinalIgnoreCase))
+        {
+            return await dbContext.SubAccounts.AsNoTracking().AnyAsync(
+                item => item.Id == session.SubjectId && item.Enabled);
+        }
+
+        return false;
+    }
+
+    private async Task RevokeClientSessionsAsync(string subjectMode, params string[] subjectIds)
+    {
+        var effectiveSubjectIds = subjectIds
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (effectiveSubjectIds.Length == 0)
+        {
+            return;
+        }
+
+        var sessions = await dbContext.AuthSessions
+            .Where(item =>
+                item.SessionType == "client" &&
+                item.SubjectMode == subjectMode &&
+                item.RevokedAt == null &&
+                effectiveSubjectIds.Contains(item.SubjectId))
+            .ToListAsync();
+
+        if (sessions.Count == 0)
+        {
+            return;
+        }
+
+        var revokedAt = DateTimeOffset.UtcNow;
+        foreach (var session in sessions)
+        {
+            session.RevokedAt = revokedAt;
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task DeleteClientSyncStatesAsync(string mode, params string[] accountKeys)
+    {
+        var effectiveAccountKeys = accountKeys
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (effectiveAccountKeys.Length == 0)
+        {
+            return;
+        }
+
+        var states = await dbContext.ClientSyncStates
+            .Where(item => item.Mode == mode && effectiveAccountKeys.Contains(item.AccountKey))
+            .ToListAsync();
+
+        if (states.Count == 0)
+        {
+            return;
+        }
+
+        dbContext.ClientSyncStates.RemoveRange(states);
+        await dbContext.SaveChangesAsync();
     }
 
     public async Task<AdminDashboardSnapshot> GetSnapshotAsync()
@@ -145,11 +313,17 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         var personalAccounts = await dbContext.PersonalAccounts.AsNoTracking().ToListAsync();
         var enterpriseSubscriptions = await dbContext.EnterpriseSubscriptions.AsNoTracking().ToListAsync();
         var personalSubscriptions = await dbContext.PersonalSubscriptions.AsNoTracking().ToListAsync();
-        var invoices = await dbContext.BillingInvoices.AsNoTracking().OrderByDescending(item => item.CreatedAt).ToListAsync();
+        var invoices = (await dbContext.BillingInvoices.AsNoTracking().ToListAsync())
+            .OrderByDescending(item => item.CreatedAt)
+            .ToList();
         var invoiceLineItems = await dbContext.BillingInvoiceLineItems.AsNoTracking().ToListAsync();
-        var paymentTransactions = await dbContext.PaymentTransactions.AsNoTracking().OrderByDescending(item => item.CreatedAt).ToListAsync();
+        var paymentTransactions = (await dbContext.PaymentTransactions.AsNoTracking().ToListAsync())
+            .OrderByDescending(item => item.CreatedAt)
+            .ToList();
         var paymentProviders = await dbContext.PaymentProviderConfigs.AsNoTracking().ToListAsync();
-        var usageRecords = await dbContext.AiUsageRecords.AsNoTracking().OrderByDescending(item => item.CreatedAt).ToListAsync();
+        var usageRecords = (await dbContext.AiUsageRecords.AsNoTracking().ToListAsync())
+            .OrderByDescending(item => item.CreatedAt)
+            .ToList();
         var usagePricing = await dbContext.AiUsagePricing.AsNoTracking().ToListAsync();
         var plans = await dbContext.AiSubscriptionPlans.AsNoTracking().ToListAsync();
         var assets = await dbContext.Assets.AsNoTracking().ToListAsync();
@@ -913,7 +1087,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             generated++;
         }
 
-        var invoices = await dbContext.BillingInvoices.AsNoTracking().OrderByDescending(item => item.CreatedAt).ToListAsync();
+        var invoices = (await dbContext.BillingInvoices.AsNoTracking().ToListAsync())
+            .OrderByDescending(item => item.CreatedAt)
+            .ToList();
         var invoiceLineItems = await dbContext.BillingInvoiceLineItems.AsNoTracking().ToListAsync();
         var paymentTransactions = await dbContext.PaymentTransactions.AsNoTracking().ToListAsync();
         return new GenerateBillingCycleResponse
@@ -932,20 +1108,18 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         }
 
         var endpoint = await dbContext.AiEndpoints.AsNoTracking().FirstAsync();
-        var subscription = await BuildAiSubscriptionForScopeAsync(
+        var runtimeState = await EvaluateScopedSubscriptionAccessAsync(
             session.SubjectMode,
             session.SubjectId,
             string.Empty,
             string.Empty);
 
-        var active = subscription.Status is SubscriptionStatus.Active or SubscriptionStatus.Trialing;
-
         return new ClientAiRuntimeResponse
         {
-            Enabled = active && endpoint.SyncToClients,
-            Reason = active
+            Enabled = runtimeState.Enabled && endpoint.SyncToClients,
+            Reason = runtimeState.Enabled
                 ? (endpoint.SyncToClients ? string.Empty : "managed-endpoint-disabled")
-                : "subscription-inactive",
+                : runtimeState.Reason,
             Provider = endpoint.Provider,
             BaseUrl = string.Empty,
             ModelName = endpoint.ModelName,
@@ -1115,19 +1289,34 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         var entity = await dbContext.Enterprises.FirstOrDefaultAsync(item => item.Id == enterpriseId)
             ?? throw new KeyNotFoundException($"Enterprise '{enterpriseId}' was not found.");
 
+        var subAccounts = await dbContext.SubAccounts
+            .Where(item => item.EnterpriseId == enterpriseId)
+            .ToListAsync();
+        var subAccountIds = subAccounts.Select(item => item.Id).ToArray();
+
         var subscription = await dbContext.EnterpriseSubscriptions.FirstOrDefaultAsync(item => item.EnterpriseId == enterpriseId);
         if (subscription is not null)
         {
             dbContext.EnterpriseSubscriptions.Remove(subscription);
         }
 
+        if (subAccounts.Count > 0)
+        {
+            dbContext.SubAccounts.RemoveRange(subAccounts);
+        }
+
         dbContext.Enterprises.Remove(entity);
         await dbContext.SaveChangesAsync();
+
+        await RevokeClientSessionsAsync("enterpriseSubAccount", subAccountIds);
+        await DeleteClientSyncStatesAsync("enterpriseSubAccount", subAccountIds);
     }
 
     public async Task<EnterpriseSubAccountSummary> UpsertSubAccountAsync(UpsertSubAccountRequest request)
     {
         var entity = await dbContext.SubAccounts.FirstOrDefaultAsync(item => item.Id == request.Id);
+        var previousEnterpriseId = entity?.EnterpriseId;
+        var wasEnabled = entity?.Enabled ?? false;
         if (entity is null)
         {
             entity = new EnterpriseSubAccountEntity { Id = request.Id };
@@ -1145,6 +1334,22 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         entity.UpdatedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync();
 
+        if (!entity.Enabled || (wasEnabled && !request.Enabled))
+        {
+            await RevokeClientSessionsAsync("enterpriseSubAccount", entity.Id);
+        }
+
+        if (!entity.Enabled)
+        {
+            await DeleteClientSyncStatesAsync("enterpriseSubAccount", entity.Id);
+        }
+
+        if (!string.IsNullOrWhiteSpace(previousEnterpriseId) &&
+            !string.Equals(previousEnterpriseId, request.EnterpriseId, StringComparison.Ordinal))
+        {
+            await SyncEnterpriseSeatAssignmentAsync(previousEnterpriseId);
+        }
+
         await SyncEnterpriseSeatAssignmentAsync(request.EnterpriseId);
         return Map(entity);
     }
@@ -1158,6 +1363,8 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         dbContext.SubAccounts.Remove(entity);
         await dbContext.SaveChangesAsync();
 
+        await RevokeClientSessionsAsync("enterpriseSubAccount", subAccountId);
+        await DeleteClientSyncStatesAsync("enterpriseSubAccount", subAccountId);
         await SyncEnterpriseSeatAssignmentAsync(enterpriseId);
     }
 
@@ -1246,6 +1453,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
 
         dbContext.PersonalAccounts.Remove(entity);
         await dbContext.SaveChangesAsync();
+
+        await RevokeClientSessionsAsync("personal", accountId);
+        await DeleteClientSyncStatesAsync("personal", accountId);
     }
 
     public async Task<ClientLoginResponse> LoginAsync(ClientLoginRequest request)
@@ -1309,7 +1519,8 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             throw new UnauthorizedAccessException("Client session expired or invalid.");
         }
 
-        var state = await UpsertClientStateAsync(request.Mode, request.AccountKey);
+        EnsureClientScopeMatchesSession(session, request.Mode, request.AccountKey);
+        var state = await UpsertClientStateAsync(session.SubjectMode, session.SubjectId);
         state.DisplayName = request.DisplayName;
         state.Email = request.Email;
         state.EnterpriseId = request.EnterpriseId;
@@ -1335,7 +1546,8 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             throw new UnauthorizedAccessException("Client session expired or invalid.");
         }
 
-        var state = await UpsertClientStateAsync(request.Mode, request.AccountKey);
+        EnsureClientScopeMatchesSession(session, request.Mode, request.AccountKey);
+        var state = await UpsertClientStateAsync(session.SubjectMode, session.SubjectId);
         state.SyncedAssetsJson = request.AssetsJson;
         state.UpdatedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync();
@@ -1350,8 +1562,21 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             throw new UnauthorizedAccessException("Client session expired or invalid.");
         }
 
-        var state = await UpsertClientStateAsync(mode, accountKey);
+        EnsureClientScopeMatchesSession(session, mode, accountKey);
+        var state = await UpsertClientStateAsync(session.SubjectMode, session.SubjectId);
         return await BuildSyncResponseAsync(state);
+    }
+
+    private static void EnsureClientScopeMatchesSession(
+        AuthSessionEntity session,
+        string requestedMode,
+        string requestedAccountKey)
+    {
+        if (!string.Equals(session.SubjectMode, requestedMode, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(session.SubjectId, requestedAccountKey, StringComparison.Ordinal))
+        {
+            throw new UnauthorizedAccessException("Client sync scope does not match the active session.");
+        }
     }
 
     private async Task<ClientAccountSyncStateEntity> UpsertClientStateAsync(string mode, string accountKey)
@@ -1376,12 +1601,18 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
     private async Task<ClientSyncResponse> BuildSyncResponseAsync(ClientAccountSyncStateEntity state)
     {
         var endpointSync = await dbContext.AiEndpoints.AsNoTracking().FirstAsync();
+        var resolvedEnterpriseScope = state.Mode.Equals("enterpriseSubAccount", StringComparison.OrdinalIgnoreCase)
+            ? await dbContext.SubAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(item => item.Id == state.AccountKey || item.Id == state.SubAccountId)
+            : null;
+        var resolvedEnterpriseId = resolvedEnterpriseScope?.EnterpriseId ?? state.EnterpriseId;
+        var resolvedSubAccountId = resolvedEnterpriseScope?.Id ?? state.SubAccountId;
         var filteredAssetsJson = await BuildFilteredAssetsJsonAsync(state);
         var subscription = await BuildAiSubscriptionForScopeAsync(
             state.Mode,
             state.AccountKey,
-            state.EnterpriseId,
-            state.SubAccountId);
+            resolvedEnterpriseId,
+            resolvedSubAccountId);
         return new ClientSyncResponse
         {
             SyncedAt = state.UpdatedAt,
@@ -1392,14 +1623,16 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             SubscriptionSnapshot = await BuildClientSubscriptionSnapshotAsync(
                 state.Mode,
                 state.AccountKey,
-                state.EnterpriseId,
-                state.SubAccountId,
+                resolvedEnterpriseId,
+                resolvedSubAccountId,
                 subscription),
         };
     }
 
     private async Task<string> BuildFilteredAssetsJsonAsync(ClientAccountSyncStateEntity state)
     {
+        var syncedRecords = ParseSyncedCloudRecords(state.SyncedAssetsJson);
+
         if (state.Mode.Equals("enterpriseSubAccount", StringComparison.OrdinalIgnoreCase))
         {
             var subAccount = await dbContext.SubAccounts.AsNoTracking()
@@ -1411,11 +1644,12 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             }
 
             var allowedAssetIds = JsonSerializer.Deserialize<string[]>(subAccount.AssetIdsJson) ?? Array.Empty<string>();
-            var assets = await dbContext.Assets.AsNoTracking()
-                .Where(asset => allowedAssetIds.Contains(asset.Id))
-                .ToListAsync();
+            return await BuildEnterpriseScopedAssetsJsonAsync(allowedAssetIds, syncedRecords);
+        }
 
-            return JsonSerializer.Serialize(assets.Select(MapCloudRecord));
+        if (syncedRecords.Count > 0)
+        {
+            return JsonSerializer.Serialize(FilterCloudRecordsForScope(syncedRecords, state, null));
         }
 
         if (state.Mode.Equals("personal", StringComparison.OrdinalIgnoreCase))
@@ -1431,11 +1665,115 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         return JsonSerializer.Serialize(allAssets.Select(MapCloudRecord));
     }
 
+    private static List<ClientCloudAssetRecord> ParseSyncedCloudRecords(string? rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson))
+        {
+            return new List<ClientCloudAssetRecord>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<ClientCloudAssetRecord>>(rawJson) ?? new List<ClientCloudAssetRecord>();
+        }
+        catch
+        {
+            return new List<ClientCloudAssetRecord>();
+        }
+    }
+
+    private static IReadOnlyList<ClientCloudAssetRecord> FilterCloudRecordsForScope(
+        IEnumerable<ClientCloudAssetRecord> records,
+        ClientAccountSyncStateEntity state,
+        IReadOnlyCollection<string>? allowedEnterpriseAssetIds)
+    {
+        if (state.Mode.Equals("enterpriseSubAccount", StringComparison.OrdinalIgnoreCase))
+        {
+            return records
+                .Where(record =>
+                    record.Asset is not null &&
+                    record.Asset.CloudId is not null &&
+                    allowedEnterpriseAssetIds is not null &&
+                    allowedEnterpriseAssetIds.Contains(record.Asset.CloudId))
+                .ToList();
+        }
+
+        if (state.Mode.Equals("personal", StringComparison.OrdinalIgnoreCase))
+        {
+            return records
+                .Where(record => record.Asset is not null)
+                .ToList();
+        }
+
+        return records.ToList();
+    }
+
+    private async Task<string> BuildEnterpriseScopedAssetsJsonAsync(
+        IReadOnlyCollection<string> allowedAssetIds,
+        IReadOnlyList<ClientCloudAssetRecord> syncedRecords)
+    {
+        if (allowedAssetIds.Count == 0)
+        {
+            return "[]";
+        }
+
+        var assets = await dbContext.Assets.AsNoTracking()
+            .Where(asset => allowedAssetIds.Contains(asset.Id))
+            .ToListAsync();
+
+        var recordMap = syncedRecords
+            .Where(record => record.Asset is not null)
+            .Select(record => new
+            {
+                Key = ResolveCloudRecordKey(record),
+                Record = record,
+            })
+            .Where(item => !string.IsNullOrWhiteSpace(item.Key))
+            .GroupBy(item => item.Key!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Record, StringComparer.Ordinal);
+
+        var scopedRecords = new List<object>(assets.Count);
+        foreach (var assetId in allowedAssetIds)
+        {
+            var asset = assets.FirstOrDefault(item => item.Id == assetId);
+            if (asset is null)
+            {
+                continue;
+            }
+
+            if (recordMap.TryGetValue(assetId, out var existingRecord))
+            {
+                scopedRecords.Add(existingRecord);
+                continue;
+            }
+
+            scopedRecords.Add(MapCloudRecord(asset));
+        }
+
+        return JsonSerializer.Serialize(scopedRecords);
+    }
+
+    private static string? ResolveCloudRecordKey(ClientCloudAssetRecord record)
+    {
+        if (!string.IsNullOrWhiteSpace(record.Asset?.CloudId))
+        {
+            return record.Asset.CloudId;
+        }
+
+        if (record.Asset?.Id is long id)
+        {
+            return id.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return null;
+    }
+
     private static object MapCloudRecord(AssetEntity asset) => new
     {
         asset = new
         {
             id = asset.Id,
+            cloudId = asset.Id,
             name = asset.Name,
             host = asset.Host,
             port = 22,
@@ -1443,7 +1781,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             folderId = (int?)null,
             envId = (int?)null,
             labels = Array.Empty<string>(),
-            owner = asset.OwnerType,
+            owner = asset.OwnerType == "personal" ? $"personal:{asset.Id}" : asset.OwnerType,
             criticality = asset.RiskLevel,
             defaultWorkspacePath = (string?)null,
             accessEndpointId = (int?)null,
@@ -1623,13 +1961,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
     {
         if (mode.Equals("enterpriseSubAccount", StringComparison.OrdinalIgnoreCase))
         {
-            var resolvedEnterpriseId = enterpriseId;
-            if (string.IsNullOrWhiteSpace(resolvedEnterpriseId))
-            {
-                var subAccount = await dbContext.SubAccounts.AsNoTracking()
-                    .FirstOrDefaultAsync(item => item.Id == accountKey || item.Id == subAccountId);
-                resolvedEnterpriseId = subAccount?.EnterpriseId;
-            }
+            var subAccount = await dbContext.SubAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(item => item.Id == accountKey || item.Id == subAccountId);
+            var resolvedEnterpriseId = subAccount?.EnterpriseId ?? enterpriseId;
 
             if (string.IsNullOrWhiteSpace(resolvedEnterpriseId))
             {
@@ -2014,13 +2348,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
 
         if (mode.Equals("enterpriseSubAccount", StringComparison.OrdinalIgnoreCase))
         {
-            var resolvedEnterpriseId = enterpriseId;
-            if (string.IsNullOrWhiteSpace(resolvedEnterpriseId))
-            {
-                var subAccount = await dbContext.SubAccounts.AsNoTracking()
-                    .FirstOrDefaultAsync(item => item.Id == accountKey || item.Id == subAccountId);
-                resolvedEnterpriseId = subAccount?.EnterpriseId;
-            }
+            var subAccount = await dbContext.SubAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(item => item.Id == accountKey || item.Id == subAccountId);
+            var resolvedEnterpriseId = subAccount?.EnterpriseId ?? enterpriseId;
 
             if (!string.IsNullOrWhiteSpace(resolvedEnterpriseId))
             {
@@ -2047,6 +2377,55 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         }
 
         return await BuildGlobalAiSubscriptionAsync();
+    }
+
+    private async Task<ScopedSubscriptionAccessState> EvaluateScopedSubscriptionAccessAsync(
+        string mode,
+        string accountKey,
+        string? enterpriseId,
+        string? subAccountId)
+    {
+        var subscription = await BuildAiSubscriptionForScopeAsync(mode, accountKey, enterpriseId, subAccountId);
+        var normalizedStatus = subscription.Status.ToString();
+
+        if (mode.Equals("enterpriseSubAccount", StringComparison.OrdinalIgnoreCase))
+        {
+            var subAccount = await dbContext.SubAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(item => item.Id == accountKey || item.Id == subAccountId);
+            var resolvedEnterpriseId = subAccount?.EnterpriseId ?? enterpriseId;
+
+            if (!string.IsNullOrWhiteSpace(resolvedEnterpriseId))
+            {
+                var enterpriseSubscription = await dbContext.EnterpriseSubscriptions.AsNoTracking()
+                    .FirstOrDefaultAsync(item => item.EnterpriseId == resolvedEnterpriseId);
+                if (enterpriseSubscription is not null)
+                {
+                    var seatsAssigned = await dbContext.SubAccounts.AsNoTracking()
+                        .CountAsync(item => item.EnterpriseId == resolvedEnterpriseId && item.Enabled);
+                    if (enterpriseSubscription.SeatsPurchased < seatsAssigned)
+                    {
+                        return new ScopedSubscriptionAccessState(
+                            false,
+                            "subscription-seat-limit-exceeded",
+                            subscription);
+                    }
+                }
+            }
+        }
+
+        var reason = normalizedStatus.Equals(nameof(SubscriptionStatus.Active), StringComparison.OrdinalIgnoreCase) ||
+            normalizedStatus.Equals(nameof(SubscriptionStatus.Trialing), StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : normalizedStatus.Equals(nameof(SubscriptionStatus.PastDue), StringComparison.OrdinalIgnoreCase)
+                ? "subscription-past-due"
+                : normalizedStatus.Equals(nameof(SubscriptionStatus.Cancelled), StringComparison.OrdinalIgnoreCase)
+                    ? "subscription-cancelled"
+                    : "subscription-inactive";
+
+        return new ScopedSubscriptionAccessState(
+            string.IsNullOrEmpty(reason),
+            reason,
+            subscription);
     }
 
     private static EnterpriseSummary Map(

@@ -108,6 +108,25 @@ const editingMessageIndex = ref<number | null>(null);
 const editingMessageDraft = ref("");
 let abortController = ref<AbortController | null>(null);
 
+function aiRuntimeReasonMessage(reason?: string) {
+  switch (reason) {
+    case "subscription-past-due":
+      return t("aiAssistant.subscriptionPastDue");
+    case "subscription-cancelled":
+      return t("aiAssistant.subscriptionCancelled");
+    case "subscription-seat-limit-exceeded":
+      return t("aiAssistant.subscriptionSeatLimitExceeded");
+    case "managed-endpoint-disabled":
+      return t("aiAssistant.managedEndpointDisabled");
+    case "subscription-inactive":
+      return t("aiAssistant.subscriptionInactive");
+    case "custom-endpoint-incomplete":
+      return t("aiAssistant.customEndpointIncomplete");
+    default:
+      return t("aiAssistant.platformEndpointIncomplete");
+  }
+}
+
 const initialMessage: Message = {
   role: "assistant",
   content: t("aiAssistant.welcome"),
@@ -712,21 +731,11 @@ ${activeWorkspace.value.context}
   try {
     const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
     if (!runtimeConfig.enabled) {
-      notificationStore.warning(
-        runtimeConfig.reason === "subscription-inactive"
-          ? t("aiAssistant.subscriptionInactive")
-          : runtimeConfig.reason === "custom-endpoint-incomplete"
-            ? t("aiAssistant.customEndpointIncomplete")
-            : t("aiAssistant.platformEndpointIncomplete"),
-      );
+      const reasonMessage = aiRuntimeReasonMessage(runtimeConfig.reason);
+      notificationStore.warning(reasonMessage);
       messages.value.push({
         role: "assistant",
-        content:
-          runtimeConfig.reason === "subscription-inactive"
-            ? t("aiAssistant.subscriptionInactive")
-            : runtimeConfig.reason === "custom-endpoint-incomplete"
-              ? t("aiAssistant.customEndpointIncomplete")
-              : t("aiAssistant.platformEndpointIncomplete"),
+        content: reasonMessage,
       });
       return;
     }
@@ -768,14 +777,27 @@ ${activeWorkspace.value.context}
           },
         );
       } else {
-        const data = await cloudService.proxyManagedAnthropic(
-          settingsStore.sync.endpointUrl,
-          settingsStore.account.accessToken || "",
-          anthropicPayload,
-          ANTHROPIC_VERSION,
-          tools.length > 0 ? ANTHROPIC_TOOLS_BETA : undefined,
-          codingToolHeaderValue,
-        );
+        let data: any;
+        try {
+          data = await cloudService.proxyManagedAnthropic(
+            settingsStore.sync.endpointUrl,
+            settingsStore.account.accessToken || "",
+            anthropicPayload,
+            ANTHROPIC_VERSION,
+            tools.length > 0 ? ANTHROPIC_TOOLS_BETA : undefined,
+            codingToolHeaderValue,
+          );
+        } catch (error) {
+          const errorText = error instanceof Error ? error.message : String(error);
+          const reason = errorText.match(/subscription-[a-z-]+|managed-endpoint-disabled/)?.[0];
+          if (reason) {
+            const reasonMessage = aiRuntimeReasonMessage(reason);
+            notificationStore.warning(reasonMessage);
+            messages.value.push({ role: "assistant", content: reasonMessage });
+            return;
+          }
+          throw error;
+        }
         message = parseAnthropicMessage(data);
         response = new Response(JSON.stringify(data), { status: 200 });
       }
@@ -798,11 +820,24 @@ ${activeWorkspace.value.context}
           signal: abortController.value?.signal,
         });
       } else {
-        const data = await cloudService.proxyManagedOpenAi(
-          settingsStore.sync.endpointUrl,
-          settingsStore.account.accessToken || "",
-          openAiPayload,
-        );
+        let data: any;
+        try {
+          data = await cloudService.proxyManagedOpenAi(
+            settingsStore.sync.endpointUrl,
+            settingsStore.account.accessToken || "",
+            openAiPayload,
+          );
+        } catch (error) {
+          const errorText = error instanceof Error ? error.message : String(error);
+          const reason = errorText.match(/subscription-[a-z-]+|managed-endpoint-disabled/)?.[0];
+          if (reason) {
+            const reasonMessage = aiRuntimeReasonMessage(reason);
+            notificationStore.warning(reasonMessage);
+            messages.value.push({ role: "assistant", content: reasonMessage });
+            return;
+          }
+          throw error;
+        }
         const choice = data.choices?.[0];
         if (!choice?.message) {
           throw new Error("API Error: Missing message in managed proxy response");

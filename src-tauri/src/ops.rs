@@ -146,6 +146,7 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
 
         CREATE TABLE IF NOT EXISTS host_assets (
             id INTEGER PRIMARY KEY,
+            cloud_id TEXT,
             name TEXT NOT NULL,
             host TEXT NOT NULL,
             port INTEGER NOT NULL DEFAULT 22,
@@ -337,6 +338,10 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_host_assets_last_accessed_at
             ON host_assets(last_accessed_at DESC);
 
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_host_assets_cloud_id
+            ON host_assets(cloud_id)
+            WHERE cloud_id IS NOT NULL;
+
         CREATE INDEX IF NOT EXISTS idx_audit_events_asset_created_at
             ON audit_events(asset_id, created_at DESC);
 
@@ -357,11 +362,11 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
     )?;
     conn.execute(
         "INSERT OR IGNORE INTO host_assets (
-            id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
+            id, cloud_id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
             platform, folder_id, owner, criticality, default_workspace_path, last_accessed_at, is_favorite, created_at, updated_at
         )
         SELECT
-            id, name, host, port, username, password, COALESCE(auth_type, 'password'), ssh_key_id, jump_host, jump_port, jump_username, jump_password,
+            id, NULL, name, host, port, username, password, COALESCE(auth_type, 'password'), ssh_key_id, jump_host, jump_port, jump_username, jump_password,
             COALESCE(os_type, 'Linux'), group_id, NULL, 'medium',
             CASE
                 WHEN COALESCE(os_type, 'Linux') = 'Windows' THEN 'C:/Users/' || username
@@ -372,6 +377,7 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         [],
     )?;
     conn.execute("UPDATE host_assets SET owner = NULL", [])?;
+    let _ = conn.execute("ALTER TABLE host_assets ADD COLUMN cloud_id TEXT", []);
     conn.execute(
         "INSERT OR IGNORE INTO credential_refs (id, name, credential_kind, username, secret, ssh_key_id, asset_id, created_at, updated_at)
          SELECT
@@ -655,24 +661,25 @@ fn map_sync_service_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncService
 fn map_host_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HostAsset> {
     Ok(HostAsset {
         id: row.get(0)?,
-        name: row.get(1)?,
-        host: row.get(2)?,
-        port: row.get(3)?,
-        platform: row.get(4)?,
-        folder_id: row.get(5)?,
-        env_id: row.get(6)?,
-        labels: parse_labels(row.get(7)?),
-        owner: row.get(8)?,
-        criticality: row.get(9)?,
-        default_workspace_path: row.get(10)?,
-        access_endpoint_id: row.get(11)?,
-        bastion_chain_id: row.get(12)?,
-        health_summary: row.get(13)?,
-        last_accessed_at: row.get(14)?,
+        cloud_id: row.get(1)?,
+        name: row.get(2)?,
+        host: row.get(3)?,
+        port: row.get(4)?,
+        platform: row.get(5)?,
+        folder_id: row.get(6)?,
+        env_id: row.get(7)?,
+        labels: parse_labels(row.get(8)?),
+        owner: row.get(9)?,
+        criticality: row.get(10)?,
+        default_workspace_path: row.get(11)?,
+        access_endpoint_id: row.get(12)?,
+        bastion_chain_id: row.get(13)?,
+        health_summary: row.get(14)?,
+        last_accessed_at: row.get(15)?,
         is_favorite: row
-            .get::<_, Option<i64>>(15)?
+            .get::<_, Option<i64>>(16)?
             .map(|value| value != 0),
-        group_id: row.get(16)?,
+        group_id: row.get(17)?,
     })
 }
 
@@ -1088,7 +1095,7 @@ pub fn resolve_asset_bundle(
 ) -> Result<(HostAsset, AccessEndpoint, Option<CredentialRef>), String> {
     let asset = conn
         .query_row(
-            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+            "SELECT id, cloud_id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
                     default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at,
                     is_favorite, folder_id
              FROM host_assets WHERE id = ?1",
@@ -1191,11 +1198,12 @@ fn save_asset_bundle(
 
     tx.execute(
         "INSERT INTO host_assets (
-            id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
+            id, cloud_id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
             platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
             access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, NULL, ?20, ?21, ?22, ?23, ?24, ?25)
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, NULL, ?21, ?22, ?23, ?24, ?25, ?26)
          ON CONFLICT(id) DO UPDATE SET
+            cloud_id = excluded.cloud_id,
             name = excluded.name,
             host = excluded.host,
             port = excluded.port,
@@ -1220,6 +1228,7 @@ fn save_asset_bundle(
             updated_at = excluded.updated_at",
         params![
             asset_id,
+            normalize_optional_string(asset.cloud_id.clone()),
             asset.name,
             asset.host,
             asset.port,
@@ -1460,7 +1469,7 @@ fn export_local_workspace_snapshot(conn: &SqliteConnection) -> Result<LocalWorks
 
     let mut assets_stmt = conn
         .prepare(
-            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+            "SELECT id, cloud_id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
                     default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, folder_id
              FROM host_assets
              ORDER BY id ASC",
@@ -1925,7 +1934,7 @@ pub fn asset_get_host_assets(app_handle: AppHandle) -> Result<Vec<HostAsset>, St
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+            "SELECT id, cloud_id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
                     default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, folder_id
              FROM host_assets
              ORDER BY COALESCE(last_accessed_at, 0) DESC, name COLLATE NOCASE ASC",
@@ -1981,7 +1990,7 @@ pub fn asset_search_host_assets(app_handle: AppHandle, query: String) -> Result<
     let pattern = format!("%{}%", query.trim());
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
+            "SELECT id, cloud_id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality,
                     default_workspace_path, access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, folder_id
              FROM host_assets
              WHERE name LIKE ?1 OR host LIKE ?1 OR owner LIKE ?1 OR labels_csv LIKE ?1
@@ -2554,10 +2563,11 @@ pub fn asset_create_host_asset(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute(
         "INSERT INTO host_assets (
-            name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
+            cloud_id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
             access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?7, ?7)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?8, ?8)",
         params![
+            normalize_optional_string(payload.asset.cloud_id.clone()),
             payload.asset.name,
             payload.asset.host,
             payload.asset.port,
@@ -2739,11 +2749,12 @@ pub fn asset_import_cloud_records(
                 .unwrap_or_else(|| "password".to_string());
             tx.execute(
                 "INSERT INTO host_assets (
-                    name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
+                    cloud_id, name, host, port, username, password, auth_type, ssh_key_id, jump_host, jump_port, jump_username, jump_password,
                     platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
                     access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, NULL, NULL, NULL, NULL, NULL, ?6, ?7, ?8, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?9, ?9)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, NULL, NULL, NULL, NULL, NULL, ?7, ?8, ?9, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?10, ?10)",
                 params![
+                    normalize_optional_string(payload.asset.cloud_id.clone()),
                     payload.asset.name,
                     payload.asset.host,
                     payload.asset.port,

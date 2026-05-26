@@ -200,7 +200,14 @@ export interface GenerateBillingCycleResponse {
 
 export interface ClientAiRuntimeResponse {
   enabled: boolean;
-  reason: string;
+  reason:
+    | ""
+    | "subscription-inactive"
+    | "subscription-past-due"
+    | "subscription-cancelled"
+    | "subscription-seat-limit-exceeded"
+    | "managed-endpoint-disabled"
+    | string;
   provider: Settings["ai"]["providerType"];
   baseUrl: string;
   apiKey: string;

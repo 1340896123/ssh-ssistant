@@ -96,6 +96,25 @@ function extractAnthropicText(data: any) {
   return text;
 }
 
+function aiRuntimeReasonMessage(reason?: string) {
+  switch (reason) {
+    case 'subscription-past-due':
+      return t('aiAssistant.subscriptionPastDue');
+    case 'subscription-cancelled':
+      return t('aiAssistant.subscriptionCancelled');
+    case 'subscription-seat-limit-exceeded':
+      return t('aiAssistant.subscriptionSeatLimitExceeded');
+    case 'managed-endpoint-disabled':
+      return t('aiAssistant.managedEndpointDisabled');
+    case 'subscription-inactive':
+      return t('aiAssistant.subscriptionInactive');
+    case 'custom-endpoint-incomplete':
+      return t('aiAssistant.customEndpointIncomplete');
+    default:
+      return t('aiAssistant.platformEndpointIncomplete');
+  }
+}
+
 function handleReconnect() {
   if (props.sessionId) {
     term?.clear();
@@ -699,7 +718,7 @@ async function triggerAiCompletion() {
   try {
     const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
     if (!runtimeConfig.enabled) {
-      console.warn('AI completion unavailable:', runtimeConfig.reason);
+      console.warn('AI completion unavailable:', runtimeConfig.reason, aiRuntimeReasonMessage(runtimeConfig.reason));
       return;
     }
 
@@ -735,14 +754,25 @@ async function triggerAiCompletion() {
           body: JSON.stringify(anthropicPayload)
         });
       } else {
-        const data = await cloudService.proxyManagedAnthropic(
-          settingsStore.sync.endpointUrl,
-          settingsStore.account.accessToken || '',
-          anthropicPayload,
-          ANTHROPIC_VERSION,
-          undefined,
-          codingToolHeaderValue,
-        );
+        let data: any;
+        try {
+          data = await cloudService.proxyManagedAnthropic(
+            settingsStore.sync.endpointUrl,
+            settingsStore.account.accessToken || '',
+            anthropicPayload,
+            ANTHROPIC_VERSION,
+            undefined,
+            codingToolHeaderValue,
+          );
+        } catch (error) {
+          const errorText = error instanceof Error ? error.message : String(error);
+          const reason = errorText.match(/subscription-[a-z-]+|managed-endpoint-disabled/)?.[0];
+          if (reason) {
+            console.warn('AI completion blocked:', aiRuntimeReasonMessage(reason));
+            return;
+          }
+          throw error;
+        }
         content = extractAnthropicText(data).trim();
         response = new Response(JSON.stringify(data), { status: 200 });
       }
@@ -774,11 +804,22 @@ async function triggerAiCompletion() {
           body: JSON.stringify(openAiPayload)
         });
       } else {
-        const data = await cloudService.proxyManagedOpenAi(
-          settingsStore.sync.endpointUrl,
-          settingsStore.account.accessToken || '',
-          openAiPayload,
-        );
+        let data: any;
+        try {
+          data = await cloudService.proxyManagedOpenAi(
+            settingsStore.sync.endpointUrl,
+            settingsStore.account.accessToken || '',
+            openAiPayload,
+          );
+        } catch (error) {
+          const errorText = error instanceof Error ? error.message : String(error);
+          const reason = errorText.match(/subscription-[a-z-]+|managed-endpoint-disabled/)?.[0];
+          if (reason) {
+            console.warn('AI completion blocked:', aiRuntimeReasonMessage(reason));
+            return;
+          }
+          throw error;
+        }
         content = data.choices?.[0]?.message?.content?.trim() ?? '';
         response = new Response(JSON.stringify(data), { status: 200 });
       }

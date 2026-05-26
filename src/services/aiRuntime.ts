@@ -14,6 +14,10 @@ export function resolveAiRuntimeConfig(settings: Settings): ResolvedAiRuntimeCon
   const subscription = settings.ai.subscription;
   const canUsePlatformSubscription =
     subscription.status === "active" || subscription.status === "trialing";
+  const isCloudManagedRuntime =
+    settings.account.mode !== "local" &&
+    Boolean(settings.account.accessToken?.trim()) &&
+    !subscription.useCustomEndpoint;
 
   const wantsCustomEndpoint = subscription.useCustomEndpoint;
   const customEndpointAllowed = subscription.allowCustomEndpoint ?? true;
@@ -37,6 +41,17 @@ export function resolveAiRuntimeConfig(settings: Settings): ResolvedAiRuntimeCon
     Boolean(settings.ai.apiUrl?.trim()) &&
     Boolean(settings.ai.modelName?.trim()) &&
     Boolean(settings.ai.apiKey?.trim());
+
+  if (canUsePlatformSubscription && isCloudManagedRuntime && Boolean(settings.ai.modelName?.trim())) {
+    return {
+      enabled: true,
+      providerType: settings.ai.providerType,
+      apiUrl: settings.ai.apiUrl,
+      apiKey: settings.ai.apiKey,
+      modelName: settings.ai.modelName,
+      usingCustomEndpoint: false,
+    };
+  }
 
   if (canUsePlatformSubscription && hasPlatformEndpoint) {
     return {

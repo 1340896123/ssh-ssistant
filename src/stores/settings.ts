@@ -143,6 +143,10 @@ function sanitizeCloudSettingsPatch(parsed: Partial<Settings>): Partial<Settings
   };
 }
 
+function isUnauthorizedError(error: unknown) {
+  return String(error).includes("401");
+}
+
 export const useSettingsStore = defineStore('settings', {
   state: (): Settings => ({
     theme: 'dark',
@@ -217,6 +221,34 @@ export const useSettingsStore = defineStore('settings', {
     }
   }),
   actions: {
+    async withCloudSession<T>(operation: () => Promise<T>) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (!isUnauthorizedError(error) || this.account.mode === 'local') {
+          throw error;
+        }
+
+        if (!this.isCloudRefreshExpired() && this.account.refreshToken) {
+          try {
+            await this.refreshCloudSession();
+            return await operation();
+          } catch (refreshError) {
+            this.markLoginGatewayRequired();
+            await this.logoutFromCloud({
+              preserveIdentity: true,
+            });
+            throw refreshError;
+          }
+        }
+
+        this.markLoginGatewayRequired();
+        await this.logoutFromCloud({
+          preserveIdentity: true,
+        });
+        throw error;
+      }
+    },
     markLoginGatewayRequired() {
       setLoginGatewayRequired(true);
     },
@@ -404,9 +436,8 @@ export const useSettingsStore = defineStore('settings', {
     },
     async syncSettingsToCloud() {
       if (!this.sync.enabled) return null;
-      let response;
-      try {
-        response = await cloudService.syncSettings(this.sync.endpointUrl, {
+      const response = await this.withCloudSession(() =>
+        cloudService.syncSettings(this.sync.endpointUrl, {
           mode: this.account.mode,
           accountKey: this.account.userId || this.account.subAccountId || 'local-workspace',
           displayName: this.account.displayName || '',
@@ -420,16 +451,8 @@ export const useSettingsStore = defineStore('settings', {
           syncAssets: this.sync.syncAssets,
           syncSettings: this.sync.syncSettings,
           settingsJson: JSON.stringify(this.$state),
-        });
-      } catch (error) {
-        if (String(error).includes('401')) {
-          this.markLoginGatewayRequired();
-          await this.logoutFromCloud({
-            preserveIdentity: true,
-          });
-        }
-        throw error;
-      }
+        }),
+      );
 
       this.sync.lastCloudSyncAt = Date.parse(response.syncedAt);
       this.ai.subscription = response.aiSubscription ?? this.ai.subscription;
@@ -454,23 +477,14 @@ export const useSettingsStore = defineStore('settings', {
         this.account.subAccountId ||
         'local-workspace';
 
-      let response;
-      try {
-        response = await cloudService.pull(
+      const response = await this.withCloudSession(() =>
+        cloudService.pull(
           this.sync.endpointUrl,
           this.account.mode,
           accountKey,
           this.account.accessToken || '',
-        );
-      } catch (error) {
-        if (String(error).includes('401')) {
-          this.markLoginGatewayRequired();
-          await this.logoutFromCloud({
-            preserveIdentity: true,
-          });
-        }
-        throw error;
-      }
+        ),
+      );
 
       if (response.settingsJson) {
         try {

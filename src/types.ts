@@ -13,6 +13,7 @@ export type CredentialKind = "password" | "sshKey" | "token";
 
 export interface HostAsset {
   id?: number;
+  cloudId?: string | null;
   name: string;
   host: string;
   port: number;

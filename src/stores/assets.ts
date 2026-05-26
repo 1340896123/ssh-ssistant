@@ -7,6 +7,7 @@ import {
   opsService,
   syncService,
 } from "../services";
+import { useSettingsStore } from "./settings";
 import type {
   AccessEndpoint,
   AssetAccessHistoryEntry,
@@ -188,6 +189,31 @@ function dedupeAccessHistory(
   return Array.from(latestEntries.values()).sort(
     (a, b) => b.connectedAt - a.connectedAt,
   );
+}
+
+async function autoSyncAssetsIfNeeded() {
+  const settingsStore = useSettingsStore();
+  if (!settingsStore.sync.enabled || !settingsStore.sync.syncAssets) {
+    return;
+  }
+
+  await settingsStore.withCloudSession(async () => {
+    const assetStore = useAssetStore();
+    const response = await cloudService.syncAssets(settingsStore.sync.endpointUrl, {
+      mode: settingsStore.account.mode,
+      accountKey: settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
+      accessToken: settingsStore.account.accessToken || "",
+      assetsJson: JSON.stringify(assetStore.buildCloudAssetRecords()),
+    });
+
+    settingsStore.sync.lastCloudSyncAt = Date.parse(response.syncedAt);
+    await assetStore.pullAssetsFromCloud(
+      settingsStore.sync.endpointUrl || "http://localhost:5047",
+      settingsStore.account.mode,
+      settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
+      settingsStore.account.accessToken || "",
+    );
+  });
 }
 
 export const useAssetStore = defineStore("assets", {
@@ -461,6 +487,7 @@ export const useAssetStore = defineStore("assets", {
         this.buildAssetPayload(asset, endpoint, credentialRef),
       );
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
       return created;
     },
     async updateAsset(
@@ -481,58 +508,71 @@ export const useAssetStore = defineStore("assets", {
         ),
       );
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
       return updated;
     },
     async deleteAsset(id: number) {
       await assetService.remove(id);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async addFolder(folder: AssetFolder) {
       await assetService.createFolder(folder);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async updateFolder(folder: AssetFolder) {
       await assetService.updateFolder(folder);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async deleteFolder(id: number) {
       await assetService.removeFolder(id);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async addEnvironment(environment: Environment) {
       await assetService.createEnvironment(environment);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async updateEnvironment(environment: Environment) {
       await assetService.updateEnvironment(environment);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async deleteEnvironment(id: number) {
       await assetService.removeEnvironment(id);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async addTag(tag: AssetTag) {
       await assetService.createTag(tag);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async deleteTag(id: number) {
       await assetService.removeTag(id);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async addSavedView(view: SavedAssetView) {
       const created = await assetService.createSavedView(view);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
       return created;
     },
     async deleteSavedView(id: number) {
       await assetService.removeSavedView(id);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     async toggleFavorite(assetId: number) {
       const asset = this.assets.find((item) => item.id === assetId);
       const nextFavorite = !asset?.isFavorite;
       await assetService.toggleFavorite(assetId, nextFavorite);
       await this.loadAssets();
+      await autoSyncAssetsIfNeeded();
     },
     isFavorite(assetId: number) {
       return Boolean(this.assets.find((asset) => asset.id === assetId)?.isFavorite);
@@ -673,14 +713,17 @@ export const useAssetStore = defineStore("assets", {
       accessToken: string,
       onUnauthorized?: () => Promise<void> | void,
     ) {
+      const settingsStore = useSettingsStore();
       let response;
       try {
-        response = await cloudService.syncAssets(baseUrl, {
+        response = await settingsStore.withCloudSession(() =>
+          cloudService.syncAssets(baseUrl, {
           mode,
           accountKey,
           accessToken,
           assetsJson: JSON.stringify(this.buildCloudAssetRecords()),
-        });
+          }),
+        );
       } catch (error) {
         if (String(error).includes("401") && onUnauthorized) {
           await onUnauthorized();
@@ -704,7 +747,10 @@ export const useAssetStore = defineStore("assets", {
       accountKey: string,
       accessToken: string,
     ) {
-      const response = await cloudService.pull(baseUrl, mode, accountKey, accessToken);
+      const settingsStore = useSettingsStore();
+      const response = await settingsStore.withCloudSession(() =>
+        cloudService.pull(baseUrl, mode, accountKey, accessToken),
+      );
       const parsed = (JSON.parse(response.assetsJson || "[]") as CloudAssetRecord[]).map(
         normalizeCloudRecord,
       );

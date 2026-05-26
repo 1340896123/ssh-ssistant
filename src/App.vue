@@ -132,6 +132,7 @@ const showTunnelModal = ref(false);
 const tunnelAsset = ref<HostAsset | null>(null);
 const clockTimer = ref<number | null>(null);
 const statusTimer = ref<number | null>(null);
+const cloudRefreshTimer = ref<number | null>(null);
 
 const windowWidth = ref(
   typeof window === "undefined" ? DEFAULT_WINDOW_WIDTH : window.innerWidth
@@ -802,9 +803,46 @@ async function reconcilePendingCheckoutStatus() {
   }
 }
 
+async function refreshCloudManagedState(showNotification = false) {
+  if (
+    settingsStore.account.mode === "local" ||
+    !settingsStore.sync.enabled ||
+    !settingsStore.account.accessToken
+  ) {
+    return;
+  }
+
+  const accountKey =
+    settingsStore.account.userId ||
+    settingsStore.account.subAccountId ||
+    "local-workspace";
+
+  try {
+    await settingsStore.pullCloudState();
+    await assetStore.pullAssetsFromCloud(
+      settingsStore.sync.endpointUrl || "http://localhost:5047",
+      settingsStore.account.mode,
+      accountKey,
+      settingsStore.account.accessToken,
+    );
+  } catch (error) {
+    console.warn("Cloud managed state refresh skipped:", error);
+    if (showNotification) {
+      notificationStore.error(
+        error instanceof Error ? error.message : String(error),
+        "Cloud sync failed",
+        2500,
+      );
+    }
+  }
+}
+
 function handleWindowFocus() {
   void reconcilePendingCheckoutStatus().catch((error) => {
     console.warn("Pending checkout reconciliation on focus skipped:", error);
+  });
+  void refreshCloudManagedState().catch((error) => {
+    console.warn("Cloud managed refresh on focus skipped:", error);
   });
 }
 
@@ -900,6 +938,12 @@ function initializeShellUiRuntime() {
       void refreshActiveSessionStatus();
     }, 3000);
   }
+
+  if (cloudRefreshTimer.value === null) {
+    cloudRefreshTimer.value = window.setInterval(() => {
+      void refreshCloudManagedState();
+    }, 15000);
+  }
 }
 
 async function bootstrapAuthenticatedSession(options?: { restoreLocalSnapshot?: boolean }) {
@@ -911,6 +955,11 @@ async function bootstrapAuthenticatedSession(options?: { restoreLocalSnapshot?: 
   } else {
     await settingsStore.pullCloudState().catch((error) => {
       console.warn("Cloud state pull skipped:", error);
+      notificationStore.error(
+        error instanceof Error ? error.message : String(error),
+        "Cloud settings sync failed",
+        2500,
+      );
     });
     await assetStore.clearWorkspace().catch((error) => {
       console.warn("Workspace clear before cloud bootstrap skipped:", error);
@@ -924,7 +973,13 @@ async function bootstrapAuthenticatedSession(options?: { restoreLocalSnapshot?: 
           settingsStore.account.subAccountId ||
           "local-workspace",
         settingsStore.account.accessToken || "",
-      );
+      ).catch((error) => {
+        notificationStore.error(
+          error instanceof Error ? error.message : String(error),
+          "Cloud asset sync failed",
+          2500,
+        );
+      });
     }
   }
 
@@ -1053,6 +1108,10 @@ onUnmounted(() => {
   if (statusTimer.value !== null) {
     clearInterval(statusTimer.value);
     statusTimer.value = null;
+  }
+  if (cloudRefreshTimer.value !== null) {
+    clearInterval(cloudRefreshTimer.value);
+    cloudRefreshTimer.value = null;
   }
   document.body.style.cursor = "";
   document.body.style.userSelect = "";

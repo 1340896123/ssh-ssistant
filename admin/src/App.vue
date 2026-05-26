@@ -401,6 +401,59 @@ const paymentProviderHint = computed(() => {
   return '{"checkoutBaseUrl":"https://payments.example.com/provider-checkout"}'
 })
 
+function parseApiError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return String(error)
+  }
+
+  const prefix = 'HTTP '
+  if (!error.message.startsWith(prefix)) {
+    return error.message
+  }
+
+  const detail = error.message.slice(prefix.length).trim()
+  const separatorIndex = detail.indexOf(':')
+  if (separatorIndex === -1) {
+    return `请求失败：${detail}`
+  }
+
+  const status = detail.slice(0, separatorIndex).trim()
+  const message = detail.slice(separatorIndex + 1).trim()
+  return `请求失败（${status}）：${message}`
+}
+
+function clearFeedback() {
+  error.value = ''
+  notice.value = ''
+}
+
+function resetEnterpriseForm() {
+  enterpriseForm.id = ''
+  enterpriseForm.name = ''
+  enterpriseForm.seatCount = 10
+  enterpriseForm.subscriptionPlan = 'enterprise'
+  enterpriseForm.subscriptionStatus = 'active'
+}
+
+function resetSubAccountForm() {
+  subAccountForm.id = ''
+  subAccountForm.enterpriseId = dashboard.value?.enterprises[0]?.id ?? 'ent-acme'
+  subAccountForm.displayName = ''
+  subAccountForm.email = ''
+  subAccountForm.secret = ''
+  subAccountForm.enabled = true
+}
+
+function resetPersonalForm() {
+  personalForm.id = ''
+  personalForm.displayName = ''
+  personalForm.email = ''
+  personalForm.secret = ''
+  personalForm.subscriptionStatus = 'inactive'
+  personalForm.planName = 'free'
+  personalForm.customEndpointEnabled = false
+}
+
 function riskClass(risk: string) {
   if (risk === 'critical') return 'bg-rose-100 text-rose-700 ring-rose-200'
   if (risk === 'high') return 'bg-amber-100 text-amber-800 ring-amber-200'
@@ -435,34 +488,52 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+    let detail = ''
+    try {
+      const payload = await response.json()
+      detail = typeof payload?.error === 'string' ? payload.error : JSON.stringify(payload)
+    } catch {
+      detail = await response.text()
+    }
+    throw new Error(`HTTP ${response.status}: ${detail || response.statusText}`)
   }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
 async function login() {
-  error.value = ''
-  const response = await fetch(`${apiBase.value}/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(loginForm),
-  })
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+  clearFeedback()
+  try {
+    const response = await fetch(`${apiBase.value}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(loginForm),
+    })
+    if (!response.ok) {
+      let detail = ''
+      try {
+        const payload = await response.json()
+        detail = typeof payload?.error === 'string' ? payload.error : JSON.stringify(payload)
+      } catch {
+        detail = await response.text()
+      }
+      throw new Error(`HTTP ${response.status}: ${detail || response.statusText}`)
+    }
+    const payload = (await response.json()) as AdminLoginResponse
+    authToken.value = payload.token
+    refreshToken.value = payload.refreshToken
+    adminUsername.value = payload.username
+    authExpiresAt.value = Date.parse(payload.expiresAt)
+    refreshExpiresAt.value = Date.parse(payload.refreshExpiresAt)
+    localStorage.setItem('admin-auth-token', payload.token)
+    localStorage.setItem('admin-refresh-token', payload.refreshToken)
+    localStorage.setItem('admin-username', payload.username)
+    localStorage.setItem('admin-auth-expires-at', String(authExpiresAt.value))
+    localStorage.setItem('admin-refresh-expires-at', String(refreshExpiresAt.value))
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
   }
-  const payload = (await response.json()) as AdminLoginResponse
-  authToken.value = payload.token
-  refreshToken.value = payload.refreshToken
-  adminUsername.value = payload.username
-  authExpiresAt.value = Date.parse(payload.expiresAt)
-  refreshExpiresAt.value = Date.parse(payload.refreshExpiresAt)
-  localStorage.setItem('admin-auth-token', payload.token)
-  localStorage.setItem('admin-refresh-token', payload.refreshToken)
-  localStorage.setItem('admin-username', payload.username)
-  localStorage.setItem('admin-auth-expires-at', String(authExpiresAt.value))
-  localStorage.setItem('admin-refresh-expires-at', String(refreshExpiresAt.value))
-  await loadDashboard()
 }
 
 function logout() {
@@ -512,8 +583,7 @@ async function refreshAdminSession() {
 async function loadDashboard() {
   if (!authToken.value) return
   loading.value = true
-  error.value = ''
-  notice.value = ''
+  clearFeedback()
   try {
     const payload = await api<DashboardSnapshot>('/dashboard')
     dashboard.value = payload
@@ -581,7 +651,7 @@ async function loadDashboard() {
       selectedAssetIds.value = [...payload.subAccounts[0].assetIds]
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = parseApiError(err)
     if (error.value.includes('401')) {
       logout()
     }
@@ -591,18 +661,22 @@ async function loadDashboard() {
 }
 
 async function saveEnterprise() {
-  await api('/enterprises', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...enterpriseForm,
-      renewAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
-    }),
-  })
-  notice.value = '企业账号已保存'
-  enterpriseForm.id = ''
-  enterpriseForm.name = ''
-  await loadDashboard()
+  clearFeedback()
+  try {
+    await api('/enterprises', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...enterpriseForm,
+        renewAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+      }),
+    })
+    notice.value = '企业账号已保存'
+    resetEnterpriseForm()
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
+  }
 }
 
 function editEnterprise(enterprise: EnterpriseSummary) {
@@ -614,26 +688,47 @@ function editEnterprise(enterprise: EnterpriseSummary) {
 }
 
 async function deleteEnterprise(id: string) {
-  await api(`/enterprises/${id}`, { method: 'DELETE' })
-  notice.value = '企业账号已删除'
-  await loadDashboard()
+  clearFeedback()
+  try {
+    await api(`/enterprises/${id}`, { method: 'DELETE' })
+    notice.value = '企业账号已删除'
+    if (enterpriseForm.id === id) {
+      resetEnterpriseForm()
+    }
+    if (subAccountForm.enterpriseId === id) {
+      resetSubAccountForm()
+    }
+    if (selectedSubAccount.value?.enterpriseId === id) {
+      selectedSubAccountId.value = ''
+      selectedAssetIds.value = []
+    }
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
+  }
 }
 
 async function saveSubAccount() {
-  await api('/sub-accounts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...subAccountForm,
-      assetIds: selectedSubAccountId.value === subAccountForm.id ? selectedAssetIds.value : [],
-    }),
-  })
-  notice.value = '企业子账号已保存'
-  subAccountForm.id = ''
-  subAccountForm.displayName = ''
-  subAccountForm.email = ''
-  subAccountForm.secret = ''
-  await loadDashboard()
+  clearFeedback()
+  try {
+    const assetIds =
+      selectedSubAccountId.value === subAccountForm.id
+        ? selectedAssetIds.value
+        : dashboard.value?.subAccounts.find((item) => item.id === subAccountForm.id)?.assetIds ?? []
+    await api('/sub-accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...subAccountForm,
+        assetIds,
+      }),
+    })
+    notice.value = subAccountForm.enabled ? '企业子账号已保存' : '企业子账号已禁用'
+    resetSubAccountForm()
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
+  }
 }
 
 function editSubAccount(subAccount: EnterpriseSubAccountSummary) {
@@ -643,30 +738,42 @@ function editSubAccount(subAccount: EnterpriseSubAccountSummary) {
   subAccountForm.email = subAccount.email
   subAccountForm.enabled = subAccount.enabled
   subAccountForm.secret = ''
+  selectedSubAccountId.value = subAccount.id
+  selectedAssetIds.value = [...subAccount.assetIds]
 }
 
 async function deleteSubAccount(id: string) {
-  await api(`/sub-accounts/${id}`, { method: 'DELETE' })
-  notice.value = '企业子账号已删除'
-  if (selectedSubAccountId.value === id) {
-    selectedSubAccountId.value = ''
-    selectedAssetIds.value = []
+  clearFeedback()
+  try {
+    await api(`/sub-accounts/${id}`, { method: 'DELETE' })
+    notice.value = '企业子账号已删除'
+    if (selectedSubAccountId.value === id) {
+      selectedSubAccountId.value = ''
+      selectedAssetIds.value = []
+    }
+    if (subAccountForm.id === id) {
+      resetSubAccountForm()
+    }
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
   }
-  await loadDashboard()
 }
 
 async function savePersonalAccount() {
-  await api('/personal-accounts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(personalForm),
-  })
-  notice.value = '个人账号已保存'
-  personalForm.id = ''
-  personalForm.displayName = ''
-  personalForm.email = ''
-  personalForm.secret = ''
-  await loadDashboard()
+  clearFeedback()
+  try {
+    await api('/personal-accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(personalForm),
+    })
+    notice.value = '个人账号已保存'
+    resetPersonalForm()
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
+  }
 }
 
 function editPersonalAccount(account: PersonalAccountSummary) {
@@ -680,20 +787,33 @@ function editPersonalAccount(account: PersonalAccountSummary) {
 }
 
 async function deletePersonalAccount(id: string) {
-  await api(`/personal-accounts/${id}`, { method: 'DELETE' })
-  notice.value = '个人账号已删除'
-  await loadDashboard()
+  clearFeedback()
+  try {
+    await api(`/personal-accounts/${id}`, { method: 'DELETE' })
+    notice.value = '个人账号已删除'
+    if (personalForm.id === id) {
+      resetPersonalForm()
+    }
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
+  }
 }
 
 async function saveSubAccountAssets() {
   if (!selectedSubAccountId.value) return
-  await api(`/sub-accounts/${selectedSubAccountId.value}/assets`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assetIds: selectedAssetIds.value }),
-  })
-  notice.value = '子账号资产授权已更新'
-  await loadDashboard()
+  clearFeedback()
+  try {
+    await api(`/sub-accounts/${selectedSubAccountId.value}/assets`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assetIds: selectedAssetIds.value }),
+    })
+    notice.value = '子账号资产授权已更新，并会在客户端下次同步时立即生效'
+    await loadDashboard()
+  } catch (err) {
+    error.value = parseApiError(err)
+  }
 }
 
 async function saveSubscription() {
@@ -911,9 +1031,17 @@ onMounted(() => {
         <section class="space-y-8">
           <article class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_60px_rgba(87,69,42,0.08)]">
             <h2 class="text-2xl font-black">企业账号管理</h2>
-            <div class="mt-5 grid gap-4 md:grid-cols-[1fr_1fr_auto]">
+            <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1.2fr_0.8fr_0.8fr_auto]">
               <input v-model="enterpriseForm.id" placeholder="ent-new" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
               <input v-model="enterpriseForm.name" placeholder="企业名称" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
+              <input v-model.number="enterpriseForm.seatCount" type="number" min="1" placeholder="购买席位数" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
+              <select v-model="enterpriseForm.subscriptionStatus" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <option value="inactive">inactive</option>
+                <option value="trialing">trialing</option>
+                <option value="active">active</option>
+                <option value="pastDue">pastDue</option>
+                <option value="cancelled">cancelled</option>
+              </select>
               <button class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" @click="saveEnterprise">保存企业</button>
             </div>
             <div class="mt-5 space-y-3">
@@ -924,6 +1052,7 @@ onMounted(() => {
                     <p class="mt-1 text-sm text-slate-500">{{ enterprise.id }}</p>
                     <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
                       <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ enterprise.subscriptionPlan }}</span>
+                      <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ enterprise.subscriptionStatus }}</span>
                       <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ enterprise.activeSubAccounts }}/{{ enterprise.seatCount }} seats</span>
                     </div>
                   </div>
@@ -938,11 +1067,18 @@ onMounted(() => {
 
           <article class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_60px_rgba(87,69,42,0.08)]">
             <h2 class="text-2xl font-black">企业子账号与资产授权</h2>
-            <div class="mt-5 grid gap-4 md:grid-cols-[1fr_1fr_1fr_1fr_auto]">
+            <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_0.9fr_auto]">
               <input v-model="subAccountForm.id" placeholder="sub-new" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
+              <select v-model="subAccountForm.enterpriseId" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <option v-for="enterprise in dashboard?.enterprises ?? []" :key="enterprise.id" :value="enterprise.id">{{ enterprise.name }}</option>
+              </select>
               <input v-model="subAccountForm.displayName" placeholder="显示名称" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
               <input v-model="subAccountForm.email" placeholder="邮箱" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
               <input v-model="subAccountForm.secret" placeholder="登录密钥" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
+              <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <input v-model="subAccountForm.enabled" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+                <span>启用子账号</span>
+              </label>
               <button class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" @click="saveSubAccount">保存子账号</button>
             </div>
 
@@ -952,7 +1088,8 @@ onMounted(() => {
                   <button class="w-full text-left" @click="selectedSubAccountId = subAccount.id; selectedAssetIds = [...subAccount.assetIds]">
                     <p class="font-bold">{{ subAccount.displayName }}</p>
                     <p class="mt-1 text-sm opacity-80">{{ subAccount.email }}</p>
-                    <p class="mt-2 text-xs opacity-70">已授权 {{ subAccount.assetIds.length }} 台资产</p>
+                    <p class="mt-2 text-xs opacity-70">{{ subAccount.enterpriseId }} · {{ subAccount.enabled ? 'enabled' : 'disabled' }}</p>
+                    <p class="mt-1 text-xs opacity-70">已授权 {{ subAccount.assetIds.length }} 台资产</p>
                   </button>
                   <div class="mt-3 flex gap-2">
                     <button class="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700" @click="editSubAccount(subAccount)">编辑</button>
@@ -1264,11 +1401,22 @@ onMounted(() => {
         <section class="space-y-8">
           <article class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_60px_rgba(87,69,42,0.08)]">
             <h2 class="text-2xl font-black">个人账号管理</h2>
-            <div class="mt-5 grid gap-4 md:grid-cols-[1fr_1fr_1fr_1fr_auto]">
+            <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_0.9fr_0.9fr_auto]">
               <input v-model="personalForm.id" placeholder="usr-new" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
               <input v-model="personalForm.displayName" placeholder="显示名称" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
               <input v-model="personalForm.email" placeholder="邮箱" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
               <input v-model="personalForm.secret" placeholder="登录密钥" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" />
+              <select v-model="personalForm.subscriptionStatus" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <option value="inactive">inactive</option>
+                <option value="trialing">trialing</option>
+                <option value="active">active</option>
+                <option value="pastDue">pastDue</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+              <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <input v-model="personalForm.customEndpointEnabled" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+                <span>允许自定义端点</span>
+              </label>
               <button class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" @click="savePersonalAccount">保存个人账号</button>
             </div>
 
