@@ -218,6 +218,12 @@ public sealed class ClientAccountSyncStateEntity
     public string OrganizationScope { get; set; } = string.Empty;
     public bool SyncAssets { get; set; } = true;
     public bool SyncSettings { get; set; } = true;
+    public bool UseCustomEndpoint { get; set; } = true;
+    public string EndpointName { get; set; } = string.Empty;
+    public string Provider { get; set; } = "openai";
+    public string BaseUrl { get; set; } = string.Empty;
+    public string ApiKey { get; set; } = string.Empty;
+    public string ModelName { get; set; } = string.Empty;
     public string SyncedSettingsJson { get; set; } = "{}";
     public string SyncedAssetsJson { get; set; } = "[]";
     public DateTimeOffset UpdatedAt { get; set; }

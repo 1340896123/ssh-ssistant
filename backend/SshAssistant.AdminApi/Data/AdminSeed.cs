@@ -148,6 +148,60 @@ public static class AdminSeed
         try
         {
             await dbContext.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE ClientSyncStates ADD COLUMN UseCustomEndpoint INTEGER NOT NULL DEFAULT 1;
+                """);
+        }
+        catch
+        {
+        }
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE ClientSyncStates ADD COLUMN EndpointName TEXT NOT NULL DEFAULT '';
+                """);
+        }
+        catch
+        {
+        }
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE ClientSyncStates ADD COLUMN Provider TEXT NOT NULL DEFAULT 'openai';
+                """);
+        }
+        catch
+        {
+        }
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE ClientSyncStates ADD COLUMN BaseUrl TEXT NOT NULL DEFAULT '';
+                """);
+        }
+        catch
+        {
+        }
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE ClientSyncStates ADD COLUMN ApiKey TEXT NOT NULL DEFAULT '';
+                """);
+        }
+        catch
+        {
+        }
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE ClientSyncStates ADD COLUMN ModelName TEXT NOT NULL DEFAULT '';
+                """);
+        }
+        catch
+        {
+        }
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync("""
                 ALTER TABLE BillingInvoices ADD COLUMN SubscriptionAmount REAL NOT NULL DEFAULT 0;
                 """);
         }

@@ -456,6 +456,7 @@ export interface SyncPreferences {
 }
 
 export interface AIEndpointConfig {
+  useCustomEndpoint: boolean;
   endpointName: string;
   apiUrl: string;
   apiKey: string;

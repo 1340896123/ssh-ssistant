@@ -306,6 +306,16 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         await dbContext.SaveChangesAsync();
     }
 
+    private static ClientAiEndpointConfig BuildCustomEndpoint(ClientAccountSyncStateEntity state) => new()
+    {
+        UseCustomEndpoint = state.UseCustomEndpoint,
+        EndpointName = state.EndpointName,
+        Provider = state.Provider,
+        BaseUrl = state.BaseUrl,
+        ApiKey = state.ApiKey,
+        ModelName = state.ModelName,
+    };
+
     public async Task<AdminDashboardSnapshot> GetSnapshotAsync()
     {
         var enterprises = await dbContext.Enterprises.AsNoTracking().ToListAsync();
@@ -1107,24 +1117,26 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             throw new UnauthorizedAccessException("Client session expired or invalid.");
         }
 
+        var state = await UpsertClientStateAsync(session.SubjectMode, session.SubjectId);
         var endpoint = await dbContext.AiEndpoints.AsNoTracking().FirstAsync();
         var runtimeState = await EvaluateScopedSubscriptionAccessAsync(
             session.SubjectMode,
             session.SubjectId,
             string.Empty,
             string.Empty);
+        var useCustomEndpoint = state.UseCustomEndpoint;
 
         return new ClientAiRuntimeResponse
         {
-            Enabled = runtimeState.Enabled && endpoint.SyncToClients,
+            Enabled = runtimeState.Enabled && (useCustomEndpoint || endpoint.SyncToClients),
             Reason = runtimeState.Enabled
-                ? (endpoint.SyncToClients ? string.Empty : "managed-endpoint-disabled")
+                ? (useCustomEndpoint || endpoint.SyncToClients ? string.Empty : "managed-endpoint-disabled")
                 : runtimeState.Reason,
-            Provider = endpoint.Provider,
-            BaseUrl = string.Empty,
-            ModelName = endpoint.ModelName,
-            ApiKey = accessToken,
-            UsingManagedEndpoint = true,
+            Provider = useCustomEndpoint ? state.Provider : endpoint.Provider,
+            BaseUrl = useCustomEndpoint ? state.BaseUrl : endpoint.BaseUrl,
+            ModelName = useCustomEndpoint ? state.ModelName : endpoint.ModelName,
+            ApiKey = useCustomEndpoint ? state.ApiKey : string.Empty,
+            UsingManagedEndpoint = !useCustomEndpoint,
         };
     }
 
@@ -1187,6 +1199,11 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             throw new InvalidOperationException(runtime.Reason);
         }
 
+        if (!runtime.UsingManagedEndpoint)
+        {
+            return await ProxyCustomOpenAiAsync(session, runtime, body);
+        }
+
         var endpoint = await dbContext.AiEndpoints.AsNoTracking().FirstAsync();
         var client = httpClientFactory.CreateClient();
         var upstreamUrl = $"{endpoint.BaseUrl.TrimEnd('/')}/chat/completions";
@@ -1198,6 +1215,24 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         using var response = await client.SendAsync(request);
         var content = await response.Content.ReadAsStringAsync();
         await RecordAiUsageAsync(session, endpoint.Provider, endpoint.ModelName, true, content);
+        return ((int)response.StatusCode, content);
+    }
+
+    private async Task<(int StatusCode, string Content)> ProxyCustomOpenAiAsync(
+        AuthSessionEntity session,
+        ClientAiRuntimeResponse runtime,
+        string body)
+    {
+        var client = httpClientFactory.CreateClient();
+        var upstreamUrl = $"{runtime.BaseUrl.TrimEnd('/')}/chat/completions";
+        using var request = new HttpRequestMessage(HttpMethod.Post, upstreamUrl);
+        request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", runtime.ApiKey);
+        request.Headers.TryAddWithoutValidation("x-coding-tool", "opencode");
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+        await RecordAiUsageAsync(session, runtime.Provider, runtime.ModelName, false, content);
         return ((int)response.StatusCode, content);
     }
 
@@ -1218,6 +1253,11 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         if (!runtime.Enabled)
         {
             throw new InvalidOperationException(runtime.Reason);
+        }
+
+        if (!runtime.UsingManagedEndpoint)
+        {
+            return await ProxyCustomAnthropicAsync(session, runtime, body, anthropicVersion, anthropicBeta, codingToolHeader);
         }
 
         var endpoint = await dbContext.AiEndpoints.AsNoTracking().FirstAsync();
@@ -1245,6 +1285,41 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         using var response = await client.SendAsync(request);
         var content = await response.Content.ReadAsStringAsync();
         await RecordAiUsageAsync(session, endpoint.Provider, endpoint.ModelName, true, content);
+        return ((int)response.StatusCode, content);
+    }
+
+    private async Task<(int StatusCode, string Content)> ProxyCustomAnthropicAsync(
+        AuthSessionEntity session,
+        ClientAiRuntimeResponse runtime,
+        string body,
+        string anthropicVersion,
+        string? anthropicBeta,
+        string? codingToolHeader)
+    {
+        var client = httpClientFactory.CreateClient();
+        var baseUrl = runtime.BaseUrl.TrimEnd('/');
+        var upstreamUrl = baseUrl.EndsWith("/messages", StringComparison.OrdinalIgnoreCase)
+            ? baseUrl
+            : baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+                ? $"{baseUrl}/messages"
+                : $"{baseUrl}/v1/messages";
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, upstreamUrl);
+        request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        request.Headers.TryAddWithoutValidation("x-api-key", runtime.ApiKey);
+        request.Headers.TryAddWithoutValidation("anthropic-version", anthropicVersion);
+        if (!string.IsNullOrWhiteSpace(anthropicBeta))
+        {
+            request.Headers.TryAddWithoutValidation("anthropic-beta", anthropicBeta);
+        }
+        if (!string.IsNullOrWhiteSpace(codingToolHeader))
+        {
+            request.Headers.TryAddWithoutValidation("x-coding-tool", codingToolHeader);
+        }
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+        await RecordAiUsageAsync(session, runtime.Provider, runtime.ModelName, false, content);
         return ((int)response.StatusCode, content);
     }
 
@@ -1531,6 +1606,12 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         state.OrganizationScope = request.OrganizationScope;
         state.SyncAssets = request.SyncAssets;
         state.SyncSettings = request.SyncSettings;
+        state.UseCustomEndpoint = request.UseCustomEndpoint;
+        state.EndpointName = request.EndpointName;
+        state.Provider = request.Provider;
+        state.BaseUrl = request.BaseUrl;
+        state.ApiKey = request.ApiKey;
+        state.ModelName = request.ModelName;
         state.SyncedSettingsJson = request.SettingsJson;
         state.UpdatedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync();
@@ -1591,6 +1672,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         {
             Mode = mode,
             AccountKey = accountKey,
+            UseCustomEndpoint = true,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         dbContext.ClientSyncStates.Add(state);
@@ -1620,6 +1702,15 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             AssetsJson = filteredAssetsJson,
             AiSubscription = subscription,
             EndpointSync = Map(endpointSync),
+            CustomEndpoint = new ClientAiEndpointConfig
+            {
+                UseCustomEndpoint = state.UseCustomEndpoint,
+                EndpointName = state.EndpointName,
+                Provider = state.Provider,
+                BaseUrl = state.BaseUrl,
+                ApiKey = state.ApiKey,
+                ModelName = state.ModelName,
+            },
             SubscriptionSnapshot = await BuildClientSubscriptionSnapshotAsync(
                 state.Mode,
                 state.AccountKey,
@@ -1844,6 +1935,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             SyncEndpointUrl = "/api/client/sync",
             AiSubscription = await BuildAiSubscriptionForScopeAsync(mode, accountKey, enterpriseId, subAccountId),
             EndpointSync = Map(endpointSync),
+            CustomEndpoint = BuildCustomEndpoint(await UpsertClientStateAsync(mode, accountKey)),
             SubscriptionSnapshot = await BuildClientSubscriptionSnapshotAsync(mode, accountKey, enterpriseId, subAccountId),
         };
     }
@@ -1900,6 +1992,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
                 enterpriseId,
                 subAccountId),
             EndpointSync = Map(endpointSync),
+            CustomEndpoint = BuildCustomEndpoint(await UpsertClientStateAsync(session.SubjectMode, session.SubjectId)),
             SubscriptionSnapshot = await BuildClientSubscriptionSnapshotAsync(
                 session.SubjectMode,
                 session.SubjectId,

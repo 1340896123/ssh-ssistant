@@ -17,9 +17,9 @@ export function resolveAiRuntimeConfig(settings: Settings): ResolvedAiRuntimeCon
   const isCloudManagedRuntime =
     settings.account.mode !== "local" &&
     Boolean(settings.account.accessToken?.trim()) &&
-    !subscription.useCustomEndpoint;
+    !settings.ai.customEndpoint.useCustomEndpoint;
 
-  const wantsCustomEndpoint = subscription.useCustomEndpoint;
+  const wantsCustomEndpoint = settings.ai.customEndpoint.useCustomEndpoint;
   const customEndpointAllowed = subscription.allowCustomEndpoint ?? true;
   const hasCustomEndpoint =
     Boolean(settings.ai.customEndpoint.apiUrl?.trim()) &&

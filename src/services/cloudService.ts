@@ -44,6 +44,7 @@ interface ClientLoginResponsePayload {
   syncEndpointUrl: string;
   aiSubscription: CloudSubscriptionPayload;
   endpointSync: EndpointSyncPayload;
+  customEndpoint: ClientCustomEndpointPayload;
   subscriptionSnapshot?: ClientSubscriptionSnapshotPayload;
 }
 
@@ -53,7 +54,17 @@ interface ClientSyncResponsePayload {
   assetsJson: string;
   aiSubscription: CloudSubscriptionPayload;
   endpointSync: EndpointSyncPayload;
+  customEndpoint: ClientCustomEndpointPayload;
   subscriptionSnapshot?: ClientSubscriptionSnapshotPayload;
+}
+
+interface ClientCustomEndpointPayload {
+  useCustomEndpoint: boolean;
+  endpointName: string;
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  modelName: string;
 }
 
 interface ClientSubscriptionSnapshotPayload {
@@ -170,6 +181,7 @@ export interface ClientLoginResponse {
   syncEndpointUrl: string;
   aiSubscription: Settings["ai"]["subscription"];
   endpointSync: EndpointSyncPayload;
+  customEndpoint: ClientCustomEndpointPayload;
   subscriptionSnapshot?: ClientSubscriptionSnapshot | null;
 }
 
@@ -179,6 +191,7 @@ export interface ClientSyncResponse {
   assetsJson: string;
   aiSubscription: Settings["ai"]["subscription"];
   endpointSync: EndpointSyncPayload;
+  customEndpoint: ClientCustomEndpointPayload;
   subscriptionSnapshot?: ClientSubscriptionSnapshot | null;
 }
 
@@ -378,6 +391,7 @@ function mapLoginResponse(payload: ClientLoginResponsePayload): ClientLoginRespo
   return {
     ...payload,
     aiSubscription: mapCloudSubscription(payload.aiSubscription) ?? buildMappedSubscription(),
+    customEndpoint: payload.customEndpoint,
     subscriptionSnapshot: mapClientSubscriptionSnapshot(payload.subscriptionSnapshot),
   };
 }
@@ -386,6 +400,7 @@ function mapSyncResponse(payload: ClientSyncResponsePayload): ClientSyncResponse
   return {
     ...payload,
     aiSubscription: mapCloudSubscription(payload.aiSubscription) ?? buildMappedSubscription(),
+    customEndpoint: payload.customEndpoint,
     subscriptionSnapshot: mapClientSubscriptionSnapshot(payload.subscriptionSnapshot),
   };
 }

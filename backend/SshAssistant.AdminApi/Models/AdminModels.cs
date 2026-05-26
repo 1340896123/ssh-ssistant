@@ -134,6 +134,16 @@ public sealed class AiEndpointSyncSettings
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+public sealed class ClientAiEndpointConfig
+{
+    public bool UseCustomEndpoint { get; set; } = true;
+    public string EndpointName { get; set; } = string.Empty;
+    public string Provider { get; set; } = "openai";
+    public string BaseUrl { get; set; } = string.Empty;
+    public string ApiKey { get; set; } = string.Empty;
+    public string ModelName { get; set; } = string.Empty;
+}
+
 public sealed class BillingInvoiceSummary
 {
     public string Id { get; set; } = string.Empty;
@@ -473,6 +483,7 @@ public sealed class ClientLoginResponse
     public string SyncEndpointUrl { get; set; } = string.Empty;
     public AiSubscriptionOverview AiSubscription { get; set; } = new();
     public AiEndpointSyncSettings EndpointSync { get; set; } = new();
+    public ClientAiEndpointConfig CustomEndpoint { get; set; } = new();
     public ClientSubscriptionSnapshot SubscriptionSnapshot { get; set; } = new();
 }
 
@@ -496,6 +507,12 @@ public sealed class ClientSettingsSyncRequest
     public bool SyncAssets { get; set; } = true;
     public bool SyncSettings { get; set; } = true;
     public string SettingsJson { get; set; } = "{}";
+    public bool UseCustomEndpoint { get; set; } = true;
+    public string EndpointName { get; set; } = string.Empty;
+    public string Provider { get; set; } = "openai";
+    public string BaseUrl { get; set; } = string.Empty;
+    public string ApiKey { get; set; } = string.Empty;
+    public string ModelName { get; set; } = string.Empty;
 }
 
 public sealed class ClientAssetsSyncRequest
@@ -513,6 +530,7 @@ public sealed class ClientSyncResponse
     public string AssetsJson { get; set; } = "[]";
     public AiSubscriptionOverview AiSubscription { get; set; } = new();
     public AiEndpointSyncSettings EndpointSync { get; set; } = new();
+    public ClientAiEndpointConfig CustomEndpoint { get; set; } = new();
     public ClientSubscriptionSnapshot SubscriptionSnapshot { get; set; } = new();
 }
 

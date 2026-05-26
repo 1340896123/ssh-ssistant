@@ -108,6 +108,7 @@ function createDefaultSubscription(): Settings['ai']['subscription'] {
 
 function createDefaultCustomEndpoint(): Settings['ai']['customEndpoint'] {
   return {
+    useCustomEndpoint: true,
     endpointName: 'Default Custom Endpoint',
     apiUrl: 'https://api.openai.com/v1',
     apiKey: '',
@@ -125,6 +126,21 @@ function createDefaultManagedRuntime(): Pick<
     apiKey: '',
     modelName: 'gpt-3.5-turbo',
     providerType: 'openai',
+  };
+}
+
+function applyCustomEndpoint(
+  current: Settings['ai']['customEndpoint'],
+  incoming?: Partial<Settings['ai']['customEndpoint']> | null,
+  fallback?: Partial<Settings['ai']['customEndpoint']>,
+): Settings['ai']['customEndpoint'] {
+  return {
+    useCustomEndpoint: incoming?.useCustomEndpoint ?? current.useCustomEndpoint ?? true,
+    endpointName: incoming?.endpointName ?? fallback?.endpointName ?? current.endpointName,
+    apiUrl: incoming?.apiUrl ?? fallback?.apiUrl ?? current.apiUrl,
+    apiKey: incoming?.apiKey ?? fallback?.apiKey ?? current.apiKey,
+    modelName: incoming?.modelName ?? fallback?.modelName ?? current.modelName,
+    providerType: incoming?.providerType ?? fallback?.providerType ?? current.providerType,
   };
 }
 
@@ -416,18 +432,21 @@ export const useSettingsStore = defineStore('settings', {
         ...this.ai,
         subscription: response.aiSubscription ?? this.ai.subscription,
         subscriptionSnapshot: response.subscriptionSnapshot ?? this.ai.subscriptionSnapshot,
-        customEndpoint: response.endpointSync
-          ? {
-              endpointName: response.endpointSync.endpointName,
-              apiUrl: response.endpointSync.baseUrl,
-              apiKey: this.ai.customEndpoint.apiKey,
-              modelName: response.endpointSync.modelName,
-              providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
-            }
-          : this.ai.customEndpoint,
+        customEndpoint: applyCustomEndpoint(
+          this.ai.customEndpoint,
+          response.customEndpoint,
+          response.endpointSync
+            ? {
+                endpointName: response.endpointSync.endpointName,
+                apiUrl: response.endpointSync.baseUrl,
+                modelName: response.endpointSync.modelName,
+                providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
+              }
+            : undefined,
+        ),
       };
 
-      if (this.account.accessToken && !this.ai.subscription.useCustomEndpoint) {
+      if (this.account.accessToken && !this.ai.customEndpoint.useCustomEndpoint) {
         await this.loadManagedAiRuntime().catch(() => undefined);
       }
 
@@ -450,6 +469,12 @@ export const useSettingsStore = defineStore('settings', {
           organizationScope: this.sync.organizationScope || '',
           syncAssets: this.sync.syncAssets,
           syncSettings: this.sync.syncSettings,
+          useCustomEndpoint: this.ai.customEndpoint.useCustomEndpoint,
+          endpointName: this.ai.customEndpoint.endpointName,
+          provider: this.ai.customEndpoint.providerType,
+          baseUrl: this.ai.customEndpoint.apiUrl,
+          apiKey: this.ai.customEndpoint.apiKey,
+          modelName: this.ai.customEndpoint.modelName,
           settingsJson: JSON.stringify(this.$state),
         }),
       );
@@ -457,15 +482,18 @@ export const useSettingsStore = defineStore('settings', {
       this.sync.lastCloudSyncAt = Date.parse(response.syncedAt);
       this.ai.subscription = response.aiSubscription ?? this.ai.subscription;
       this.ai.subscriptionSnapshot = response.subscriptionSnapshot ?? this.ai.subscriptionSnapshot;
-      if (response.endpointSync) {
-        this.ai.customEndpoint = {
-          ...this.ai.customEndpoint,
-          endpointName: response.endpointSync.endpointName,
-          apiUrl: response.endpointSync.baseUrl,
-          modelName: response.endpointSync.modelName,
-          providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
-        };
-      }
+      this.ai.customEndpoint = applyCustomEndpoint(
+        this.ai.customEndpoint,
+        response.customEndpoint,
+        response.endpointSync
+          ? {
+              endpointName: response.endpointSync.endpointName,
+              apiUrl: response.endpointSync.baseUrl,
+              modelName: response.endpointSync.modelName,
+              providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
+            }
+          : undefined,
+      );
 
       await invoke('save_settings', { settings: this.$state });
       return response;
@@ -496,15 +524,18 @@ export const useSettingsStore = defineStore('settings', {
       }
 
       this.sync.lastCloudSyncAt = Date.parse(response.syncedAt);
-      if (response.endpointSync) {
-        this.ai.customEndpoint = {
-          ...this.ai.customEndpoint,
-          endpointName: response.endpointSync.endpointName,
-          apiUrl: response.endpointSync.baseUrl,
-          modelName: response.endpointSync.modelName,
-          providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
-        };
-      }
+      this.ai.customEndpoint = applyCustomEndpoint(
+        this.ai.customEndpoint,
+        response.customEndpoint,
+        response.endpointSync
+          ? {
+              endpointName: response.endpointSync.endpointName,
+              apiUrl: response.endpointSync.baseUrl,
+              modelName: response.endpointSync.modelName,
+              providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
+            }
+          : undefined,
+      );
       if (response.aiSubscription) {
         this.ai.subscription = response.aiSubscription;
       }
@@ -512,7 +543,7 @@ export const useSettingsStore = defineStore('settings', {
         this.ai.subscriptionSnapshot = response.subscriptionSnapshot;
       }
 
-      if (this.account.accessToken && !this.ai.subscription.useCustomEndpoint) {
+      if (this.account.accessToken && !this.ai.customEndpoint.useCustomEndpoint) {
         await this.loadManagedAiRuntime().catch(() => undefined);
       }
 
@@ -534,8 +565,25 @@ export const useSettingsStore = defineStore('settings', {
       );
 
       this.applyCloudIdentity(response);
+      this.ai = {
+        ...this.ai,
+        subscription: response.aiSubscription ?? this.ai.subscription,
+        subscriptionSnapshot: response.subscriptionSnapshot ?? this.ai.subscriptionSnapshot,
+        customEndpoint: applyCustomEndpoint(
+          this.ai.customEndpoint,
+          response.customEndpoint,
+          response.endpointSync
+            ? {
+                endpointName: response.endpointSync.endpointName,
+                apiUrl: response.endpointSync.baseUrl,
+                modelName: response.endpointSync.modelName,
+                providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
+              }
+            : undefined,
+        ),
+      };
 
-      if (this.account.accessToken && !this.ai.subscription.useCustomEndpoint) {
+      if (this.account.accessToken && !this.ai.customEndpoint.useCustomEndpoint) {
         await this.loadManagedAiRuntime().catch(() => undefined);
       }
 
@@ -698,7 +746,7 @@ export const useSettingsStore = defineStore('settings', {
         scope: subscription.billingScope || 'global',
         renewal,
         canUseCustomEndpoint: subscription.allowCustomEndpoint ?? true,
-        usingCustomEndpoint: subscription.useCustomEndpoint,
+        usingCustomEndpoint: this.ai.customEndpoint.useCustomEndpoint,
       };
     },
     applyTheme() {

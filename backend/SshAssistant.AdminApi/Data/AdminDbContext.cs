@@ -53,6 +53,30 @@ public sealed class AdminDbContext(DbContextOptions<AdminDbContext> options) : D
             .HasIndex(item => new { item.Mode, item.AccountKey })
             .IsUnique();
 
+        modelBuilder.Entity<ClientAccountSyncStateEntity>()
+            .Property(item => item.UseCustomEndpoint)
+            .HasDefaultValue(true);
+
+        modelBuilder.Entity<ClientAccountSyncStateEntity>()
+            .Property(item => item.Provider)
+            .HasDefaultValue("openai");
+
+        modelBuilder.Entity<ClientAccountSyncStateEntity>()
+            .Property(item => item.EndpointName)
+            .HasDefaultValue(string.Empty);
+
+        modelBuilder.Entity<ClientAccountSyncStateEntity>()
+            .Property(item => item.BaseUrl)
+            .HasDefaultValue(string.Empty);
+
+        modelBuilder.Entity<ClientAccountSyncStateEntity>()
+            .Property(item => item.ApiKey)
+            .HasDefaultValue(string.Empty);
+
+        modelBuilder.Entity<ClientAccountSyncStateEntity>()
+            .Property(item => item.ModelName)
+            .HasDefaultValue(string.Empty);
+
         modelBuilder.Entity<AuthSessionEntity>()
             .HasIndex(item => new { item.SessionType, item.SubjectId });
     }

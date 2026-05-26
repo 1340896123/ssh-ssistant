@@ -55,6 +55,7 @@ function createClearedAiConfig(ai: Settings['ai']) {
     modelName: 'gpt-3.5-turbo',
     providerType: 'openai' as const,
     customEndpoint: {
+      useCustomEndpoint: true,
       endpointName: 'Default Custom Endpoint',
       apiUrl: 'https://api.openai.com/v1',
       apiKey: '',
@@ -517,7 +518,7 @@ const tabs = [
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.providerType') }}</label>
                   <select v-model="form.ai.providerType"
-                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    :disabled="isCloudManagedSubscription && !form.ai.customEndpoint.useCustomEndpoint"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60">
                     <option value="openai">{{ t('aiProviders.openai') }}</option>
                     <option value="anthropic">{{ t('aiProviders.anthropic') }}</option>
@@ -526,21 +527,21 @@ const tabs = [
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.apiUrl') }}</label>
                   <input v-model="form.ai.apiUrl" type="text"
-                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    :disabled="isCloudManagedSubscription && !form.ai.customEndpoint.useCustomEndpoint"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="https://api.openai.com/v1" />
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.apiKey') }}</label>
                   <input v-model="form.ai.apiKey" type="password"
-                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    :disabled="isCloudManagedSubscription && !form.ai.customEndpoint.useCustomEndpoint"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="sk-..." />
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.modelName') }}</label>
                   <input v-model="form.ai.modelName" type="text"
-                    :disabled="isCloudManagedSubscription && !form.ai.subscription.useCustomEndpoint"
+                    :disabled="isCloudManagedSubscription && !form.ai.customEndpoint.useCustomEndpoint"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="gpt-3.5-turbo" />
                 </div>
@@ -589,7 +590,7 @@ const tabs = [
                     {{ t('settings.subscriptionManagedNotice') }}
                   </div>
                   <label class="flex items-center gap-2 text-sm text-text-secondary">
-                    <input v-model="form.ai.subscription.useCustomEndpoint" type="checkbox"
+                    <input v-model="form.ai.customEndpoint.useCustomEndpoint" type="checkbox"
                       class="bg-bg-secondary border-border-primary rounded text-text-primary focus:ring-accent focus:ring-offset-bg-secondary focus:ring-offset-0" />
                     <span>{{ t('settings.useCustomEndpoint') }}</span>
                   </label>
@@ -680,38 +681,38 @@ const tabs = [
                     <h4 class="text-sm font-semibold text-text-primary">{{ t('settings.customEndpointTitle') }}</h4>
                     <p class="mt-1 text-xs text-text-secondary">{{ t('settings.customEndpointDesc') }}</p>
                   </div>
-                  <div v-if="!form.ai.subscription.useCustomEndpoint" class="rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-text-secondary">
+                  <div v-if="!form.ai.customEndpoint.useCustomEndpoint" class="rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-text-secondary">
                     {{ t('settings.customEndpointLocked') }}
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.endpointName') }}</label>
                     <input v-model="form.ai.customEndpoint.endpointName" type="text"
                       class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      :placeholder="t('settings.endpointNamePlaceholder')" :disabled="!form.ai.subscription.useCustomEndpoint" />
+                      :placeholder="t('settings.endpointNamePlaceholder')" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiUrl') }}</label>
                     <input v-model="form.ai.customEndpoint.apiUrl" type="text"
                       class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      placeholder="https://api.openai.com/v1" :disabled="!form.ai.subscription.useCustomEndpoint" />
+                      placeholder="https://api.openai.com/v1" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiKey') }}</label>
                     <input v-model="form.ai.customEndpoint.apiKey" type="password"
                       class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      placeholder="sk-..." :disabled="!form.ai.subscription.useCustomEndpoint" />
+                      placeholder="sk-..." :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customModelName') }}</label>
                     <input v-model="form.ai.customEndpoint.modelName" type="text"
                       class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      placeholder="gpt-4o-mini" :disabled="!form.ai.subscription.useCustomEndpoint" />
+                      placeholder="gpt-4o-mini" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customProviderType') }}</label>
                     <select v-model="form.ai.customEndpoint.providerType"
                       class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      :disabled="!form.ai.subscription.useCustomEndpoint">
+                      :disabled="!form.ai.customEndpoint.useCustomEndpoint">
                       <option value="openai">{{ t('aiProviders.openai') }}</option>
                       <option value="anthropic">{{ t('aiProviders.anthropic') }}</option>
                     </select>
