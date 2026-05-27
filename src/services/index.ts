@@ -1,4 +1,12 @@
 export { accessService } from "./accessService";
+export {
+  createClearedAiConfig,
+  createClearedSubscription,
+  buildAccountFingerprint,
+  normalizeAccountForSave,
+  evaluateSettingsModeTransition,
+  evaluateLoginGatewayModeTransition,
+} from "./accountModeTransition";
 export { aiService } from "./aiService";
 export { resolveAiRuntimeConfig } from "./aiRuntime";
 export { assetService } from "./assetService";

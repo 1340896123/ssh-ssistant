@@ -173,7 +173,7 @@ impl PromptManager {
                 "Local: {}\nRemote: {}\nSize: {}",
                 local_path,
                 remote_path,
-                self.format_bytes(file_size)
+                Self::format_bytes(file_size)
             )),
             transfer_id: Some(transfer_id.to_string()),
             operation: Some(operation),
@@ -366,7 +366,7 @@ impl PromptManager {
                     "The transfer encountered a network error. This is usually temporary.\n\
                      Transferred: {}\n\
                      Suggestion: Retry the transfer. If the problem persists, check your network connection.",
-                    self.format_bytes(transferred_bytes)
+                    Self::format_bytes(transferred_bytes)
                 ),
             ),
             TransferError::Timeout(msg) => (
@@ -376,7 +376,7 @@ impl PromptManager {
                     "The operation took too long to complete.\n\
                      Transferred: {}\n\
                      Suggestion: Try again with a larger timeout or check network conditions.",
-                    self.format_bytes(transferred_bytes)
+                    Self::format_bytes(transferred_bytes)
                 ),
             ),
             TransferError::PermissionDenied(msg) => (
@@ -410,7 +410,7 @@ impl PromptManager {
                     "The SSH connection was interrupted.\n\
                      Transferred: {}\n\
                      Suggestion: The transfer can be resumed automatically.",
-                    self.format_bytes(transferred_bytes)
+                    Self::format_bytes(transferred_bytes)
                 ),
             ),
             TransferError::Cancelled => (
@@ -419,7 +419,7 @@ impl PromptManager {
                 format!(
                     "You cancelled the transfer.\n\
                      Transferred: {}",
-                    self.format_bytes(transferred_bytes)
+                    Self::format_bytes(transferred_bytes)
                 ),
             ),
             TransferError::CheckpointMismatch(msg) => (
@@ -453,7 +453,7 @@ impl PromptManager {
                     "An unexpected error occurred.\n\
                      Transferred: {}\n\
                      Suggestion: Try again or contact support if the problem persists.",
-                    self.format_bytes(transferred_bytes)
+                    Self::format_bytes(transferred_bytes)
                 ),
             ),
         };
@@ -462,7 +462,7 @@ impl PromptManager {
     }
 
     /// Format bytes in human-readable format
-    fn format_bytes(&self, bytes: u64) -> String {
+    fn format_bytes(bytes: u64) -> String {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
         let mut size = bytes as f64;
         let mut unit_index = 0;
@@ -505,8 +505,8 @@ impl PromptManager {
             ),
             description: Some(format!(
                 "Existing file: {}\nNew file: {}\nPath: {}",
-                self.format_bytes(existing_size),
-                self.format_bytes(new_size),
+                Self::format_bytes(existing_size),
+                Self::format_bytes(new_size),
                 file_path
             )),
             transfer_id: Some(transfer_id.to_string()),
@@ -566,12 +566,12 @@ impl PromptManager {
             title: "Large File Transfer".to_string(),
             message: format!(
                 "This is a large file transfer: {}",
-                self.format_bytes(file_size)
+                Self::format_bytes(file_size)
             ),
             description: Some(format!(
                 "File: {}\nSize: {}\nThis may take a long time to transfer.",
                 file_path,
-                self.format_bytes(file_size)
+                Self::format_bytes(file_size)
             )),
             transfer_id: Some(transfer_id.to_string()),
             operation: Some(operation),
@@ -609,12 +609,10 @@ mod tests {
 
     #[test]
     fn test_format_bytes() {
-        let manager = PromptManager::new(tauri::generate_context!().handle());
-
-        assert_eq!(manager.format_bytes(512), "512 B");
-        assert_eq!(manager.format_bytes(1024), "1.00 KB");
-        assert_eq!(manager.format_bytes(1536), "1.50 KB");
-        assert_eq!(manager.format_bytes(1048576), "1.00 MB");
-        assert_eq!(manager.format_bytes(1073741824), "1.00 GB");
+        assert_eq!(PromptManager::format_bytes(512), "512 B");
+        assert_eq!(PromptManager::format_bytes(1024), "1.00 KB");
+        assert_eq!(PromptManager::format_bytes(1536), "1.50 KB");
+        assert_eq!(PromptManager::format_bytes(1048576), "1.00 MB");
+        assert_eq!(PromptManager::format_bytes(1073741824), "1.00 GB");
     }
 }

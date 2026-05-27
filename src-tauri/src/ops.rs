@@ -114,10 +114,7 @@ pub struct AssetAccessHistoryEntry {
     pub source: String,
 }
 
-pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
-    let db_path = get_db_path(app_handle);
-    let conn = SqliteConnection::open(db_path)?;
-
+fn init_ops_schema_on_connection(conn: &SqliteConnection) -> rusqlite::Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
 
     conn.execute_batch(
@@ -338,10 +335,6 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_host_assets_last_accessed_at
             ON host_assets(last_accessed_at DESC);
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_host_assets_cloud_id
-            ON host_assets(cloud_id)
-            WHERE cloud_id IS NOT NULL;
-
         CREATE INDEX IF NOT EXISTS idx_audit_events_asset_created_at
             ON audit_events(asset_id, created_at DESC);
 
@@ -356,6 +349,7 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         "#,
     )?;
 
+    let _ = conn.execute("ALTER TABLE host_assets ADD COLUMN cloud_id TEXT", []);
     conn.execute(
         "INSERT OR IGNORE INTO asset_folders (id, name, parent_id) SELECT id, name, parent_id FROM connection_groups",
         [],
@@ -377,7 +371,12 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
         [],
     )?;
     conn.execute("UPDATE host_assets SET owner = NULL", [])?;
-    let _ = conn.execute("ALTER TABLE host_assets ADD COLUMN cloud_id TEXT", []);
+    let _ = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_host_assets_cloud_id
+         ON host_assets(cloud_id)
+         WHERE cloud_id IS NOT NULL",
+        [],
+    );
     conn.execute(
         "INSERT OR IGNORE INTO credential_refs (id, name, credential_kind, username, secret, ssh_key_id, asset_id, created_at, updated_at)
          SELECT
@@ -467,6 +466,12 @@ pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
     Ok(())
+}
+
+pub fn init_ops_schema(app_handle: &AppHandle) -> rusqlite::Result<()> {
+    let db_path = get_db_path(app_handle);
+    let conn = SqliteConnection::open(db_path)?;
+    init_ops_schema_on_connection(&conn)
 }
 
 fn append_audit_event_with_conn(
@@ -4431,4 +4436,470 @@ pub fn session_get_ops_sessions(state: State<'_, AppState>) -> Result<Vec<OpsSes
     }
 
     Ok(sessions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        AIConfig, AIEndpointConfig, AISubscriptionConfig, AccountProfile, AppSettings,
+        ConnectionTimeoutSettings, FileManagerSettings, HeartbeatSettings,
+        NetworkAdaptiveSettings, PoolHealthSettings, ReconnectSettings, SshPoolSettings,
+        SyncPreferences, TerminalAppearanceSettings,
+    };
+
+    fn init_test_db(conn: &SqliteConnection) {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                theme TEXT NOT NULL DEFAULT 'dark',
+                language TEXT NOT NULL DEFAULT 'zh',
+                account_mode TEXT NOT NULL DEFAULT 'local',
+                account_user_id TEXT,
+                account_display_name TEXT,
+                account_email TEXT,
+                account_enterprise_id TEXT,
+                account_enterprise_name TEXT,
+                account_sub_account_id TEXT,
+                account_access_token TEXT,
+                account_refresh_token TEXT,
+                account_expires_at INTEGER,
+                account_refresh_expires_at INTEGER,
+                sync_enabled INTEGER NOT NULL DEFAULT 0,
+                sync_endpoint_url TEXT,
+                sync_organization_scope TEXT,
+                sync_assets INTEGER NOT NULL DEFAULT 1,
+                sync_settings INTEGER NOT NULL DEFAULT 1,
+                sync_last_cloud_sync_at INTEGER,
+                ai_api_url TEXT NOT NULL DEFAULT '',
+                ai_api_key TEXT NOT NULL DEFAULT '',
+                ai_model_name TEXT NOT NULL DEFAULT '',
+                ai_provider_type TEXT NOT NULL DEFAULT 'openai',
+                ai_subscription_plan TEXT NOT NULL DEFAULT 'free',
+                ai_subscription_status TEXT NOT NULL DEFAULT 'inactive',
+                ai_subscription_seats INTEGER NOT NULL DEFAULT 1,
+                ai_subscription_billing_scope TEXT DEFAULT 'global',
+                ai_subscription_price_per_seat REAL DEFAULT 0,
+                ai_subscription_currency TEXT DEFAULT 'USD',
+                ai_subscription_plan_display_name TEXT DEFAULT 'Free',
+                ai_subscription_started_at INTEGER,
+                ai_subscription_renewal_at INTEGER,
+                ai_subscription_allow_custom_endpoint INTEGER NOT NULL DEFAULT 1,
+                ai_subscription_use_custom_endpoint INTEGER NOT NULL DEFAULT 1,
+                ai_subscription_sync_to_cloud INTEGER NOT NULL DEFAULT 1,
+                ai_custom_endpoint_name TEXT NOT NULL DEFAULT 'Default Custom Endpoint',
+                ai_custom_endpoint_url TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
+                ai_custom_endpoint_key TEXT NOT NULL DEFAULT '',
+                ai_custom_endpoint_model_name TEXT NOT NULL DEFAULT 'gpt-3.5-turbo',
+                ai_custom_endpoint_provider_type TEXT NOT NULL DEFAULT 'openai',
+                ai_pending_checkout_invoice_id TEXT,
+                ai_pending_checkout_provider_key TEXT,
+                ai_pending_checkout_url TEXT,
+                ai_pending_checkout_external_reference TEXT,
+                ai_pending_checkout_created_at INTEGER,
+                ai_pending_checkout_expires_at INTEGER,
+                terminal_font_size INTEGER NOT NULL DEFAULT 14,
+                terminal_font_family TEXT NOT NULL DEFAULT 'Menlo, Monaco, ""Courier New"", monospace',
+                terminal_cursor_style TEXT NOT NULL DEFAULT 'block',
+                terminal_line_height REAL NOT NULL DEFAULT 1.0,
+                file_manager_view_mode TEXT NOT NULL DEFAULT 'flat',
+                file_manager_layout TEXT NOT NULL DEFAULT 'bottom',
+                ssh_max_background_sessions INTEGER NOT NULL DEFAULT 10,
+                ssh_enable_auto_cleanup INTEGER NOT NULL DEFAULT 1,
+                ssh_cleanup_interval_minutes INTEGER NOT NULL DEFAULT 5,
+                file_manager_sftp_buffer_size INTEGER NOT NULL DEFAULT 512,
+                connection_timeout_secs INTEGER NOT NULL DEFAULT 15,
+                jump_host_timeout_secs INTEGER NOT NULL DEFAULT 30,
+                local_forward_timeout_secs INTEGER NOT NULL DEFAULT 10,
+                command_timeout_secs INTEGER NOT NULL DEFAULT 30,
+                sftp_operation_timeout_secs INTEGER NOT NULL DEFAULT 60,
+                reconnect_max_attempts INTEGER NOT NULL DEFAULT 5,
+                reconnect_initial_delay_ms INTEGER NOT NULL DEFAULT 1000,
+                reconnect_max_delay_ms INTEGER NOT NULL DEFAULT 30000,
+                reconnect_backoff_multiplier REAL NOT NULL DEFAULT 2.0,
+                reconnect_enabled INTEGER NOT NULL DEFAULT 1,
+                heartbeat_tcp_keepalive_interval_secs INTEGER NOT NULL DEFAULT 60,
+                heartbeat_ssh_keepalive_interval_secs INTEGER NOT NULL DEFAULT 15,
+                heartbeat_app_heartbeat_interval_secs INTEGER NOT NULL DEFAULT 30,
+                heartbeat_timeout_secs INTEGER NOT NULL DEFAULT 5,
+                heartbeat_failed_heartbeats_before_action INTEGER NOT NULL DEFAULT 3,
+                pool_health_check_interval_secs INTEGER NOT NULL DEFAULT 60,
+                pool_session_warmup_count INTEGER NOT NULL DEFAULT 1,
+                pool_max_session_age_minutes INTEGER NOT NULL DEFAULT 60,
+                pool_unhealthy_threshold INTEGER NOT NULL DEFAULT 3,
+                network_adaptive_enabled INTEGER NOT NULL DEFAULT 1,
+                network_latency_check_interval_secs INTEGER NOT NULL DEFAULT 30,
+                network_high_latency_threshold_ms INTEGER NOT NULL DEFAULT 300,
+                network_low_bandwidth_threshold_kbps INTEGER NOT NULL DEFAULT 100
+            );
+
+            CREATE TABLE IF NOT EXISTS connections (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                password TEXT,
+                auth_type TEXT DEFAULT 'password',
+                ssh_key_id INTEGER,
+                jump_host TEXT,
+                jump_port INTEGER,
+                jump_username TEXT,
+                jump_password TEXT,
+                group_id INTEGER,
+                os_type TEXT DEFAULT 'Linux'
+            );
+
+            CREATE TABLE IF NOT EXISTS connection_groups (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_id INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS ssh_keys (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                passphrase TEXT,
+                created_at INTEGER NOT NULL
+            );
+
+            INSERT OR IGNORE INTO settings (id) VALUES (1);
+            "#,
+        )
+        .unwrap();
+
+        init_ops_schema_on_connection(conn).unwrap();
+    }
+
+    fn test_settings(mode: &str, display_name: &str, endpoint_url: Option<&str>) -> AppSettings {
+        AppSettings {
+            theme: if mode == "local" { "dark" } else { "light" }.to_string(),
+            language: if mode == "local" { "zh" } else { "en" }.to_string(),
+            account: AccountProfile {
+                mode: mode.to_string(),
+                user_id: (mode == "personal").then(|| "usr-test".to_string()),
+                display_name: Some(display_name.to_string()),
+                email: (mode == "personal").then(|| "usr-test@example.com".to_string()),
+                enterprise_id: (mode == "enterpriseSubAccount").then(|| "ent-test".to_string()),
+                enterprise_name: (mode == "enterpriseSubAccount").then(|| "Ent Test".to_string()),
+                sub_account_id: (mode == "enterpriseSubAccount").then(|| "sub-test".to_string()),
+                access_token: if mode == "local" { None } else { Some("token-123".to_string()) },
+                refresh_token: if mode == "local" { None } else { Some("refresh-123".to_string()) },
+                expires_at: if mode == "local" { None } else { Some(111111) },
+                refresh_expires_at: if mode == "local" { None } else { Some(222222) },
+            },
+            sync: SyncPreferences {
+                enabled: mode != "local",
+                endpoint_url: endpoint_url.map(str::to_string),
+                organization_scope: if mode == "enterpriseSubAccount" {
+                    Some("ent-test".to_string())
+                } else {
+                    None
+                },
+                sync_assets: true,
+                sync_settings: true,
+                last_cloud_sync_at: if mode == "local" { None } else { Some(333333) },
+            },
+            ai: AIConfig {
+                api_url: if mode == "local" {
+                    "https://local.example/v1".to_string()
+                } else {
+                    "https://managed.example/v1".to_string()
+                },
+                api_key: if mode == "local" {
+                    "local-key".to_string()
+                } else {
+                    "cloud-key".to_string()
+                },
+                model_name: if mode == "local" {
+                    "local-model".to_string()
+                } else {
+                    "managed-model".to_string()
+                },
+                provider_type: "openai".to_string(),
+                subscription: AISubscriptionConfig {
+                    plan: if mode == "enterpriseSubAccount" {
+                        "enterprise".to_string()
+                    } else {
+                        "personal".to_string()
+                    },
+                    status: "active".to_string(),
+                    seats: 1,
+                    billing_scope: Some(if mode == "enterpriseSubAccount" {
+                        "enterprise".to_string()
+                    } else if mode == "personal" {
+                        "personal".to_string()
+                    } else {
+                        "global".to_string()
+                    }),
+                    price_per_seat: Some(19.0),
+                    currency: Some("USD".to_string()),
+                    plan_display_name: Some("Plan".to_string()),
+                    started_at: Some(444444),
+                    renewal_at: Some(555555),
+                    allow_custom_endpoint: Some(true),
+                    use_custom_endpoint: true,
+                    sync_to_cloud: mode != "local",
+                },
+                custom_endpoint: AIEndpointConfig {
+                    endpoint_name: format!("{mode}-endpoint"),
+                    api_url: format!("https://{mode}.example/v1"),
+                    api_key: format!("{mode}-custom-key"),
+                    model_name: format!("{mode}-custom-model"),
+                    provider_type: "openai".to_string(),
+                },
+                pending_checkout_session: None,
+            },
+            terminal_appearance: TerminalAppearanceSettings {
+                font_size: 15,
+                font_family: "Fira Code".to_string(),
+                cursor_style: "bar".to_string(),
+                line_height: 1.1,
+            },
+            file_manager: FileManagerSettings {
+                view_mode: if mode == "local" { "tree" } else { "flat" }.to_string(),
+                layout: if mode == "local" { "left" } else { "bottom" }.to_string(),
+                sftp_buffer_size: if mode == "local" { 768 } else { 512 },
+            },
+            ssh_pool: SshPoolSettings {
+                max_background_sessions: 6,
+                enable_auto_cleanup: true,
+                cleanup_interval_minutes: 5,
+            },
+            connection_timeout: ConnectionTimeoutSettings {
+                connection_timeout_secs: 15,
+                jump_host_timeout_secs: 30,
+                local_forward_timeout_secs: 10,
+                command_timeout_secs: 30,
+                sftp_operation_timeout_secs: 60,
+            },
+            reconnect: ReconnectSettings {
+                max_reconnect_attempts: 5,
+                initial_delay_ms: 1000,
+                max_delay_ms: 30000,
+                backoff_multiplier: 2.0,
+                enable_auto_reconnect: true,
+            },
+            heartbeat: HeartbeatSettings {
+                tcp_keepalive_interval_secs: 60,
+                ssh_keepalive_interval_secs: 15,
+                app_heartbeat_interval_secs: 30,
+                heartbeat_timeout_secs: 5,
+                failed_heartbeats_before_action: 3,
+            },
+            pool_health: PoolHealthSettings {
+                health_check_interval_secs: 60,
+                session_warmup_count: 1,
+                max_session_age_minutes: 60,
+                unhealthy_threshold: 3,
+            },
+            network_adaptive: NetworkAdaptiveSettings {
+                enable_adaptive: true,
+                latency_check_interval_secs: 30,
+                high_latency_threshold_ms: 300,
+                low_bandwidth_threshold_kbps: 100,
+            },
+        }
+    }
+
+    fn local_asset_payload() -> AssetUpsertPayload {
+        AssetUpsertPayload {
+            asset: HostAsset {
+                id: None,
+                cloud_id: Some("local-asset-001".to_string()),
+                name: "local-lab".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 22,
+                platform: "Linux".to_string(),
+                folder_id: Some(1),
+                env_id: Some(1),
+                labels: vec!["local".to_string(), "sandbox".to_string()],
+                owner: Some("local".to_string()),
+                criticality: "low".to_string(),
+                default_workspace_path: Some("/srv/local".to_string()),
+                access_endpoint_id: None,
+                bastion_chain_id: None,
+                health_summary: Some("healthy".to_string()),
+                last_accessed_at: Some(123456),
+                is_favorite: Some(true),
+                group_id: Some(1),
+            },
+            default_access_endpoint: AccessEndpoint {
+                id: None,
+                asset_id: 0,
+                name: "local-lab endpoint".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 22,
+                username: "root".to_string(),
+                auth_type: Some("password".to_string()),
+                credential_ref_id: None,
+                ssh_key_id: None,
+                jump_host: None,
+                jump_port: None,
+                jump_username: None,
+                jump_password: None,
+            },
+            default_credential_ref: Some(CredentialRef {
+                id: None,
+                name: "local-lab password".to_string(),
+                credential_kind: "password".to_string(),
+                username: Some("root".to_string()),
+                secret: Some("secret".to_string()),
+                ssh_key_id: None,
+                asset_id: None,
+                created_at: 123456,
+                updated_at: 123456,
+            }),
+        }
+    }
+
+    fn cloud_asset_payload() -> AssetUpsertPayload {
+        AssetUpsertPayload {
+            asset: HostAsset {
+                id: None,
+                cloud_id: Some("cloud-asset-001".to_string()),
+                name: "cloud-prod".to_string(),
+                host: "10.0.0.10".to_string(),
+                port: 22,
+                platform: "Linux".to_string(),
+                folder_id: None,
+                env_id: None,
+                labels: vec!["cloud".to_string()],
+                owner: Some("enterprise".to_string()),
+                criticality: "critical".to_string(),
+                default_workspace_path: Some("/srv/cloud".to_string()),
+                access_endpoint_id: None,
+                bastion_chain_id: None,
+                health_summary: Some("managed".to_string()),
+                last_accessed_at: Some(999999),
+                is_favorite: Some(false),
+                group_id: None,
+            },
+            default_access_endpoint: AccessEndpoint {
+                id: None,
+                asset_id: 0,
+                name: "cloud-prod endpoint".to_string(),
+                host: "10.0.0.10".to_string(),
+                port: 22,
+                username: "ubuntu".to_string(),
+                auth_type: Some("password".to_string()),
+                credential_ref_id: None,
+                ssh_key_id: None,
+                jump_host: None,
+                jump_port: None,
+                jump_username: None,
+                jump_password: None,
+            },
+            default_credential_ref: None,
+        }
+    }
+
+    #[test]
+    fn local_workspace_snapshot_round_trip_restores_local_mode_without_cloud_residue() {
+        let conn = SqliteConnection::open_in_memory().unwrap();
+        init_test_db(&conn);
+
+        conn.execute(
+            "INSERT INTO asset_folders (id, name, parent_id, color) VALUES (?1, ?2, ?3, ?4)",
+            params![1i64, "Local Folder", Option::<i64>::None, Some("#00AAFF".to_string())],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO environments (id, name, slug, color, description) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![1i64, "Local Env", "local-env", Some("#22CC88".to_string()), Some("Local".to_string())],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO asset_tags (id, name, color) VALUES (?1, ?2, ?3)",
+            params![1i64, "local-tag", Some("#FFAA00".to_string())],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO saved_views (id, name, query_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![1i64, "Local View", "{\"scope\":\"local\"}", 1000i64, 1001i64],
+        )
+        .unwrap();
+
+        let local_settings = test_settings("local", "Local Workspace", None);
+        crate::db::save_settings_with_conn(&conn, local_settings.clone()).unwrap();
+        let (local_asset_id, _) = save_asset_bundle(&conn, None, local_asset_payload()).unwrap();
+
+        let snapshot = export_local_workspace_snapshot(&conn).unwrap();
+        assert_eq!(snapshot.settings.account.mode, "local");
+        assert_eq!(snapshot.records.len(), 1);
+        assert_eq!(snapshot.records[0].asset.name, "local-lab");
+
+        clear_asset_workspace(&conn).unwrap();
+        let cloud_settings = test_settings(
+            "enterpriseSubAccount",
+            "Cloud Operator",
+            Some("https://sync.example.com"),
+        );
+        crate::db::save_settings_with_conn(&conn, cloud_settings).unwrap();
+        let _ = save_asset_bundle(&conn, None, cloud_asset_payload()).unwrap();
+
+        let cloud_snapshot = export_local_workspace_snapshot(&conn).unwrap();
+        assert_eq!(cloud_snapshot.settings.account.mode, "enterpriseSubAccount");
+        assert_eq!(cloud_snapshot.records.len(), 1);
+        assert_eq!(cloud_snapshot.records[0].asset.name, "cloud-prod");
+
+        restore_local_workspace_snapshot(&conn, snapshot).unwrap();
+
+        let restored_settings = crate::db::get_settings_with_conn(&conn).unwrap();
+        let restored_snapshot = export_local_workspace_snapshot(&conn).unwrap();
+
+        assert_eq!(restored_settings.account.mode, "local");
+        assert_eq!(restored_settings.account.access_token, None);
+        assert_eq!(restored_settings.sync.enabled, false);
+        assert_eq!(restored_settings.sync.endpoint_url, None);
+        assert_eq!(restored_settings.ai.custom_endpoint.endpoint_name, "local-endpoint");
+        assert_eq!(restored_settings.ai.api_url, "https://local.example/v1");
+        assert_eq!(restored_settings.file_manager.layout, "left");
+        assert_eq!(restored_settings.file_manager.view_mode, "tree");
+
+        assert_eq!(restored_snapshot.records.len(), 1);
+        assert_eq!(restored_snapshot.records[0].asset.name, "local-lab");
+        assert_eq!(
+            restored_snapshot.records[0].asset.cloud_id.as_deref(),
+            Some("local-asset-001")
+        );
+        assert_eq!(restored_snapshot.records[0].asset.owner.as_deref(), Some("local"));
+        assert_eq!(restored_snapshot.records[0].asset.id, Some(local_asset_id));
+        assert_eq!(
+            restored_snapshot.records[0].default_access_endpoint.username.as_str(),
+            "root"
+        );
+        assert!(restored_snapshot.records[0].default_credential_ref.is_some());
+
+        assert_eq!(restored_snapshot.folders.len(), 1);
+        assert_eq!(restored_snapshot.folders[0].name, "Local Folder");
+        assert_eq!(restored_snapshot.environments.len(), 1);
+        assert_eq!(restored_snapshot.environments[0].slug, "local-env");
+        let restored_tag_names = restored_snapshot
+            .tags
+            .iter()
+            .map(|tag| tag.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(restored_tag_names.contains(&"local-tag"));
+        assert!(restored_tag_names.contains(&"local"));
+        assert!(restored_tag_names.contains(&"sandbox"));
+        assert!(!restored_tag_names.contains(&"cloud"));
+        assert_eq!(restored_snapshot.saved_views.len(), 1);
+        assert_eq!(restored_snapshot.saved_views[0].name, "Local View");
+
+        assert!(
+            !restored_snapshot
+                .records
+                .iter()
+                .any(|record| record.asset.name == "cloud-prod")
+        );
+        assert!(
+            !restored_snapshot
+                .records
+                .iter()
+                .any(|record| record.asset.owner.as_deref() == Some("enterprise"))
+        );
+    }
 }

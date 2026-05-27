@@ -532,7 +532,7 @@ mod tests {
         };
         let executor = RetryExecutor::new(strategy);
 
-        let result = executor
+        let result: RetryResult<()> = executor
             .execute(|_| async { Err(TransferError::PermissionDenied("Always fails".to_string())) })
             .await;
 

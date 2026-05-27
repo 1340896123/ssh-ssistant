@@ -36,3 +36,5 @@ ssh-assistant-admin.db
 .personal-pull.json
 .playwright-cli/
 .omx/*
+.tmp/
+.tmp/*

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "verify:g4": "node scripts/verify-g4-regression.mjs",
     "verify:g3": "node scripts/verify-billing-ai-flow.mjs",
     "i18n:check": "node scripts/i18n-check.mjs",
     "verify:enterprise": "node scripts/verify-enterprise-flow.mjs",
