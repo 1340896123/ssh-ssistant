@@ -38,3 +38,5 @@ ssh-assistant-admin.db
 .omx/*
 .tmp/
 .tmp/*
+tmp/
+tmp/*
