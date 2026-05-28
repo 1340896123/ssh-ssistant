@@ -22,6 +22,23 @@ public sealed class ClientSyncController(AdminDataStore store) : ControllerBase
         }
     }
 
+    [HttpPost("register")]
+    public async Task<ActionResult<ClientLoginResponse>> Register([FromBody] ClientRegisterRequest request)
+    {
+        try
+        {
+            return Ok(await store.RegisterAsync(request));
+        }
+        catch (ArgumentException error)
+        {
+            return BadRequest(new { error = error.Message });
+        }
+        catch (InvalidOperationException error)
+        {
+            return Conflict(new { error = error.Message });
+        }
+    }
+
     [HttpPost("refresh")]
     public async Task<ActionResult<ClientLoginResponse>> Refresh([FromBody] RefreshTokenRequest request)
     {

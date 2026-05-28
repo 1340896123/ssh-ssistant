@@ -29,6 +29,12 @@ interface ClientLoginRequest {
   secret: string;
 }
 
+export interface ClientRegisterRequest {
+  email: string;
+  displayName: string;
+  password: string;
+}
+
 interface ClientLoginResponsePayload {
   mode: string;
   accountKey: string;
@@ -277,6 +283,22 @@ function normalizeBaseUrl(baseUrl?: string | null) {
   return (baseUrl?.trim() || "http://localhost:5047").replace(/\/+$/, "");
 }
 
+async function buildError(operation: string, response: Response) {
+  let detail = "";
+  try {
+    const payload = (await response.json()) as { error?: string };
+    detail = payload.error?.trim() || "";
+  } catch {
+    detail = (await response.text()).trim();
+  }
+
+  return new Error(
+    detail
+      ? `${operation} failed with status ${response.status}: ${detail}`
+      : `${operation} failed with status ${response.status}`,
+  );
+}
+
 function mapSubscriptionStatus(
   status: CloudSubscriptionPayload["status"],
 ): Settings["ai"]["subscription"]["status"] {
@@ -413,7 +435,20 @@ export const cloudService = {
       body: JSON.stringify(request),
     });
     if (!response.ok) {
-      throw new Error(`Cloud login failed with status ${response.status}`);
+      throw await buildError("Cloud login", response);
+    }
+    const payload = (await response.json()) as ClientLoginResponsePayload;
+    return mapLoginResponse(payload);
+  },
+
+  async register(baseUrl: string | null | undefined, request: ClientRegisterRequest) {
+    const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/client/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw await buildError("Cloud registration", response);
     }
     const payload = (await response.json()) as ClientLoginResponsePayload;
     return mapLoginResponse(payload);
@@ -426,7 +461,7 @@ export const cloudService = {
       body: JSON.stringify({ refreshToken }),
     });
     if (!response.ok) {
-      throw new Error(`Cloud refresh failed with status ${response.status}`);
+      throw await buildError("Cloud refresh", response);
     }
     const payload = (await response.json()) as ClientLoginResponsePayload;
     return mapLoginResponse(payload);

@@ -322,7 +322,18 @@ public sealed class AdminController(AdminDataStore store) : ControllerBase
         {
             return Unauthorized(new { error = "Missing admin token." });
         }
-        return Ok(await store.UpsertPersonalAccountAsync(request));
+        try
+        {
+            return Ok(await store.UpsertPersonalAccountAsync(request));
+        }
+        catch (ArgumentException error)
+        {
+            return BadRequest(new { error = error.Message });
+        }
+        catch (InvalidOperationException error)
+        {
+            return Conflict(new { error = error.Message });
+        }
     }
 
     [HttpDelete("personal-accounts/{accountId}")]

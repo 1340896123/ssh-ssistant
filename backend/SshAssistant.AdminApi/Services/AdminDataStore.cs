@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using SshAssistant.AdminApi.Data;
 using SshAssistant.AdminApi.Entities;
 using SshAssistant.AdminApi.Models;
+using System.Text.RegularExpressions;
 
 namespace SshAssistant.AdminApi.Services;
 
@@ -13,6 +14,9 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
 {
     private const string DefaultCheckoutReturnUrl = "sshstar://billing/success";
     private const string DefaultCheckoutCancelUrl = "sshstar://billing/cancel";
+    private static readonly Regex EmailRegex = new(
+        "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private sealed class StripeLikeProviderConfig
     {
@@ -1570,15 +1574,28 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
 
     public async Task<PersonalAccountSummary> UpsertPersonalAccountAsync(UpsertPersonalAccountRequest request)
     {
-        var entity = await dbContext.PersonalAccounts.FirstOrDefaultAsync(item => item.Id == request.Id);
+        var accountId = string.IsNullOrWhiteSpace(request.Id)
+            ? GenerateAccountId()
+            : request.Id.Trim();
+        var normalizedEmail = NormalizeEmail(request.Email);
+        var normalizedDisplayName = NormalizeRequiredValue(request.DisplayName, "Display name");
+        ValidatePersonalAccountSecret(request.Secret, allowEmpty: true);
+
+        var emailOwner = await dbContext.PersonalAccounts.AsNoTracking().FirstOrDefaultAsync(item => item.Email == normalizedEmail);
+        if (emailOwner is not null && !string.Equals(emailOwner.Id, accountId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("This email is already registered. Please sign in instead.");
+        }
+
+        var entity = await dbContext.PersonalAccounts.FirstOrDefaultAsync(item => item.Id == accountId);
         if (entity is null)
         {
-            entity = new PersonalAccountEntity { Id = request.Id };
+            entity = new PersonalAccountEntity { Id = accountId };
             dbContext.PersonalAccounts.Add(entity);
         }
 
-        entity.DisplayName = request.DisplayName;
-        entity.Email = request.Email;
+        entity.DisplayName = normalizedDisplayName;
+        entity.Email = normalizedEmail;
         entity.Secret = string.IsNullOrWhiteSpace(request.Secret)
             ? entity.Secret
             : EnsureHashedSecret(request.Secret);
@@ -1586,11 +1603,63 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         entity.PlanName = request.PlanName;
         entity.CustomEndpointEnabled = request.CustomEndpointEnabled;
         entity.UpdatedAt = DateTimeOffset.UtcNow;
-        await dbContext.SaveChangesAsync();
+        try
+        {
+            await dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException error) when (IsUniqueConstraintViolation(error))
+        {
+            throw new InvalidOperationException("This email is already registered. Please sign in instead.", error);
+        }
 
         var plan = await dbContext.AiSubscriptionPlans.AsNoTracking().FirstOrDefaultAsync(item => item.Code == entity.PlanName);
         var subscription = await dbContext.PersonalSubscriptions.AsNoTracking().FirstOrDefaultAsync(item => item.AccountId == entity.Id);
         return Map(entity, subscription, plan);
+    }
+
+    public async Task<ClientLoginResponse> RegisterAsync(ClientRegisterRequest request)
+    {
+        var normalizedEmail = NormalizeEmail(request.Email);
+        var normalizedDisplayName = NormalizeRequiredValue(request.DisplayName, "Display name");
+        var password = NormalizeRequiredValue(request.Password, "Password");
+        ValidatePersonalAccountSecret(password, allowEmpty: false);
+
+        var existing = await dbContext.PersonalAccounts.AsNoTracking().FirstOrDefaultAsync(item => item.Email == normalizedEmail);
+        if (existing is not null)
+        {
+            throw new InvalidOperationException("This email is already registered. Please sign in instead.");
+        }
+
+        var entity = new PersonalAccountEntity
+        {
+            Id = GenerateAccountId(),
+            DisplayName = normalizedDisplayName,
+            Email = normalizedEmail,
+            Secret = EnsureHashedSecret(password),
+            SubscriptionStatus = SubscriptionStatus.Trialing.ToString().ToLowerInvariant(),
+            PlanName = "free",
+            CustomEndpointEnabled = true,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+
+        dbContext.PersonalAccounts.Add(entity);
+        try
+        {
+            await dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException error) when (IsUniqueConstraintViolation(error))
+        {
+            throw new InvalidOperationException("This email is already registered. Please sign in instead.", error);
+        }
+
+        return await BuildLoginResponse(
+            mode: "personal",
+            accountKey: entity.Id,
+            displayName: entity.DisplayName,
+            email: entity.Email,
+            enterpriseId: string.Empty,
+            enterpriseName: string.Empty,
+            subAccountId: string.Empty);
     }
 
     public async Task<AdminLoginResponse> AdminLoginAsync(AdminLoginRequest request)
@@ -3104,6 +3173,52 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         IsActive = entity.IsActive,
         UpdatedAt = entity.UpdatedAt,
     };
+
+    private static string NormalizeRequiredValue(string? value, string fieldName)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            throw new ArgumentException($"{fieldName} is required.");
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeEmail(string? email)
+    {
+        var normalized = NormalizeRequiredValue(email, "Email");
+        if (!EmailRegex.IsMatch(normalized))
+        {
+            throw new ArgumentException("Email format is invalid.");
+        }
+
+        return normalized;
+    }
+
+    private static void ValidatePersonalAccountSecret(string? secret, bool allowEmpty)
+    {
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            if (allowEmpty)
+            {
+                return;
+            }
+
+            throw new ArgumentException("Password is required.");
+        }
+
+        if (secret.Trim().Length < 6)
+        {
+            throw new ArgumentException("Password must be at least 6 characters long.");
+        }
+    }
+
+    private static string GenerateAccountId() => $"usr-{Guid.NewGuid():N}";
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException error) =>
+        error.InnerException?.Message.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase) == true ||
+        error.Message.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase);
 
     private static SubscriptionStatus ParseSubscriptionStatus(string raw) =>
         Enum.TryParse<SubscriptionStatus>(raw, ignoreCase: true, out var status)

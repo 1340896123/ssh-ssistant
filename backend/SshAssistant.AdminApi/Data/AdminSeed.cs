@@ -245,6 +245,11 @@ public static class AdminSeed
         {
         }
 
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_PersonalAccounts_Email
+            ON PersonalAccounts (Email);
+            """);
+
         if (!await dbContext.Enterprises.AnyAsync())
         {
             dbContext.Enterprises.Add(new EnterpriseEntity
@@ -343,6 +348,18 @@ public static class AdminSeed
             dbContext.AiSubscriptionPlans.AddRange(
                 new AiSubscriptionPlanEntity
                 {
+                    Code = "free",
+                    DisplayName = "Free",
+                    Scope = "personal",
+                    PricePerSeat = 0,
+                    Currency = "USD",
+                    AllowCustomEndpoint = true,
+                    IsActive = true,
+                    Description = "Default free tier for self-registered personal accounts.",
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                },
+                new AiSubscriptionPlanEntity
+                {
                     Code = "personal",
                     DisplayName = "Personal Monthly",
                     Scope = "personal",
@@ -389,6 +406,21 @@ public static class AdminSeed
                     Description = "Use your own AI endpoint and sync settings through the platform.",
                     UpdatedAt = DateTimeOffset.UtcNow,
                 });
+        }
+        else if (!await dbContext.AiSubscriptionPlans.AnyAsync(item => item.Code == "free"))
+        {
+            dbContext.AiSubscriptionPlans.Add(new AiSubscriptionPlanEntity
+            {
+                Code = "free",
+                DisplayName = "Free",
+                Scope = "personal",
+                PricePerSeat = 0,
+                Currency = "USD",
+                AllowCustomEndpoint = true,
+                IsActive = true,
+                Description = "Default free tier for self-registered personal accounts.",
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
         }
 
         if (!await dbContext.EnterpriseSubscriptions.AnyAsync())

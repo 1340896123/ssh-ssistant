@@ -344,6 +344,69 @@ export const useSettingsStore = defineStore('settings', {
             : this.sync.endpointUrl),
       };
     },
+    async applyCloudLoginResponse(response: {
+      mode: string;
+      accountKey: string;
+      displayName: string;
+      email: string;
+      enterpriseId: string;
+      enterpriseName: string;
+      subAccountId: string;
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: string;
+      refreshExpiresAt: string;
+      syncEndpointUrl: string;
+      aiSubscription: Settings['ai']['subscription'];
+      endpointSync?: {
+        endpointName: string;
+        provider: string;
+        baseUrl: string;
+        modelName: string;
+      };
+      customEndpoint: {
+        useCustomEndpoint: boolean;
+        endpointName: string;
+        provider: string;
+        baseUrl: string;
+        apiKey: string;
+        modelName: string;
+      };
+      subscriptionSnapshot?: ClientSubscriptionSnapshot | null;
+    }) {
+      this.applyCloudIdentity(response);
+
+      this.ai = {
+        ...this.ai,
+        subscription: response.aiSubscription ?? this.ai.subscription,
+        subscriptionSnapshot: response.subscriptionSnapshot ?? this.ai.subscriptionSnapshot,
+        customEndpoint: applyCustomEndpoint(
+          this.ai.customEndpoint,
+          {
+            useCustomEndpoint: response.customEndpoint.useCustomEndpoint,
+            endpointName: response.customEndpoint.endpointName,
+            apiUrl: response.customEndpoint.baseUrl,
+            apiKey: response.customEndpoint.apiKey,
+            modelName: response.customEndpoint.modelName,
+            providerType: response.customEndpoint.provider as Settings['ai']['customEndpoint']['providerType'],
+          },
+          response.endpointSync
+            ? {
+                endpointName: response.endpointSync.endpointName,
+                apiUrl: response.endpointSync.baseUrl,
+                modelName: response.endpointSync.modelName,
+                providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
+              }
+            : undefined,
+        ),
+      };
+
+      if (this.account.accessToken && !this.ai.customEndpoint.useCustomEndpoint) {
+        await this.loadManagedAiRuntime().catch(() => undefined);
+      }
+
+      await this.saveSettings({});
+    },
     async saveCurrentLocalWorkspaceSnapshot() {
       const assetSnapshot = await (await import('./assets')).useAssetStore().exportLocalWorkspaceSnapshot();
       await workspaceSnapshotService.save(LOCAL_WORKSPACE_SNAPSHOT_KEY, {
@@ -426,31 +489,7 @@ export const useSettingsStore = defineStore('settings', {
         secret,
       });
 
-      this.applyCloudIdentity(response);
-
-      this.ai = {
-        ...this.ai,
-        subscription: response.aiSubscription ?? this.ai.subscription,
-        subscriptionSnapshot: response.subscriptionSnapshot ?? this.ai.subscriptionSnapshot,
-        customEndpoint: applyCustomEndpoint(
-          this.ai.customEndpoint,
-          response.customEndpoint,
-          response.endpointSync
-            ? {
-                endpointName: response.endpointSync.endpointName,
-                apiUrl: response.endpointSync.baseUrl,
-                modelName: response.endpointSync.modelName,
-                providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
-              }
-            : undefined,
-        ),
-      };
-
-      if (this.account.accessToken && !this.ai.customEndpoint.useCustomEndpoint) {
-        await this.loadManagedAiRuntime().catch(() => undefined);
-      }
-
-      await this.saveSettings({});
+      await this.applyCloudLoginResponse(response);
       return response;
     },
     async syncSettingsToCloud() {
@@ -564,30 +603,7 @@ export const useSettingsStore = defineStore('settings', {
         this.account.refreshToken,
       );
 
-      this.applyCloudIdentity(response);
-      this.ai = {
-        ...this.ai,
-        subscription: response.aiSubscription ?? this.ai.subscription,
-        subscriptionSnapshot: response.subscriptionSnapshot ?? this.ai.subscriptionSnapshot,
-        customEndpoint: applyCustomEndpoint(
-          this.ai.customEndpoint,
-          response.customEndpoint,
-          response.endpointSync
-            ? {
-                endpointName: response.endpointSync.endpointName,
-                apiUrl: response.endpointSync.baseUrl,
-                modelName: response.endpointSync.modelName,
-                providerType: response.endpointSync.provider as Settings['ai']['customEndpoint']['providerType'],
-              }
-            : undefined,
-        ),
-      };
-
-      if (this.account.accessToken && !this.ai.customEndpoint.useCustomEndpoint) {
-        await this.loadManagedAiRuntime().catch(() => undefined);
-      }
-
-      await invoke('save_settings', { settings: this.$state });
+      await this.applyCloudLoginResponse(response);
       return response;
     },
     async logoutFromCloud(options?: {

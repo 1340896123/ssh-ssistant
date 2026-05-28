@@ -29,6 +29,9 @@ public sealed class AdminDbContext(DbContextOptions<AdminDbContext> options) : D
         modelBuilder.Entity<EnterpriseEntity>().HasKey(item => item.Id);
         modelBuilder.Entity<EnterpriseSubAccountEntity>().HasKey(item => item.Id);
         modelBuilder.Entity<PersonalAccountEntity>().HasKey(item => item.Id);
+        modelBuilder.Entity<PersonalAccountEntity>()
+            .HasIndex(item => item.Email)
+            .IsUnique();
         modelBuilder.Entity<AdminUserEntity>().HasKey(item => item.Id);
         modelBuilder.Entity<AssetEntity>().HasKey(item => item.Id);
         modelBuilder.Entity<AiSubscriptionEntity>().HasKey(item => item.Id);

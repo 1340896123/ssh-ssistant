@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { useSettingsStore } from "../stores/settings";
 import type { AccountMode } from "../types";
 import { useI18n } from "../composables/useI18n";
+import { cloudService } from "../services";
 
 const emit = defineEmits<{
   (e: "authenticated"): void;
@@ -13,11 +14,14 @@ const { t } = useI18n();
 
 const isSubmitting = ref(false);
 const errorMessage = ref("");
+const registrationNotice = ref("");
+const personalAuthView = ref<"login" | "register">("login");
 
 const form = reactive<{
   mode: AccountMode;
   identifier: string;
   secret: string;
+  displayName: string;
   endpointUrl: string;
   enterpriseId: string;
   enterpriseName: string;
@@ -30,6 +34,7 @@ const form = reactive<{
     settingsStore.account.subAccountId ||
     "",
   secret: "",
+  displayName: settingsStore.account.displayName || "",
   endpointUrl: settingsStore.sync.endpointUrl || "http://localhost:5047",
   enterpriseId: settingsStore.account.enterpriseId || "",
   enterpriseName: settingsStore.account.enterpriseName || "",
@@ -40,6 +45,10 @@ watch(
   () => settingsStore.account.mode,
   (mode) => {
     form.mode = mode === "local" ? "personal" : mode;
+    if (form.mode !== "personal") {
+      personalAuthView.value = "login";
+      registrationNotice.value = "";
+    }
     if (mode !== "enterpriseSubAccount") {
       form.enterpriseId = "";
       form.enterpriseName = "";
@@ -51,15 +60,21 @@ watch(
 );
 
 const isLocalMode = computed(() => form.mode === "local");
+const isPersonalMode = computed(() => form.mode === "personal");
+const isRegistering = computed(
+  () => isPersonalMode.value && personalAuthView.value === "register",
+);
 
 const modeDescription = computed(() => {
   if (form.mode === "enterpriseSubAccount") {
-    return "使用企业子账号登录后，仅同步被授权的资产范围。";
+    return t("loginGateway.modeDescriptions.enterpriseSubAccount");
   }
   if (form.mode === "personal") {
-    return "使用个人账号登录后，会同步个人资产与个人 AI 订阅设置。";
+    return isRegistering.value
+      ? t("loginGateway.modeDescriptions.personalRegister")
+      : t("loginGateway.modeDescriptions.personalLogin");
   }
-  return "本地模式不会强制云登录，但仍可进入工作台使用离线资产。";
+  return t("loginGateway.modeDescriptions.local");
 });
 
 const subscriptionSummary = computed(() => {
@@ -81,9 +96,44 @@ const currentInvoice = computed(() => {
   return settingsStore.ai.subscriptionSnapshot?.currentInvoice ?? null;
 });
 
+function mapGatewayErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error);
+  const normalized = raw.toLowerCase();
+
+  if (normalized.includes("already registered")) {
+    return t("loginGateway.errors.emailRegistered");
+  }
+  if (
+    normalized.includes("is required") ||
+    normalized.includes("format is invalid") ||
+    normalized.includes("at least 6 characters")
+  ) {
+    return t("loginGateway.errors.invalidParameters");
+  }
+  if (normalized.includes("status 400")) {
+    return t("loginGateway.errors.invalidParameters");
+  }
+  if (normalized.includes("status 409")) {
+    return t("loginGateway.errors.emailRegistered");
+  }
+  if (
+    normalized.includes("failed to fetch") ||
+    normalized.includes("networkerror") ||
+    normalized.includes("status 500") ||
+    normalized.includes("status 502") ||
+    normalized.includes("status 503") ||
+    normalized.includes("status 504")
+  ) {
+    return t("loginGateway.errors.serviceUnavailable");
+  }
+
+  return raw;
+}
+
 async function submit() {
   isSubmitting.value = true;
   errorMessage.value = "";
+  registrationNotice.value = "";
 
   try {
     const previousMode = settingsStore.account.mode;
@@ -111,9 +161,14 @@ async function submit() {
                 form.identifier.trim() ||
                 settingsStore.account.displayName ||
                 "Enterprise Sub-Account"
-              : form.identifier.trim() ||
-                settingsStore.account.displayName ||
-                "Personal Account",
+              : isRegistering.value
+                ? form.displayName.trim() ||
+                  form.identifier.trim() ||
+                  settingsStore.account.displayName ||
+                  "Personal Account"
+                : form.identifier.trim() ||
+                  settingsStore.account.displayName ||
+                  "Personal Account",
           email: form.mode === "personal" ? form.identifier.trim() || null : null,
           userId: form.mode === "personal" ? form.identifier.trim() || null : null,
           enterpriseId:
@@ -139,13 +194,24 @@ async function submit() {
           organizationScope: form.organizationScope,
         },
       });
-      await settingsStore.loginToCloud(form.secret);
+
+      if (isRegistering.value) {
+        const response = await cloudService.register(form.endpointUrl, {
+          email: form.identifier.trim(),
+          displayName: form.displayName.trim(),
+          password: form.secret,
+        });
+        await settingsStore.applyCloudLoginResponse(response);
+        registrationNotice.value = t("loginGateway.register.autoLoginSuccess");
+      } else {
+        await settingsStore.loginToCloud(form.secret);
+      }
     }
 
     settingsStore.clearLoginGatewayRequired();
     emit("authenticated");
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = mapGatewayErrorMessage(error);
   } finally {
     isSubmitting.value = false;
   }
@@ -200,7 +266,7 @@ async function enterLocalMode() {
 
       <section class="rounded-[32px] border border-white/70 bg-white/85 p-8 shadow-[0_28px_80px_rgba(67,52,30,0.14)] backdrop-blur">
         <div>
-          <h2 class="text-2xl font-black text-slate-900">登录工作台</h2>
+          <h2 class="text-2xl font-black text-slate-900">{{ t("loginGateway.title") }}</h2>
           <p class="mt-2 text-sm text-slate-500">{{ modeDescription }}</p>
         </div>
 
@@ -217,14 +283,51 @@ async function enterLocalMode() {
             </select>
           </div>
 
+          <div
+            v-if="isPersonalMode"
+            class="inline-flex rounded-2xl bg-slate-100 p-1 text-sm font-semibold text-slate-600"
+          >
+            <button
+              class="rounded-xl px-4 py-2 transition"
+              :class="personalAuthView === 'login' ? 'bg-white text-slate-900 shadow-sm' : ''"
+              @click="personalAuthView = 'login'"
+            >
+              {{ t("loginGateway.tabs.login") }}
+            </button>
+            <button
+              class="rounded-xl px-4 py-2 transition"
+              :class="personalAuthView === 'register' ? 'bg-white text-slate-900 shadow-sm' : ''"
+              @click="personalAuthView = 'register'"
+            >
+              {{ t("loginGateway.tabs.register") }}
+            </button>
+          </div>
+
           <div v-if="!isLocalMode">
             <label class="mb-2 block text-sm font-medium text-slate-700">
-              {{ form.mode === "personal" ? "账号标识（邮箱或用户 ID）" : "子账号标识（邮箱或子账号 ID）" }}
+              {{
+                form.mode === "personal"
+                  ? isRegistering
+                    ? t("loginGateway.fields.email")
+                    : t("loginGateway.fields.personalIdentifier")
+                  : t("loginGateway.fields.enterpriseIdentifier")
+              }}
             </label>
             <input
               v-model="form.identifier"
               class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
               placeholder="user@example.com"
+            />
+          </div>
+
+          <div v-if="isRegistering">
+            <label class="mb-2 block text-sm font-medium text-slate-700">
+              {{ t("loginGateway.fields.displayName") }}
+            </label>
+            <input
+              v-model="form.displayName"
+              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+              :placeholder="t('loginGateway.placeholders.displayName')"
             />
           </div>
 
@@ -249,12 +352,18 @@ async function enterLocalMode() {
           </template>
 
           <div v-if="!isLocalMode">
-            <label class="mb-2 block text-sm font-medium text-slate-700">登录密钥</label>
+            <label class="mb-2 block text-sm font-medium text-slate-700">
+              {{ isRegistering ? t("loginGateway.fields.password") : t("loginGateway.fields.secret") }}
+            </label>
             <input
               v-model="form.secret"
               type="password"
               class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
-              placeholder="temporary login secret"
+              :placeholder="
+                isRegistering
+                  ? t('loginGateway.placeholders.password')
+                  : 'temporary login secret'
+              "
             />
           </div>
 
@@ -281,7 +390,15 @@ async function enterLocalMode() {
             :disabled="isSubmitting"
             @click="submit"
           >
-            {{ isSubmitting ? "正在进入工作台..." : "进入工作台" }}
+            {{
+              isSubmitting
+                ? isRegistering
+                  ? t("loginGateway.register.submitting")
+                  : t("loginGateway.login.submitting")
+                : isRegistering
+                  ? t("loginGateway.register.submit")
+                  : t("loginGateway.login.submit")
+            }}
           </button>
 
           <button
@@ -291,6 +408,13 @@ async function enterLocalMode() {
           >
             切换为本地模式
           </button>
+
+          <p
+            v-if="registrationNotice"
+            class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+          >
+            {{ registrationNotice }}
+          </p>
 
           <p v-if="errorMessage" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {{ errorMessage }}

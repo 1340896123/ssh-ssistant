@@ -451,6 +451,45 @@
       "done": "Done"
     }
   },
+  "loginGateway": {
+    "title": "Sign In To Workspace",
+    "tabs": {
+      "login": "Sign In",
+      "register": "Register"
+    },
+    "modeDescriptions": {
+      "personalLogin": "Sign in with a personal account to sync personal assets and personal AI subscription settings.",
+      "personalRegister": "Register a personal account and you will be signed in immediately with a free + trialing subscription.",
+      "enterpriseSubAccount": "Sign in with an enterprise sub-account to sync only the asset scope assigned by your admin.",
+      "local": "Local mode does not require cloud sign-in and still lets you enter the workspace with offline assets."
+    },
+    "fields": {
+      "email": "Email",
+      "displayName": "Display Name",
+      "password": "Password",
+      "secret": "Login Secret",
+      "personalIdentifier": "Account Identifier (Email or User ID)",
+      "enterpriseIdentifier": "Sub-Account Identifier (Email or Sub-Account ID)"
+    },
+    "placeholders": {
+      "displayName": "For example: Alice",
+      "password": "At least 6 characters"
+    },
+    "login": {
+      "submit": "Enter Workspace",
+      "submitting": "Entering workspace..."
+    },
+    "register": {
+      "submit": "Register And Enter Workspace",
+      "submitting": "Registering and signing in...",
+      "autoLoginSuccess": "Registration succeeded and you are now signed in."
+    },
+    "errors": {
+      "emailRegistered": "This email is already registered. Please sign in instead.",
+      "invalidParameters": "The registration details are invalid. Please check the email, display name, and password.",
+      "serviceUnavailable": "The service is temporarily unavailable. Please try again later."
+    }
+  },
   "themes": {
     "light": "Light",
     "dark": "Dark"

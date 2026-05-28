@@ -451,6 +451,45 @@
       "done": "完成"
     }
   },
+  "loginGateway": {
+    "title": "登录工作台",
+    "tabs": {
+      "login": "登录",
+      "register": "注册"
+    },
+    "modeDescriptions": {
+      "personalLogin": "使用个人账号登录后，会同步个人资产与个人 AI 订阅设置。",
+      "personalRegister": "注册个人账号后会立即自动登录，并以 free + trialing 订阅进入工作台。",
+      "enterpriseSubAccount": "使用企业子账号登录后，仅同步被授权的资产范围。",
+      "local": "本地模式不会强制云登录，但仍可进入工作台使用离线资产。"
+    },
+    "fields": {
+      "email": "邮箱",
+      "displayName": "显示名",
+      "password": "密码",
+      "secret": "登录密钥",
+      "personalIdentifier": "账号标识（邮箱或用户 ID）",
+      "enterpriseIdentifier": "子账号标识（邮箱或子账号 ID）"
+    },
+    "placeholders": {
+      "displayName": "例如：Alice",
+      "password": "至少 6 位密码"
+    },
+    "login": {
+      "submit": "进入工作台",
+      "submitting": "正在进入工作台..."
+    },
+    "register": {
+      "submit": "注册并进入工作台",
+      "submitting": "正在注册并登录...",
+      "autoLoginSuccess": "注册成功，已自动登录。"
+    },
+    "errors": {
+      "emailRegistered": "该邮箱已注册，请直接登录。",
+      "invalidParameters": "注册信息不合法，请检查邮箱、显示名和密码。",
+      "serviceUnavailable": "服务暂时不可用，请稍后重试。"
+    }
+  },
   "themes": {
     "light": "浅色",
     "dark": "深色"
