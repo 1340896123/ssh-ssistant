@@ -7,36 +7,51 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies & build output
 node_modules
 dist
 dist-ssr
 *.local
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Tauri / Rust
 target/
-.omc/
-.trae/
-backend/SshAssistant.AdminApi/bin/
-backend/SshAssistant.AdminApi/obj/
-ssh-assistant-admin.db
+src-tauri/target/
+
+# .NET backend
+backend/*/bin/
+backend/*/obj/
+
+# Database
+*.db
 *.db-shm
 *.db-wal
+
+# Environment & credentials
+.env
+.env.*
+!.env.example
 .enterprise-login.json
 .enterprise-pull.json
 .personal-login.json
 .personal-pull.json
-.playwright-cli/
-.omx/*
-.tmp/
-.tmp/*
+
+# Temporary directories
 tmp/
-tmp/*
+.tmp/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sw?
+.DS_Store
+
+# IDE / AI tools
+.omc/
+.omx/
+.trae/
+.playwright-cli/
+.claude/

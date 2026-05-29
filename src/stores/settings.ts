@@ -145,26 +145,48 @@ function applyCustomEndpoint(
 }
 
 function sanitizeCloudSettingsPatch(parsed: Partial<Settings>): Partial<Settings> {
-  return {
-    theme: parsed.theme,
-    language: parsed.language,
-    terminalAppearance: parsed.terminalAppearance,
-    fileManager: parsed.fileManager,
-    sshPool: parsed.sshPool,
-    connectionTimeout: parsed.connectionTimeout,
-    reconnect: parsed.reconnect,
-    heartbeat: parsed.heartbeat,
-    poolHealth: parsed.poolHealth,
-    networkAdaptive: parsed.networkAdaptive,
-  };
+  const patch: Partial<Settings> = {};
+
+  if (parsed.theme !== undefined) {
+    patch.theme = parsed.theme;
+  }
+  if (parsed.language !== undefined) {
+    patch.language = parsed.language;
+  }
+  if (parsed.terminalAppearance !== undefined) {
+    patch.terminalAppearance = parsed.terminalAppearance;
+  }
+  if (parsed.fileManager !== undefined) {
+    patch.fileManager = parsed.fileManager;
+  }
+  if (parsed.sshPool !== undefined) {
+    patch.sshPool = parsed.sshPool;
+  }
+  if (parsed.connectionTimeout !== undefined) {
+    patch.connectionTimeout = parsed.connectionTimeout;
+  }
+  if (parsed.reconnect !== undefined) {
+    patch.reconnect = parsed.reconnect;
+  }
+  if (parsed.heartbeat !== undefined) {
+    patch.heartbeat = parsed.heartbeat;
+  }
+  if (parsed.poolHealth !== undefined) {
+    patch.poolHealth = parsed.poolHealth;
+  }
+  if (parsed.networkAdaptive !== undefined) {
+    patch.networkAdaptive = parsed.networkAdaptive;
+  }
+
+  return patch;
 }
 
 function isUnauthorizedError(error: unknown) {
   return String(error).includes("401");
 }
 
-export const useSettingsStore = defineStore('settings', {
-  state: (): Settings => ({
+function createDefaultSettings(): Settings {
+  return {
     theme: 'dark',
     language: 'zh',
     account: createDefaultAccount(),
@@ -177,65 +199,131 @@ export const useSettingsStore = defineStore('settings', {
       lastCloudSyncAt: null,
     },
     ai: {
-      apiUrl: 'https://api.openai.com/v1',
-      apiKey: '',
-      modelName: 'gpt-3.5-turbo',
-      providerType: 'openai',
+      ...createDefaultManagedRuntime(),
       subscription: createDefaultSubscription(),
       customEndpoint: createDefaultCustomEndpoint(),
-      subscriptionSnapshot: null as ClientSubscriptionSnapshot | null,
+      subscriptionSnapshot: null,
       pendingCheckoutSession: null,
     },
     terminalAppearance: {
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       cursorStyle: 'block',
-      lineHeight: 1.0
+      lineHeight: 1.0,
     },
     fileManager: {
       viewMode: 'flat',
       layout: 'bottom',
-      sftpBufferSize: 512
+      sftpBufferSize: 512,
     },
     sshPool: {
       maxBackgroundSessions: 6,
       enableAutoCleanup: true,
-      cleanupIntervalMinutes: 5
+      cleanupIntervalMinutes: 5,
     },
     connectionTimeout: {
       connectionTimeoutSecs: 15,
       jumpHostTimeoutSecs: 30,
       localForwardTimeoutSecs: 10,
       commandTimeoutSecs: 30,
-      sftpOperationTimeoutSecs: 60
+      sftpOperationTimeoutSecs: 60,
     },
     reconnect: {
       maxReconnectAttempts: 5,
       initialDelayMs: 1000,
       maxDelayMs: 30000,
       backoffMultiplier: 2.0,
-      enableAutoReconnect: true
+      enableAutoReconnect: true,
     },
     heartbeat: {
       tcpKeepaliveIntervalSecs: 60,
       sshKeepaliveIntervalSecs: 15,
       appHeartbeatIntervalSecs: 30,
       heartbeatTimeoutSecs: 5,
-      failedHeartbeatsBeforeAction: 3
+      failedHeartbeatsBeforeAction: 3,
     },
     poolHealth: {
       healthCheckIntervalSecs: 60,
       sessionWarmupCount: 1,
       maxSessionAgeMinutes: 60,
-      unhealthyThreshold: 3
+      unhealthyThreshold: 3,
     },
     networkAdaptive: {
       enableAdaptive: true,
       latencyCheckIntervalSecs: 30,
       highLatencyThresholdMs: 300,
-      lowBandwidthThresholdKbps: 100
-    }
-  }),
+      lowBandwidthThresholdKbps: 100,
+    },
+  };
+}
+
+function buildPersistedSettings(state: Settings): Settings {
+  const defaults = createDefaultSettings();
+
+  return {
+    ...defaults,
+    ...state,
+    theme: state.theme ?? defaults.theme,
+    language: state.language ?? defaults.language,
+    account: {
+      ...defaults.account,
+      ...state.account,
+    },
+    sync: {
+      ...defaults.sync,
+      ...state.sync,
+    },
+    ai: {
+      ...defaults.ai,
+      ...state.ai,
+      subscription: {
+        ...defaults.ai.subscription,
+        ...state.ai?.subscription,
+      },
+      customEndpoint: {
+        ...defaults.ai.customEndpoint,
+        ...state.ai?.customEndpoint,
+      },
+      subscriptionSnapshot: state.ai?.subscriptionSnapshot ?? defaults.ai.subscriptionSnapshot,
+      pendingCheckoutSession: state.ai?.pendingCheckoutSession ?? defaults.ai.pendingCheckoutSession,
+    },
+    terminalAppearance: {
+      ...defaults.terminalAppearance,
+      ...state.terminalAppearance,
+    },
+    fileManager: {
+      ...defaults.fileManager,
+      ...state.fileManager,
+    },
+    sshPool: {
+      ...defaults.sshPool,
+      ...state.sshPool,
+    },
+    connectionTimeout: {
+      ...defaults.connectionTimeout,
+      ...state.connectionTimeout,
+    },
+    reconnect: {
+      ...defaults.reconnect,
+      ...state.reconnect,
+    },
+    heartbeat: {
+      ...defaults.heartbeat,
+      ...state.heartbeat,
+    },
+    poolHealth: {
+      ...defaults.poolHealth,
+      ...state.poolHealth,
+    },
+    networkAdaptive: {
+      ...defaults.networkAdaptive,
+      ...state.networkAdaptive,
+    },
+  };
+}
+
+export const useSettingsStore = defineStore('settings', {
+  state: (): Settings => createDefaultSettings(),
   actions: {
     async withCloudSession<T>(operation: () => Promise<T>) {
       try {
@@ -454,7 +542,7 @@ export const useSettingsStore = defineStore('settings', {
     async loadSettings() {
       try {
         const settings = await invoke<Settings>('get_settings');
-        this.$patch(settings);
+        this.$patch(buildPersistedSettings(settings));
         this.applyTheme();
         await this.applyLanguage();
       } catch (e) {
@@ -463,12 +551,13 @@ export const useSettingsStore = defineStore('settings', {
     },
     async saveSettings(settings: Partial<Settings>) {
       this.$patch(settings);
+      this.$patch(buildPersistedSettings(this.$state));
       this.applyTheme();
       if (settings.language) {
         await this.applyLanguage();
       }
       try {
-        await invoke('save_settings', { settings: this.$state });
+        await invoke('save_settings', { settings: buildPersistedSettings(this.$state) });
       } catch (e) {
         console.error('Failed to save settings', e);
       }
