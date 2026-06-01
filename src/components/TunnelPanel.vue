@@ -5,7 +5,7 @@ import { useTunnelStore } from '../stores/tunnels';
 import { useAssetStore } from '../stores/assets';
 import { useNotificationStore } from '../stores/notifications';
 import { useI18n } from '../composables/useI18n';
-import type { HostAsset, Tunnel } from '../types';
+import type { AccessEndpoint, HostAsset, Tunnel } from '../types';
 
 const emit = defineEmits<{
   (e: 'manage', asset: HostAsset): void;
@@ -16,7 +16,7 @@ const assetStore = useAssetStore();
 const notificationStore = useNotificationStore();
 const { t } = useI18n();
 
-const selectedConnectionId = ref<number | 'all'>('all');
+const selectedAssetId = ref<number | 'all'>('all');
 const isLoading = ref(false);
 
 const assetMap = computed(() => {
@@ -27,18 +27,26 @@ const assetMap = computed(() => {
   return map;
 });
 
+const endpointMap = computed(() => {
+  const map = new Map<number, AccessEndpoint>();
+  for (const endpoint of assetStore.accessEndpoints) {
+    if (endpoint.id != null) map.set(endpoint.id, endpoint);
+  }
+  return map;
+});
+
 const selectedAsset = computed(() => {
-  if (selectedConnectionId.value === 'all') return null;
-  return assetMap.value.get(selectedConnectionId.value) || null;
+  if (selectedAssetId.value === 'all') return null;
+  return assetMap.value.get(selectedAssetId.value) || null;
 });
 
 async function loadData() {
   isLoading.value = true;
   try {
-    if (selectedConnectionId.value === 'all') {
+    if (selectedAssetId.value === 'all') {
       await tunnelStore.loadTunnels();
     } else {
-      await tunnelStore.loadTunnels(selectedConnectionId.value);
+      await tunnelStore.loadTunnels(selectedAssetId.value);
     }
     await tunnelStore.refreshActive();
   } catch (e) {
@@ -53,7 +61,7 @@ onMounted(async () => {
   await loadData();
 });
 
-watch(() => selectedConnectionId.value, async () => {
+watch(() => selectedAssetId.value, async () => {
   await loadData();
 });
 
@@ -67,6 +75,11 @@ function formatMapping(tunnel: Tunnel): string {
     return `${remoteBindHost}:${tunnel.remotePort} -> ${localHost}:${tunnel.localPort}`;
   }
   return `${localHost}:${tunnel.localPort} (SOCKS)`;
+}
+
+function formatEndpoint(endpoint: AccessEndpoint | null | undefined): string {
+  if (!endpoint) return t('tunnels.endpointUnknown');
+  return `${endpoint.name} · ${endpoint.username}@${endpoint.host}:${endpoint.port}`;
 }
 
 async function startTunnel(tunnel: Tunnel) {
@@ -93,9 +106,9 @@ async function stopTunnel(tunnel: Tunnel) {
 
 function openManage(tunnel?: Tunnel) {
   if (tunnel) {
-    const asset = assetMap.value.get(tunnel.connectionId);
+    const asset = assetMap.value.get(tunnel.assetId);
     if (!asset) {
-      notificationStore.error(t('tunnels.connectionMissing') || 'Connection not found');
+      notificationStore.error(t('tunnels.assetMissing') || 'Asset not found');
       return;
     }
     emit('manage', asset);
@@ -103,7 +116,7 @@ function openManage(tunnel?: Tunnel) {
   }
 
   if (!selectedAsset.value) {
-    notificationStore.error(t('tunnels.selectConnection'));
+    notificationStore.error(t('tunnels.selectAsset'));
     return;
   }
   emit('manage', selectedAsset.value);
@@ -111,9 +124,9 @@ function openManage(tunnel?: Tunnel) {
 
 async function deleteTunnel(tunnel: Tunnel) {
   if (!tunnel.id) return;
-  const asset = assetMap.value.get(tunnel.connectionId);
+  const asset = assetMap.value.get(tunnel.assetId);
   if (!asset?.id) {
-    notificationStore.error(t('tunnels.connectionMissing') || 'Connection not found');
+    notificationStore.error(t('tunnels.assetMissing') || 'Asset not found');
     return;
   }
   if (!window.confirm(t('tunnels.deleteConfirm', { name: tunnel.name }))) return;
@@ -137,10 +150,10 @@ async function deleteTunnel(tunnel: Tunnel) {
 
     <div class="grid grid-cols-2 gap-2">
       <div>
-        <label class="block text-xs text-text-secondary uppercase mb-1">{{ t('tunnels.connection') }}</label>
-        <select v-model="selectedConnectionId"
+        <label class="block text-xs text-text-secondary uppercase mb-1">{{ t('tunnels.asset') }}</label>
+        <select v-model="selectedAssetId"
           class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
-          <option value="all">{{ t('tunnels.allConnections') }}</option>
+          <option value="all">{{ t('tunnels.allAssets') }}</option>
           <option v-for="asset in assetStore.assets" :key="asset.id" :value="asset.id">
             {{ asset.name }}
           </option>
@@ -148,7 +161,7 @@ async function deleteTunnel(tunnel: Tunnel) {
       </div>
       <div class="flex items-end">
         <button @click="openManage()" class="w-full px-3 py-2 bg-accent text-white rounded text-sm hover:bg-accent/80">
-          {{ t('tunnels.new') }}
+          {{ t('tunnels.manageSelectedAsset') }}
         </button>
       </div>
     </div>
@@ -162,7 +175,16 @@ async function deleteTunnel(tunnel: Tunnel) {
               {{ t('tunnels.mapping') }}: {{ formatMapping(tunnel) }}
             </div>
             <div class="text-[11px] text-text-muted mt-1">
-              {{ assetMap.get(tunnel.connectionId)?.name || 'Unknown' }}
+              {{ assetMap.get(tunnel.assetId)?.name || t('tunnels.assetUnknown') }}
+            </div>
+            <div class="text-[11px] text-text-muted mt-1">
+              {{ t('tunnels.boundEndpoint') }}: {{ formatEndpoint(endpointMap.get(tunnel.accessEndpointId)) }}
+            </div>
+            <div
+              v-if="tunnel.id && tunnelStore.errorMessages[tunnel.id]"
+              class="mt-1 text-[11px] text-error"
+            >
+              {{ tunnelStore.errorMessages[tunnel.id] }}
             </div>
           </div>
           <div class="flex items-center space-x-2">
