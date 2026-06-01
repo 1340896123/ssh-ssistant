@@ -328,7 +328,8 @@
     "editTitle": "编辑隧道",
     "placeholderName": "My Tunnel",
     "tooltipEdit": "编辑",
-    "tooltipDelete": "删除"
+    "tooltipDelete": "删除",
+    "endpointUnknown": "未知端点"
   },
   "transferList": {
     "summary": {

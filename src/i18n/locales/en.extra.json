@@ -328,7 +328,8 @@
     "editTitle": "Edit Tunnel",
     "placeholderName": "My Tunnel",
     "tooltipEdit": "Edit",
-    "tooltipDelete": "Delete"
+    "tooltipDelete": "Delete",
+    "endpointUnknown": "Unknown endpoint"
   },
   "transferList": {
     "summary": {
