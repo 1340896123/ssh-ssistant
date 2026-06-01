@@ -314,48 +314,26 @@ fn prepare_ssh_command(
         }
     });
 
-    let proxy_command = tunnel.proxy_command.as_ref().and_then(|s| {
-        let trimmed = s.trim();
+    let proxy_jump = connection.jump_host.as_ref().and_then(|jump_host| {
+        let trimmed = jump_host.trim();
         if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
+            return None;
         }
-    });
 
-    let mut proxy_jump = tunnel.proxy_jump.as_ref().and_then(|s| {
-        let trimmed = s.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    });
-
-    if proxy_command.is_none() && proxy_jump.is_none() {
-        if let Some(jump_host) = connection.jump_host.as_ref() {
-            let trimmed = jump_host.trim();
-            if !trimmed.is_empty() {
-                let mut jump = String::new();
-                if let Some(user) = connection.jump_username.as_ref() {
-                    let user_trimmed = user.trim();
-                    if !user_trimmed.is_empty() {
-                        jump.push_str(user_trimmed);
-                        jump.push('@');
-                    }
-                }
-                jump.push_str(trimmed);
-                if let Some(port) = connection.jump_port {
-                    jump.push_str(&format!(":{}", port));
-                }
-                proxy_jump = Some(jump);
+        let mut jump = String::new();
+        if let Some(user) = connection.jump_username.as_ref() {
+            let user_trimmed = user.trim();
+            if !user_trimmed.is_empty() {
+                jump.push_str(user_trimmed);
+                jump.push('@');
             }
         }
-    }
-
-    if proxy_command.is_some() {
-        proxy_jump = None;
-    }
+        jump.push_str(trimmed);
+        if let Some(port) = connection.jump_port {
+            jump.push_str(&format!(":{}", port));
+        }
+        Some(jump)
+    });
 
     if main_password.is_some() || key_passphrase.is_some() || jump_password.is_some() {
         let main_host = connection.host.trim();
@@ -402,14 +380,8 @@ fn prepare_ssh_command(
         cmd.arg("-o").arg("PreferredAuthentications=password");
     }
 
-    if let Some(ref proxy_command) = proxy_command {
-        cmd.arg("-o").arg(format!("ProxyCommand={}", proxy_command));
-    } else if let Some(ref proxy_jump) = proxy_jump {
+    if let Some(ref proxy_jump) = proxy_jump {
         cmd.arg("-J").arg(proxy_jump);
-    }
-
-    if tunnel.agent_forwarding.unwrap_or(false) {
-        cmd.arg("-A").arg("-o").arg("ForwardAgent=yes");
     }
 
     if let Some(ref key_path) = key_path {
@@ -495,8 +467,11 @@ pub fn start_tunnel(
 
     let db_path = db::get_db_path(&app_handle);
     let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
-    let (asset, endpoint, credential_ref) =
-        crate::ops::resolve_asset_bundle(&conn, tunnel.connection_id, None)?;
+    let (asset, endpoint, credential_ref) = crate::ops::resolve_asset_bundle(
+        &conn,
+        tunnel.asset_id,
+        Some(tunnel.access_endpoint_id),
+    )?;
     let connection = crate::ops::map_connection_from_endpoint(&asset, &endpoint, credential_ref.as_ref());
 
     let key = if connection.auth_type.as_deref() == Some("key") {
@@ -549,7 +524,7 @@ pub fn start_tunnel(
     let _ = crate::ops::append_audit_event(
         &app_handle,
         "tunnel.started",
-        Some(tunnel.connection_id),
+        Some(tunnel.asset_id),
         None,
         None,
         "Started tunnel",
@@ -573,7 +548,7 @@ pub fn stop_tunnel(app_handle: AppHandle, state: State<'_, AppState>, id: i64) -
             let _ = crate::ops::append_audit_event(
                 &app_handle,
                 "tunnel.stopped",
-                Some(tunnel.connection_id),
+                Some(tunnel.asset_id),
                 None,
                 None,
                 "Stopped tunnel",

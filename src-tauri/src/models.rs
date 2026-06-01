@@ -572,16 +572,14 @@ pub struct SyncOverview {
 pub struct Tunnel {
     pub id: Option<i64>,
     pub name: String,
-    pub connection_id: i64,
+    pub asset_id: i64,
+    pub access_endpoint_id: i64,
     pub tunnel_type: String, // "local" | "remote" | "dynamic"
     pub local_host: Option<String>,
     pub local_port: Option<u16>,
     pub remote_host: Option<String>,
     pub remote_port: Option<u16>,
     pub remote_bind_host: Option<String>,
-    pub proxy_jump: Option<String>,
-    pub proxy_command: Option<String>,
-    pub agent_forwarding: Option<bool>,
     pub created_at: Option<i64>,
 }
 

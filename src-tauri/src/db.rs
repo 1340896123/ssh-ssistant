@@ -39,24 +39,61 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS tunnels (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            connection_id INTEGER NOT NULL,
+            asset_id INTEGER NOT NULL,
+            access_endpoint_id INTEGER NOT NULL,
             tunnel_type TEXT NOT NULL,
             local_host TEXT,
             local_port INTEGER,
             remote_host TEXT,
             remote_port INTEGER,
             remote_bind_host TEXT,
-            proxy_jump TEXT,
-            proxy_command TEXT,
-            agent_forwarding INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
-            FOREIGN KEY(connection_id) REFERENCES connections(id) ON DELETE CASCADE
+            FOREIGN KEY(asset_id) REFERENCES host_assets(id) ON DELETE CASCADE,
+            FOREIGN KEY(access_endpoint_id) REFERENCES access_endpoints(id) ON DELETE CASCADE
         )",
         [],
     )?;
 
+    let tunnel_has_legacy_connection_id = conn
+        .prepare("PRAGMA table_info(tunnels)")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| row.get::<_, String>(1))
+                .and_then(|rows| {
+                    rows.collect::<Result<Vec<_>, _>>()
+                        .map(|columns| columns.into_iter().any(|column| column == "connection_id"))
+                })
+        })
+        .unwrap_or(false);
+
+    if tunnel_has_legacy_connection_id {
+        conn.execute("DROP TABLE tunnels", [])?;
+        conn.execute(
+            "CREATE TABLE tunnels (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                asset_id INTEGER NOT NULL,
+                access_endpoint_id INTEGER NOT NULL,
+                tunnel_type TEXT NOT NULL,
+                local_host TEXT,
+                local_port INTEGER,
+                remote_host TEXT,
+                remote_port INTEGER,
+                remote_bind_host TEXT,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(asset_id) REFERENCES host_assets(id) ON DELETE CASCADE,
+                FOREIGN KEY(access_endpoint_id) REFERENCES access_endpoints(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+    }
+
+    let _ = conn.execute("DROP INDEX IF EXISTS idx_tunnels_connection_id", []);
     let _ = conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tunnels_connection_id ON tunnels(connection_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tunnels_asset_id ON tunnels(asset_id)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tunnels_access_endpoint_id ON tunnels(access_endpoint_id)",
         [],
     );
 
@@ -666,39 +703,53 @@ fn map_tunnel_row(row: &Row<'_>) -> Result<Tunnel> {
     Ok(Tunnel {
         id: row.get(0)?,
         name: row.get(1)?,
-        connection_id: row.get(2)?,
-        tunnel_type: row.get(3)?,
-        local_host: row.get(4)?,
-        local_port: row.get(5)?,
-        remote_host: row.get(6)?,
-        remote_port: row.get(7)?,
-        remote_bind_host: row.get(8)?,
-        proxy_jump: row.get(9)?,
-        proxy_command: row.get(10)?,
-        agent_forwarding: row.get(11)?,
-        created_at: row.get(12)?,
+        asset_id: row.get(2)?,
+        access_endpoint_id: row.get(3)?,
+        tunnel_type: row.get(4)?,
+        local_host: row.get(5)?,
+        local_port: row.get(6)?,
+        remote_host: row.get(7)?,
+        remote_port: row.get(8)?,
+        remote_bind_host: row.get(9)?,
+        created_at: row.get(10)?,
     })
+}
+
+fn validate_tunnel_binding(conn: &Connection, asset_id: i64, access_endpoint_id: i64) -> Result<(), String> {
+    let matches = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM access_endpoints WHERE id = ?1 AND asset_id = ?2)",
+            params![access_endpoint_id, asset_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    if matches == 1 {
+        Ok(())
+    } else {
+        Err("Selected access endpoint does not belong to the asset".to_string())
+    }
 }
 
 #[tauri::command]
 pub fn get_tunnels(
     app_handle: AppHandle,
-    connection_id: Option<i64>,
+    asset_id: Option<i64>,
 ) -> Result<Vec<Tunnel>, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let query = if connection_id.is_some() {
-        "SELECT id, name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at FROM tunnels WHERE connection_id = ?1 ORDER BY created_at DESC"
+    let query = if asset_id.is_some() {
+        "SELECT id, name, asset_id, access_endpoint_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, created_at FROM tunnels WHERE asset_id = ?1 ORDER BY created_at DESC"
     } else {
-        "SELECT id, name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at FROM tunnels ORDER BY created_at DESC"
+        "SELECT id, name, asset_id, access_endpoint_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, created_at FROM tunnels ORDER BY created_at DESC"
     };
 
     let mut tunnels = Vec::new();
-    if let Some(conn_id) = connection_id {
+    if let Some(asset_id) = asset_id {
         let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(params![conn_id], map_tunnel_row)
+            .query_map(params![asset_id], map_tunnel_row)
             .map_err(|e| e.to_string())?;
         for row in rows {
             tunnels.push(row.map_err(|e| e.to_string())?);
@@ -719,6 +770,7 @@ pub fn get_tunnels(
 pub fn create_tunnel(app_handle: AppHandle, tunnel: Tunnel) -> Result<i64, String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    validate_tunnel_binding(&conn, tunnel.asset_id, tunnel.access_endpoint_id)?;
 
     let created_at = tunnel.created_at.unwrap_or_else(|| {
         std::time::SystemTime::now()
@@ -728,19 +780,17 @@ pub fn create_tunnel(app_handle: AppHandle, tunnel: Tunnel) -> Result<i64, Strin
     });
 
     conn.execute(
-        "INSERT INTO tunnels (name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO tunnels (name, asset_id, access_endpoint_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             tunnel.name,
-            tunnel.connection_id,
+            tunnel.asset_id,
+            tunnel.access_endpoint_id,
             tunnel.tunnel_type,
             tunnel.local_host,
             tunnel.local_port,
             tunnel.remote_host,
             tunnel.remote_port,
             tunnel.remote_bind_host,
-            tunnel.proxy_jump,
-            tunnel.proxy_command,
-            tunnel.agent_forwarding.unwrap_or(false),
             created_at
         ],
     )
@@ -753,25 +803,24 @@ pub fn create_tunnel(app_handle: AppHandle, tunnel: Tunnel) -> Result<i64, Strin
 pub fn update_tunnel(app_handle: AppHandle, tunnel: Tunnel) -> Result<(), String> {
     let db_path = get_db_path(&app_handle);
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    validate_tunnel_binding(&conn, tunnel.asset_id, tunnel.access_endpoint_id)?;
 
     let id = tunnel
         .id
         .ok_or_else(|| "Tunnel ID is required for update".to_string())?;
 
     conn.execute(
-        "UPDATE tunnels SET name=?1, connection_id=?2, tunnel_type=?3, local_host=?4, local_port=?5, remote_host=?6, remote_port=?7, remote_bind_host=?8, proxy_jump=?9, proxy_command=?10, agent_forwarding=?11 WHERE id=?12",
+        "UPDATE tunnels SET name=?1, asset_id=?2, access_endpoint_id=?3, tunnel_type=?4, local_host=?5, local_port=?6, remote_host=?7, remote_port=?8, remote_bind_host=?9 WHERE id=?10",
         params![
             tunnel.name,
-            tunnel.connection_id,
+            tunnel.asset_id,
+            tunnel.access_endpoint_id,
             tunnel.tunnel_type,
             tunnel.local_host,
             tunnel.local_port,
             tunnel.remote_host,
             tunnel.remote_port,
             tunnel.remote_bind_host,
-            tunnel.proxy_jump,
-            tunnel.proxy_command,
-            tunnel.agent_forwarding.unwrap_or(false),
             id
         ],
     )
@@ -794,7 +843,7 @@ pub fn get_tunnel_by_id(app_handle: &AppHandle, id: i64) -> Result<Option<Tunnel
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
 
     let mut stmt = conn
-        .prepare("SELECT id, name, connection_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, proxy_jump, proxy_command, agent_forwarding, created_at FROM tunnels WHERE id = ?1")
+        .prepare("SELECT id, name, asset_id, access_endpoint_id, tunnel_type, local_host, local_port, remote_host, remote_port, remote_bind_host, created_at FROM tunnels WHERE id = ?1")
         .map_err(|e| e.to_string())?;
 
     let mut rows = stmt
@@ -802,17 +851,15 @@ pub fn get_tunnel_by_id(app_handle: &AppHandle, id: i64) -> Result<Option<Tunnel
             Ok(Tunnel {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                connection_id: row.get(2)?,
-                tunnel_type: row.get(3)?,
-                local_host: row.get(4)?,
-                local_port: row.get(5)?,
-                remote_host: row.get(6)?,
-                remote_port: row.get(7)?,
-                remote_bind_host: row.get(8)?,
-                proxy_jump: row.get(9)?,
-                proxy_command: row.get(10)?,
-                agent_forwarding: row.get(11)?,
-                created_at: row.get(12)?,
+                asset_id: row.get(2)?,
+                access_endpoint_id: row.get(3)?,
+                tunnel_type: row.get(4)?,
+                local_host: row.get(5)?,
+                local_port: row.get(6)?,
+                remote_host: row.get(7)?,
+                remote_port: row.get(8)?,
+                remote_bind_host: row.get(9)?,
+                created_at: row.get(10)?,
             })
         })
         .map_err(|e| e.to_string())?;

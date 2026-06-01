@@ -379,7 +379,8 @@ export type TunnelType = "local" | "remote" | "dynamic";
 
 export interface Tunnel {
   id?: number;
-  connectionId: number;
+  assetId: number;
+  accessEndpointId: number;
   name: string;
   tunnelType: TunnelType;
   localHost?: string;
@@ -387,9 +388,6 @@ export interface Tunnel {
   remoteHost?: string;
   remotePort?: number;
   remoteBindHost?: string;
-  proxyJump?: string;
-  proxyCommand?: string;
-  agentForwarding?: boolean;
   createdAt?: number;
 }
 

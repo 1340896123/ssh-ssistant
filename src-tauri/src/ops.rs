@@ -2409,6 +2409,8 @@ pub fn access_update_access_endpoint(
 pub fn access_delete_access_endpoint(app_handle: AppHandle, id: i64) -> Result<(), String> {
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|e| e.to_string())?;
     let asset_id: i64 = conn
         .query_row(
             "SELECT asset_id FROM access_endpoints WHERE id = ?1",
@@ -2669,6 +2671,8 @@ pub fn asset_update_host_asset(
 pub fn asset_delete_host_asset(app_handle: AppHandle, id: i64) -> Result<(), String> {
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|e| e.to_string())?;
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     append_audit_event_with_conn(
         &tx,
