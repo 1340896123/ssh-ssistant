@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import {
-  BookMarked,
   Briefcase,
   Cable,
   FolderPlus,
   FolderTree,
   HardDrive,
   History,
-  Layers3,
   Plus,
   Search,
-  ShieldAlert,
   Star,
-  Tags,
   Trash2,
 } from "lucide-vue-next";
 import { useAssetStore } from "../stores/assets";
@@ -26,6 +22,7 @@ import type {
   ConnectionHistorySource,
   HostAsset,
 } from "../types";
+import AssetCard from "./AssetCard.vue";
 import ConnectionTreeItem from "./ConnectionTreeItem.vue";
 
 type HistoryFilter = "all" | "success" | "failed";
@@ -261,6 +258,18 @@ function selectAsset(asset: HostAsset) {
         <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
           {{ t('assetCenter.stats.activeSessions', { count: activeSessions }) }}
         </span>
+        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+          {{ t('assetCenter.stats.tagsLabel') }} {{ tags.length }}
+        </span>
+        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+          {{ t('assetCenter.stats.savedViews') }} {{ savedViews.length }}
+        </span>
+        <span
+          v-if="assets.filter((asset) => asset.criticality === 'critical').length > 0"
+          class="rounded-full border border-error/30 bg-error/10 px-2.5 py-1 text-error"
+        >
+          {{ t('assetCenter.stats.criticalAssets') }} {{ assets.filter((asset) => asset.criticality === "critical").length }}
+        </span>
       </div>
     </div>
 
@@ -312,102 +321,59 @@ function selectAsset(asset: HostAsset) {
       </div>
 
       <div v-else class="space-y-2">
-        <div
+        <AssetCard
           v-for="asset in searchResults"
           :key="asset.id"
-          data-testid="asset-center-search-result-card"
-          class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3"
+          :asset="asset"
+          :endpoint-label="endpointLabel(asset)"
+          @connect="(a) => { selectAsset(a); connect(a, 'search'); }"
         >
-          <div class="flex items-start justify-between gap-3">
-            <button
-              class="min-w-0 flex-1 text-left"
-              data-testid="asset-center-search-result-connect"
-              :data-asset-name="asset.name"
-              @click="selectAsset(asset); connect(asset, 'search')"
+          <template #badges>
+            <span
+              class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary"
             >
-              <div class="flex items-center gap-2">
-                <span class="truncate text-sm text-text-primary">{{ asset.name }}</span>
-                <span
-                  class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary"
-                >
-                  {{ asset.platform ?? t('connectionModal.platformOptions.linux') }}
-                </span>
-                <span
-                  v-if="asset.criticality"
-                  class="rounded-full px-2 py-0.5 text-[11px]"
-                  :class="
-                    asset.criticality === 'critical'
-                      ? 'bg-error/10 text-error'
-                      : asset.criticality === 'high'
-                        ? 'bg-warning/10 text-warning'
-                        : 'bg-bg-tertiary text-text-secondary'
-                  "
-                >
-                  {{ asset.criticality }}
-                </span>
-              </div>
-              <div class="mt-1 truncate text-xs text-text-secondary">{{ endpointLabel(asset) }}</div>
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-text-secondary">
-                <span v-if="asset.owner">{{ t('assetCenter.fields.owner', { owner: asset.owner }) }}</span>
-                <span v-if="asset.envId && environmentMap.get(asset.envId)">{{ t('assetCenter.fields.environmentValue', { environment: environmentMap.get(asset.envId) }) }}</span>
-                <span v-if="asset.healthSummary">{{ asset.healthSummary }}</span>
-              </div>
+              {{ asset.platform ?? t('connectionModal.platformOptions.linux') }}
+            </span>
+            <span
+              v-if="asset.criticality"
+              class="rounded-full px-2 py-0.5 text-[11px]"
+              :class="
+                asset.criticality === 'critical'
+                  ? 'bg-error/10 text-error'
+                  : asset.criticality === 'high'
+                    ? 'bg-warning/10 text-warning'
+                    : 'bg-bg-tertiary text-text-secondary'
+              "
+            >
+              {{ asset.criticality }}
+            </span>
+          </template>
+          <template #meta>
+            <span v-if="asset.owner">{{ t('assetCenter.fields.owner', { owner: asset.owner }) }}</span>
+            <span v-if="asset.envId && environmentMap.get(asset.envId)">{{ t('assetCenter.fields.environmentValue', { environment: environmentMap.get(asset.envId) }) }}</span>
+            <span v-if="asset.healthSummary">{{ asset.healthSummary }}</span>
+          </template>
+          <template #actions>
+            <button class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-warning" @click.stop="toggleFavorite(asset)">
+              <Star class="h-3.5 w-3.5" :class="assetStore.isFavorite(asset.id ?? -1) ? 'fill-current text-warning' : ''" />
             </button>
-            <div class="flex items-center gap-1">
-              <button class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-warning" @click.stop="toggleFavorite(asset)">
-                <Star class="h-3.5 w-3.5" :class="assetStore.isFavorite(asset.id ?? -1) ? 'fill-current text-warning' : ''" />
-              </button>
-              <button
-                data-testid="asset-center-search-result-edit"
-                class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
-                @click.stop="editAsset(asset)"
-              >
-                <Briefcase class="h-3.5 w-3.5" />
-              </button>
-              <button data-testid="asset-center-search-result-delete" class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-error" @click.stop="deleteAsset(asset)">
-                <Trash2 class="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
+            <button
+              data-testid="asset-center-search-result-edit"
+              class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+              @click.stop="editAsset(asset)"
+            >
+              <Briefcase class="h-3.5 w-3.5" />
+            </button>
+            <button data-testid="asset-center-search-result-delete" class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-error" @click.stop="deleteAsset(asset)">
+              <Trash2 class="h-3.5 w-3.5" />
+            </button>
+          </template>
+        </AssetCard>
       </div>
     </div>
 
     <div v-else class="min-h-0 flex-1 overflow-y-auto" data-testid="asset-center-content">
       <div class="shrink-0 space-y-3 border-b border-border-primary bg-bg-secondary/35 px-3 py-3">
-        <div class="grid grid-cols-2 gap-2 text-xs">
-          <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
-            <div class="flex items-center gap-2 text-text-secondary">
-              <Layers3 class="h-3.5 w-3.5" />
-              <span>{{ t('assetCenter.stats.environmentsLabel') }}</span>
-            </div>
-            <div class="mt-2 text-lg font-semibold text-text-primary">{{ environments.length }}</div>
-          </div>
-          <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
-            <div class="flex items-center gap-2 text-text-secondary">
-              <Tags class="h-3.5 w-3.5" />
-              <span>{{ t('assetCenter.stats.tagsLabel') }}</span>
-            </div>
-            <div class="mt-2 text-lg font-semibold text-text-primary">{{ tags.length }}</div>
-          </div>
-          <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
-            <div class="flex items-center gap-2 text-text-secondary">
-              <BookMarked class="h-3.5 w-3.5" />
-              <span>{{ t('assetCenter.stats.savedViews') }}</span>
-            </div>
-            <div class="mt-2 text-lg font-semibold text-text-primary">{{ savedViews.length }}</div>
-          </div>
-          <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
-            <div class="flex items-center gap-2 text-text-secondary">
-              <ShieldAlert class="h-3.5 w-3.5" />
-              <span>{{ t('assetCenter.stats.criticalAssets') }}</span>
-            </div>
-            <div class="mt-2 text-lg font-semibold text-text-primary">
-              {{ assets.filter((asset) => asset.criticality === "critical").length }}
-            </div>
-          </div>
-        </div>
-
         <div v-if="favoriteAssets.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
@@ -424,24 +390,23 @@ function selectAsset(asset: HostAsset) {
           </div>
 
           <div class="grid gap-2">
-            <div
+            <AssetCard
               v-for="asset in favoritePreview"
               :key="`favorite-${asset.id}`"
-              class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+              :asset="asset"
+              :endpoint-label="endpointLabel(asset)"
+              dense
+              @connect="(a) => { selectAsset(a); connect(a, 'quick'); }"
             >
-              <div class="flex items-start justify-between gap-3">
-                <button class="min-w-0 flex-1 text-left" @click="selectAsset(asset); connect(asset, 'quick')">
-                  <div class="truncate text-sm text-text-primary">{{ asset.name }}</div>
-                  <div class="mt-1 truncate text-xs text-text-secondary">{{ endpointLabel(asset) }}</div>
-                </button>
+              <template #actions>
                 <button
                   class="rounded p-1 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-warning"
                   @click.stop="toggleFavorite(asset)"
                 >
                   <Star class="h-3.5 w-3.5 fill-current text-warning" />
                 </button>
-              </div>
-            </div>
+              </template>
+            </AssetCard>
           </div>
         </div>
 
@@ -471,27 +436,33 @@ function selectAsset(asset: HostAsset) {
           </div>
 
           <div v-else class="space-y-2">
-            <div
+            <AssetCard
               v-for="item in visibleHistoryItems"
               :key="`${item.asset.id}-${item.entry.connectedAt}`"
-              class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+              :asset="item.asset"
+              :endpoint-label="endpointLabel(item.asset)"
+              dense
+              @connect="(a) => { selectAsset(a); connect(a, 'history'); }"
             >
-              <div class="flex items-start justify-between gap-3">
-                <button class="min-w-0 flex-1 text-left" @click="selectAsset(item.asset); connect(item.asset, 'history')">
-                  <div class="flex items-center gap-2">
-                    <span class="min-w-0 flex-1 truncate text-sm text-text-primary">{{ item.asset.name }}</span>
-                    <span class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary">
-                      {{ sourceLabel(item.entry.source === "tree" ? "history" : item.entry.source) }}
-                    </span>
-                    <span class="shrink-0 text-[11px] text-text-secondary">{{ formatRecentTime(item.entry.connectedAt) }}</span>
-                  </div>
-                  <div class="mt-1 truncate text-xs text-text-secondary">{{ endpointLabel(item.asset) }}</div>
-                  <div v-if="item.entry.reason" class="mt-1 truncate text-[11px]" :class="item.entry.status === 'failed' ? 'text-error' : 'text-text-secondary'">
-                    {{ item.entry.reason }}
-                  </div>
-                </button>
-              </div>
-            </div>
+              <template #title>
+                <span class="min-w-0 flex-1 truncate text-sm text-text-primary">{{ item.asset.name }}</span>
+              </template>
+              <template #badges>
+                <span class="rounded-full bg-bg-tertiary px-2 py-0.5 text-[11px] text-text-secondary">
+                  {{ sourceLabel(item.entry.source === "tree" ? "history" : item.entry.source) }}
+                </span>
+                <span class="shrink-0 text-[11px] text-text-secondary">{{ formatRecentTime(item.entry.connectedAt) }}</span>
+              </template>
+              <template #meta>
+                <span
+                  v-if="item.entry.reason"
+                  class="truncate"
+                  :class="item.entry.status === 'failed' ? 'text-error' : 'text-text-secondary'"
+                >
+                  {{ item.entry.reason }}
+                </span>
+              </template>
+            </AssetCard>
           </div>
         </div>
       </div>
