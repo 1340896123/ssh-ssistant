@@ -69,8 +69,10 @@
     "jobs": {
       "templatesTitle": "Job Templates",
       "templatesSubtitle": "Reuse safe command packs for single-host or batch execution.",
+      "templatesEmpty": "No templates yet. Save a command below to create one.",
       "templateCount": "{count} templates",
       "archiveTitle": "Recent Results Archive",
+      "archiveEmpty": "No archived runs yet.",
       "batchExecutionTitle": "Batch Execution",
       "batchExecutionSubtitle": "Preview by label or environment before execution, then confirm and archive results.",
       "templateNameLabel": "Template Name",
@@ -121,7 +123,9 @@
       "assetFilterLabel": "Asset Filter",
       "assetFilterAll": "All assets",
       "searchAction": "Search",
-      "searchingAction": "Searching..."
+      "searchingAction": "Searching...",
+      "emptyTitle": "No audit events",
+      "emptyHint": "Run a search to review recorded events."
     },
     "sync": {
       "overviewTitle": "Sync Overview",
@@ -277,7 +281,13 @@
       "jumpHost": "Jump Host",
       "jumpPort": "Jump Port",
       "jumpUsername": "Jump Username",
-      "jumpPassword": "Jump Password"
+      "jumpPassword": "Jump Password",
+      "jumpHostAdvanced": "Advanced: connect via jump host"
+    },
+    "errors": {
+      "nameRequired": "Asset name is required",
+      "hostRequired": "Host is required",
+      "usernameRequired": "Username is required"
     },
     "platformOptions": {
       "linux": "Linux",

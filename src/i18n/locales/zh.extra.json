@@ -69,8 +69,10 @@
     "jobs": {
       "templatesTitle": "作业模板",
       "templatesSubtitle": "复用适合单机或批量执行的安全命令模板",
+      "templatesEmpty": "暂无模板。在下方保存命令即可创建模板。",
       "templateCount": "{count} 个模板",
       "archiveTitle": "最近结果归档",
+      "archiveEmpty": "暂无已归档的执行记录。",
       "batchExecutionTitle": "批量执行",
       "batchExecutionSubtitle": "按标签或环境预览范围，确认后执行并归档结果",
       "templateNameLabel": "模板名称",
@@ -121,7 +123,9 @@
       "assetFilterLabel": "资产筛选",
       "assetFilterAll": "全部资产",
       "searchAction": "搜索",
-      "searchingAction": "搜索中..."
+      "searchingAction": "搜索中...",
+      "emptyTitle": "暂无审计事件",
+      "emptyHint": "执行一次搜索以查看已记录的事件。"
     },
     "sync": {
       "overviewTitle": "同步概览",
@@ -277,7 +281,13 @@
       "jumpHost": "跳板机主机",
       "jumpPort": "跳板机端口",
       "jumpUsername": "跳板机用户名",
-      "jumpPassword": "跳板机密码"
+      "jumpPassword": "跳板机密码",
+      "jumpHostAdvanced": "高级：通过跳板机连接"
+    },
+    "errors": {
+      "nameRequired": "资产名称为必填项",
+      "hostRequired": "主机为必填项",
+      "usernameRequired": "用户名为必填项"
     },
     "platformOptions": {
       "linux": "Linux",

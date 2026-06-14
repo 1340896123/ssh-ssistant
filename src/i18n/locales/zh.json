@@ -32,7 +32,13 @@
     "contextTitle": "共享上下文",
     "contextEmptyTitle": "等待连接",
     "contextEmptyDescription": "连接会话后，这里会显示 AI 和文件上下文。",
-    "sessionTabsLabel": "会话"
+    "sessionTabsLabel": "会话",
+    "welcomeTitle": "SSH Assistant 运维工作台",
+    "welcomeDescription": "选择一个资产，即可打开终端、文件、隧道和 AI 运维上下文。",
+    "openAssetCenter": "打开资产中心",
+    "newAsset": "新建资产",
+    "openOpsWorkbench": "打开运维工作台",
+    "switchAccount": "切换"
   },
   "sessionsPane": {
     "title": "会话工作台",
@@ -237,6 +243,9 @@
     "accountAndSync": "账号与同步",
     "accountModeTitle": "账号模式",
     "accountModeDesc": "支持个人账号、企业子账号和本地模式。云同步会按当前账号模式保存资产中心与设置。",
+    "accountTabHint": "账号身份与云端登录由登录页统一管理。可在侧边栏点击「切换账号」切换模式或重新认证。",
+    "unsavedChanges": "有未保存的更改",
+    "resetChanges": "重置",
     "accountMode": "账号模式",
     "accountModes": {
       "local": "本地模式",
@@ -258,6 +267,10 @@
     "organizationScopePlaceholder": "例如：default-org / enterprise-a",
     "syncAssets": "同步资产中心",
     "syncSettingsLabel": "同步设置",
+    "aiModelConfigTitle": "AI 模型配置",
+    "aiModelConfigDesc": "配置 AI 助手使用的服务商、端点和模型。",
+    "aiBillingSectionTitle": "订阅与计费",
+    "aiBillingSectionDesc": "管理 AI 订阅方案、账单、用量和支付方式。",
     "aiSubscriptionTitle": "AI 订阅服务",
     "aiSubscriptionDesc": "按人按月订阅 AI 服务，也支持切换为自定义端点并同步到系统后台。",
     "subscriptionPlan": "订阅方案",
@@ -449,7 +462,8 @@
       "copyCurrentPath": "复制当前路径",
       "changePermissions": "修改权限",
       "copyName": "复制名称",
-      "switchToTerminalPath": "终端切换到当前目录"
+      "switchToTerminalPath": "终端切换到当前目录",
+      "more": "更多"
     },
     "deleteConfirm": {
       "title": "确认删除",

@@ -243,6 +243,9 @@
     "accountAndSync": "Account & Sync",
     "accountModeTitle": "Account Mode",
     "accountModeDesc": "Support personal accounts, enterprise sub-accounts, and local mode. Cloud sync follows the active account mode for assets and settings.",
+    "accountTabHint": "Account identity and cloud login are managed on the sign-in page. Use \"Switch account\" in the sidebar to switch modes or re-authenticate.",
+    "unsavedChanges": "You have unsaved changes",
+    "resetChanges": "Reset",
     "accountMode": "Account Mode",
     "accountModes": {
       "local": "Local Mode",
@@ -264,6 +267,10 @@
     "organizationScopePlaceholder": "For example: default-org / enterprise-a",
     "syncAssets": "Sync Asset Center",
     "syncSettingsLabel": "Sync Settings",
+    "aiModelConfigTitle": "AI Model Configuration",
+    "aiModelConfigDesc": "Configure the provider, endpoint, and model used by the AI assistant.",
+    "aiBillingSectionTitle": "Subscription & Billing",
+    "aiBillingSectionDesc": "Manage your AI subscription plan, invoices, usage, and payment methods.",
     "aiSubscriptionTitle": "AI Subscription Service",
     "aiSubscriptionDesc": "Support per-user monthly AI subscriptions, or switch to your own endpoint and sync it to the system backend.",
     "subscriptionPlan": "Subscription Plan",
@@ -455,7 +462,8 @@
       "copyCurrentPath": "Copy Current Path",
       "changePermissions": "Change Permissions",
       "copyName": "Copy Name",
-      "switchToTerminalPath": "Switch to current directory"
+      "switchToTerminalPath": "Switch to current directory",
+      "more": "More"
     },
     "deleteConfirm": {
       "title": "Confirm Deletion",
