@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { ArrowLeft, ChevronRight, Pencil, Play, Plus, Square, Trash2, X } from 'lucide-vue-next';
+import { ArrowLeft, ChevronRight, Plus, X } from 'lucide-vue-next';
 import type { AccessEndpoint, HostAsset, Tunnel, TunnelType } from '../types';
 import { useTunnelStore } from '../stores/tunnels';
 import { useAssetStore } from '../stores/assets';
 import { useNotificationStore } from '../stores/notifications';
 import { useI18n } from '../composables/useI18n';
+import TunnelCard from './TunnelCard.vue';
 
 type ModalMode = 'list' | 'create' | 'edit';
 
@@ -272,7 +273,7 @@ async function stopTunnel(tunnel: Tunnel) {
 
 <template>
   <div v-if="show" data-testid="tunnel-modal-overlay" class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay">
-    <div data-testid="tunnel-modal" class="max-h-[90vh] w-[780px] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary">
+    <div data-testid="tunnel-modal" class="max-h-[90vh] w-[min(780px,92vw)] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary">
       <div class="mb-4 flex items-center justify-between">
         <div>
           <h2 class="text-xl font-bold text-text-primary">
@@ -310,75 +311,22 @@ async function stopTunnel(tunnel: Tunnel) {
         </div>
 
         <div class="space-y-2">
-          <div
+          <TunnelCard
             v-for="tunnel in tunnelStore.tunnels"
             :key="tunnel.id"
-            class="rounded border border-border-secondary p-3"
-          >
-            <div class="flex items-center justify-between gap-4">
-              <div class="min-w-0">
-                <div class="text-sm font-semibold text-text-primary">{{ tunnel.name }}</div>
-                <div class="text-xs text-text-secondary">
-                  {{ t('tunnels.mapping') }}: {{ formatMapping(tunnel) }}
-                </div>
-                <div class="mt-1 text-[11px] text-text-muted">
-                  {{ t('tunnels.boundEndpoint') }}: {{ formatEndpoint(endpointMap.get(tunnel.accessEndpointId)) }}
-                </div>
-                <div
-                  v-if="tunnel.id && tunnelStore.errorMessages[tunnel.id]"
-                  class="mt-1 text-[11px] text-error"
-                >
-                  {{ tunnelStore.errorMessages[tunnel.id] }}
-                </div>
-              </div>
-              <div class="flex items-center space-x-2">
-                <span
-                  v-if="!tunnelStore.isActive(tunnel.id || 0)"
-                  class="rounded bg-bg-tertiary px-2 py-1 text-xs text-text-muted"
-                >
-                  {{ t('tunnels.inactive') }}
-                </span>
-                <span
-                  v-else
-                  class="rounded bg-success/20 px-2 py-1 text-xs text-success"
-                >
-                  {{ t('tunnels.active') }}
-                </span>
-
-                <button
-                  v-if="!tunnelStore.isActive(tunnel.id || 0)"
-                  @click="startTunnel(tunnel)"
-                  class="p-1 text-success hover:text-success/80"
-                  :title="t('tunnels.start')"
-                >
-                  <Play class="h-4 w-4" />
-                </button>
-                <button
-                  v-else
-                  @click="stopTunnel(tunnel)"
-                  class="p-1 text-warning hover:text-warning/80"
-                  :title="t('tunnels.stop')"
-                >
-                  <Square class="h-4 w-4" />
-                </button>
-
-                <button
-                  @click="editTunnel(tunnel)"
-                  class="p-1 text-text-muted hover:text-info"
-                  :title="t('tunnels.tooltipEdit')"
-                >
-                  <Pencil class="h-4 w-4" />
-                </button>
-                <button
-                  @click="deleteTunnel(tunnel)"
-                  class="p-1 text-text-muted hover:text-error"
-                  :title="t('tunnels.tooltipDelete')"
-                >
-                  <Trash2 class="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          </div>
+            :tunnel="tunnel"
+            :mapping="formatMapping(tunnel)"
+            :endpoint-label="formatEndpoint(endpointMap.get(tunnel.accessEndpointId))"
+            :error-message="(tunnel.id && tunnelStore.errorMessages[tunnel.id]) || ''"
+            :is-active="tunnelStore.isActive(tunnel.id || 0)"
+            :show-asset-name="false"
+            manage-variant="edit"
+            test-id-prefix="tunnel-modal"
+            @start="startTunnel"
+            @stop="stopTunnel"
+            @manage="editTunnel"
+            @delete="deleteTunnel"
+          />
 
           <div
             v-if="tunnelStore.tunnels.length === 0"

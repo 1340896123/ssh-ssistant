@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { RefreshCw, Play, Square, Settings2, Trash2 } from 'lucide-vue-next';
+import { RefreshCw } from 'lucide-vue-next';
 import { useTunnelStore } from '../stores/tunnels';
 import { useAssetStore } from '../stores/assets';
 import { useNotificationStore } from '../stores/notifications';
 import { useI18n } from '../composables/useI18n';
+import TunnelCard from './TunnelCard.vue';
+import EmptyState from './EmptyState.vue';
 import type { AccessEndpoint, HostAsset, Tunnel } from '../types';
 
 const emit = defineEmits<{
@@ -167,56 +169,30 @@ async function deleteTunnel(tunnel: Tunnel) {
     </div>
 
     <div class="space-y-2">
-      <div v-for="tunnel in tunnelStore.tunnels" :key="tunnel.id" data-testid="tunnel-panel-item" :data-tunnel-name="tunnel.name" class="border border-border-secondary rounded p-3">
-        <div class="flex items-center justify-between">
-          <div class="min-w-0">
-            <div class="text-sm font-semibold text-text-primary truncate">{{ tunnel.name }}</div>
-            <div class="text-xs text-text-secondary truncate">
-              {{ t('tunnels.mapping') }}: {{ formatMapping(tunnel) }}
-            </div>
-            <div class="text-[11px] text-text-muted mt-1">
-              {{ assetMap.get(tunnel.assetId)?.name || t('tunnels.assetUnknown') }}
-            </div>
-            <div class="text-[11px] text-text-muted mt-1">
-              {{ t('tunnels.boundEndpoint') }}: {{ formatEndpoint(endpointMap.get(tunnel.accessEndpointId)) }}
-            </div>
-            <div
-              v-if="tunnel.id && tunnelStore.errorMessages[tunnel.id]"
-              class="mt-1 text-[11px] text-error"
-            >
-              {{ tunnelStore.errorMessages[tunnel.id] }}
-            </div>
-          </div>
-          <div class="flex items-center space-x-2">
-            <span class="text-xs px-2 py-1 rounded bg-bg-tertiary text-text-muted" v-if="!tunnelStore.isActive(tunnel.id || 0)">
-              {{ t('tunnels.inactive') }}
-            </span>
-            <span class="text-xs px-2 py-1 rounded bg-success/20 text-success" v-else>
-              {{ t('tunnels.active') }}
-            </span>
+      <TunnelCard
+        v-for="tunnel in tunnelStore.tunnels"
+        :key="tunnel.id"
+        :tunnel="tunnel"
+        :mapping="formatMapping(tunnel)"
+        :endpoint-label="formatEndpoint(endpointMap.get(tunnel.accessEndpointId))"
+        :asset-name="assetMap.get(tunnel.assetId)?.name || ''"
+        :error-message="(tunnel.id && tunnelStore.errorMessages[tunnel.id]) || ''"
+        :is-active="tunnelStore.isActive(tunnel.id || 0)"
+        :show-asset-name="true"
+        manage-variant="settings"
+        test-id-prefix="tunnel-panel"
+        @start="startTunnel"
+        @stop="stopTunnel"
+        @manage="openManage"
+        @delete="deleteTunnel"
+      />
 
-            <button v-if="!tunnelStore.isActive(tunnel.id || 0)" data-testid="tunnel-panel-start" @click="startTunnel(tunnel)"
-              class="p-1 text-success hover:text-success/80" :title="t('tunnels.start')">
-              <Play class="w-4 h-4" />
-            </button>
-            <button v-else data-testid="tunnel-panel-stop" @click="stopTunnel(tunnel)"
-              class="p-1 text-warning hover:text-warning/80" :title="t('tunnels.stop')">
-              <Square class="w-4 h-4" />
-            </button>
-
-            <button @click="openManage(tunnel)" class="p-1 text-text-muted hover:text-info" :title="t('tunnels.manage')">
-              <Settings2 class="w-4 h-4" />
-            </button>
-            <button @click="deleteTunnel(tunnel)" data-testid="tunnel-panel-delete" class="p-1 text-text-muted hover:text-error" :title="t('tunnels.delete')">
-              <Trash2 class="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="tunnelStore.tunnels.length === 0" class="text-xs text-text-muted">
-        {{ t('tunnels.none') }}
-      </div>
+      <EmptyState
+        v-if="tunnelStore.tunnels.length === 0"
+        :title="t('tunnels.none')"
+        :description="t('tunnels.emptyState')"
+        compact
+      />
     </div>
   </div>
 </template>
