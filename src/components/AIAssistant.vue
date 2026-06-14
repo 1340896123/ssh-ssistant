@@ -1619,7 +1619,7 @@ onUnmounted(() => {
             <textarea
               v-model="input"
               @keydown.enter.exact.prevent="sendMessage"
-              class="input-retro min-h-[44px] flex-1 resize-none px-4 py-3"
+              class="input-retro min-h-[44px] max-h-[40vh] flex-1 resize-y px-4 py-3"
               :placeholder="t('aiAssistant.inputPlaceholder')"
               rows="1"
               :disabled="isLoading"
