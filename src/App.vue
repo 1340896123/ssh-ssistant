@@ -802,10 +802,6 @@ function openConnectionsWorkbench() {
   activateActivity("connections");
 }
 
-function openOpsWorkbench() {
-  activateActivity("ops");
-}
-
 async function reconcilePendingCheckoutStatus() {
   const result = await settingsStore.reconcilePendingCheckoutSession();
   if (!result) {
@@ -1229,9 +1225,10 @@ onUnmounted(() => {
           </button>
           <button
             class="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary"
+            :title="t('workbench.switchAccount')"
             @click="handleSwitchAccount"
           >
-            Switch
+            {{ t('workbench.switchAccount') }}
           </button>
         </div>
       </aside>
@@ -1362,14 +1359,14 @@ onUnmounted(() => {
                 @click="openConnectionsWorkbench"
               >
                 <Monitor class="h-3.5 w-3.5" />
-                <span>Open Asset Center</span>
+                <span>{{ t("workbench.openAssetCenter") }}</span>
               </button>
               <button
                 class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-90"
                 @click="openNewConnectionModal"
               >
                 <Plus class="h-3.5 w-3.5" />
-                <span>New Asset</span>
+                <span>{{ t("workbench.newAsset") }}</span>
               </button>
             </div>
           </div>
@@ -1400,10 +1397,10 @@ onUnmounted(() => {
             <div v-else class="flex h-full items-center justify-center px-6">
               <div class="w-full max-w-xl rounded-2xl border border-border-primary bg-bg-secondary px-8 py-10 text-center">
                 <div class="text-2xl font-semibold text-text-primary">
-                  SSH Assistant Ops
+                  {{ t("workbench.welcomeTitle") }}
                 </div>
                 <div class="mt-3 text-sm text-text-secondary">
-                  Select an asset to open terminal, files, tunnels, and AI ops context.
+                  {{ t("workbench.welcomeDescription") }}
                 </div>
                 <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-text-secondary">
                   <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+1 {{ t("workbench.focusMode") }}</span>
@@ -1411,15 +1408,9 @@ onUnmounted(() => {
                   <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+3 AI</span>
                   <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+4 Files</span>
                 </div>
-                <div class="mt-8 flex items-center justify-center gap-3">
+                <div class="mt-8 flex items-center justify-center">
                   <button class="btn btn-primary" @click="openNewConnectionModal">
-                    New Asset
-                  </button>
-                  <button class="btn btn-secondary" @click="openConnectionsWorkbench">
-                    Open Asset Center
-                  </button>
-                  <button class="btn btn-secondary" @click="openOpsWorkbench">
-                    Open Ops Workbench
+                    {{ t("workbench.newAsset") }}
                   </button>
                 </div>
               </div>
@@ -1427,114 +1418,129 @@ onUnmounted(() => {
           </div>
 
           <div class="h-8 overflow-x-auto overflow-y-hidden border-t border-border-primary bg-bg-secondary">
-            <div class="flex h-full min-w-max items-center gap-2 px-3 text-xs text-text-secondary">
-              <span
-                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5 text-text-primary"
-              >
-                {{
-                  activeSession
-                    ? activeSession.status
-                    : t("workbench.statusIdle")
-                }}
-              </span>
-              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
-                {{ activeAccountSummary.displayName }} · {{ activeAccountSummary.mode }}
-              </span>
-              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
-                {{ activeAccountSummary.identity }} · {{ activeAccountSummary.scope }}
-              </span>
-              <span
-                v-if="activeAccountSummary.enterprise"
-                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
-              >
-                {{ activeAccountSummary.enterprise }}
-              </span>
-              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
-                {{ activeAccountSummary.subscription }} · {{ activeAccountSummary.endpoint }}
-              </span>
-              <span v-if="activeSession" class="shrink-0 whitespace-nowrap">
-                {{ t("app.sessionDuration") }} {{ activeSessionDuration }}
-              </span>
-              <span
-                v-if="activeAssetRisk"
-                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
-                :class="
-                  activeAssetRisk === 'critical'
-                    ? 'text-error'
-                    : activeAssetRisk === 'high'
-                      ? 'text-warning'
-                      : 'text-text-secondary'
-                "
-              >
-                Risk {{ activeAssetRisk }}
-              </span>
-              <span
-                v-if="activeAssetHealth"
-                class="max-w-[12rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
-                :title="activeAssetHealth"
-              >
-                {{ activeAssetHealth }}
-              </span>
-              <span
-                v-if="activeSession?.currentPath"
-                class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
-                :title="activeSession.currentPath"
-              >
-                {{ activeSession.currentPath }}
-              </span>
-              <span
-                v-if="activeSelection.count > 0"
-                class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
-                :title="
-                  activeSelection.targetLabel
-                    ? `${t('workbench.statusSelection', {
-                        count: activeSelection.count,
-                      })} · ${activeSelection.targetLabel}`
-                    : t('workbench.statusSelection', {
-                        count: activeSelection.count,
-                      })
-                "
-              >
-                {{
-                  t("workbench.statusSelection", {
-                    count: activeSelection.count,
-                  })
-                }}
-                <span v-if="activeSelection.targetLabel"> · {{ activeSelection.targetLabel }}</span>
-              </span>
-              <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
-                {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
-              </span>
-              <span
-                v-if="activeTransferSummary.total > 0"
-                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
-              >
-                {{
-                  t("workbench.statusTransfers", {
-                    total: activeTransferSummary.total,
-                    running: activeTransferSummary.running,
-                  })
-                }}
-              </span>
-              <span
-                v-if="activeSession && sessionStatus[activeSession.id]?.uptime"
-                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
-              >
-                {{ sessionStatus[activeSession.id].uptime }}
-              </span>
-              <span
-                v-if="activeSession && sessionStatus[activeSession.id]?.disk?.percent"
-                class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
-              >
-                Disk {{ sessionStatus[activeSession.id].disk?.percent }}
-              </span>
-              <span
-                v-if="activeSession && sessionStatus[activeSession.id]?.ip"
-                class="max-w-[10rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
-                :title="sessionStatus[activeSession.id].ip"
-              >
-                {{ sessionStatus[activeSession.id].ip }}
-              </span>
+            <div class="flex h-full min-w-max items-center gap-3 px-3 text-xs text-text-secondary">
+              <!-- Group: Account (stable identity) -->
+              <div class="flex shrink-0 items-center gap-2">
+                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                  {{ activeAccountSummary.displayName }} · {{ activeAccountSummary.mode }}
+                </span>
+                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                  {{ activeAccountSummary.identity }} · {{ activeAccountSummary.scope }}
+                </span>
+                <span
+                  v-if="activeAccountSummary.enterprise"
+                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                >
+                  {{ activeAccountSummary.enterprise }}
+                </span>
+                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                  {{ activeAccountSummary.subscription }} · {{ activeAccountSummary.endpoint }}
+                </span>
+              </div>
+
+              <span class="h-3 w-px shrink-0 bg-border-primary"></span>
+
+              <!-- Group: Session (dynamic session state) -->
+              <div class="flex shrink-0 items-center gap-2">
+                <span
+                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5 text-text-primary"
+                >
+                  {{
+                    activeSession
+                      ? activeSession.status
+                      : t("workbench.statusIdle")
+                  }}
+                </span>
+                <span v-if="activeSession" class="shrink-0 whitespace-nowrap">
+                  {{ t("app.sessionDuration") }} {{ activeSessionDuration }}
+                </span>
+                <span
+                  v-if="activeSession?.currentPath"
+                  class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  :title="activeSession.currentPath"
+                >
+                  {{ activeSession.currentPath }}
+                </span>
+                <span
+                  v-if="activeSelection.count > 0"
+                  class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  :title="
+                    activeSelection.targetLabel
+                      ? `${t('workbench.statusSelection', {
+                          count: activeSelection.count,
+                        })} · ${activeSelection.targetLabel}`
+                      : t('workbench.statusSelection', {
+                          count: activeSelection.count,
+                        })
+                  "
+                >
+                  {{
+                    t("workbench.statusSelection", {
+                      count: activeSelection.count,
+                    })
+                  }}
+                  <span v-if="activeSelection.targetLabel"> · {{ activeSelection.targetLabel }}</span>
+                </span>
+                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                  {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
+                </span>
+                <span
+                  v-if="activeTransferSummary.total > 0"
+                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                >
+                  {{
+                    t("workbench.statusTransfers", {
+                      total: activeTransferSummary.total,
+                      running: activeTransferSummary.running,
+                    })
+                  }}
+                </span>
+              </div>
+
+              <span class="h-3 w-px shrink-0 bg-border-primary"></span>
+
+              <!-- Group: Asset & system monitoring -->
+              <div class="flex shrink-0 items-center gap-2">
+                <span
+                  v-if="activeAssetRisk"
+                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                  :class="
+                    activeAssetRisk === 'critical'
+                      ? 'text-error'
+                      : activeAssetRisk === 'high'
+                        ? 'text-warning'
+                        : 'text-text-secondary'
+                  "
+                >
+                  Risk {{ activeAssetRisk }}
+                </span>
+                <span
+                  v-if="activeAssetHealth"
+                  class="max-w-[12rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  :title="activeAssetHealth"
+                >
+                  {{ activeAssetHealth }}
+                </span>
+                <span
+                  v-if="activeSession && sessionStatus[activeSession.id]?.uptime"
+                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                >
+                  {{ sessionStatus[activeSession.id].uptime }}
+                </span>
+                <span
+                  v-if="activeSession && sessionStatus[activeSession.id]?.disk?.percent"
+                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                >
+                  Disk {{ sessionStatus[activeSession.id].disk?.percent }}
+                </span>
+                <span
+                  v-if="activeSession && sessionStatus[activeSession.id]?.ip"
+                  class="max-w-[10rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  :title="sessionStatus[activeSession.id].ip"
+                >
+                  {{ sessionStatus[activeSession.id].ip }}
+                </span>
+              </div>
             </div>
           </div>
         </main>
