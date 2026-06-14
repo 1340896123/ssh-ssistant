@@ -1,0 +1,21 @@
+{
+  "productName": "SshStar Local",
+  "identifier": "com.jieok.sshstar.local",
+  "app": {
+    "windows": [
+      {
+        "title": "SshStar Local",
+        "width": 1600,
+        "height": 900,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": []
+      }
+    }
+  }
+}

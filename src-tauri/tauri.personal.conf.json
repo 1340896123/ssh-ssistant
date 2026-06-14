@@ -1,0 +1,21 @@
+{
+  "productName": "SshStar",
+  "identifier": "com.jieok.sshstar",
+  "app": {
+    "windows": [
+      {
+        "title": "SshStar",
+        "width": 1600,
+        "height": 900,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["sshstar-personal"]
+      }
+    }
+  }
+}
