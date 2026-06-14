@@ -9,7 +9,6 @@ import { listen } from "@tauri-apps/api/event";
 import {
   Send,
   Bot,
-  User,
   TerminalSquare,
   Loader2,
   ChevronRight,
@@ -83,6 +82,15 @@ const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
 const assetStore = useAssetStore();
 const notificationStore = useNotificationStore();
+
+const userInitial = computed(() => {
+  const name =
+    settingsStore.account.displayName ||
+    settingsStore.account.email ||
+    settingsStore.account.userId ||
+    "";
+  return (name.trim()[0] || "U").toUpperCase();
+});
 const { t } = useI18n();
 const markdownRenderer = ref<{ render: (content: string) => string } | null>(null);
 
@@ -1365,24 +1373,24 @@ onUnmounted(() => {
           :class="msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''"
         >
           <div
-            class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border border-border-primary"
+            class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold flex-shrink-0"
             :class="
               msg.role === 'user'
-                ? 'bg-primary/20 text-primary'
-                : 'bg-accent/20 text-accent'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-accent/20 text-accent border border-accent/30'
             "
           >
-            <User v-if="msg.role === 'user'" class="w-5 h-5" />
-            <Bot v-else class="w-5 h-5" />
+            <span v-if="msg.role === 'user'">{{ userInitial }}</span>
+            <Bot v-else class="h-5 w-5" />
           </div>
 
           <div
-            class="shadow-interactive max-w-[85%] rounded-lg p-3 text-sm bg-bg-elevated"
-            :class="
+            class="shadow-interactive rounded-lg p-3 text-sm bg-bg-elevated"
+            :class="[
               msg.role === 'user'
-                ? 'border border-primary/30'
-                : 'border border-accent/30'
-            "
+                ? 'max-w-[85%] border border-primary/30'
+                : 'max-w-[92%] border border-accent/30'
+            ]"
           >
             <div
               v-if="msg.role === 'user'"
@@ -1564,6 +1572,11 @@ onUnmounted(() => {
         v-if="isLoading"
         class="flex items-center space-x-2 text-text-muted text-sm pl-12 fade-in"
       >
+        <div class="flex items-center space-x-1">
+          <span class="ai-typing-dot"></span>
+          <span class="ai-typing-dot" style="animation-delay: 0.15s"></span>
+          <span class="ai-typing-dot" style="animation-delay: 0.3s"></span>
+        </div>
         <Loader2 class="w-4 h-4 animate-spin text-primary" />
         <span>{{ t("aiAssistant.thinking") }}</span>
       </div>
@@ -1623,7 +1636,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div class="mt-2 text-xs text-text-muted text-center">
+      <div v-if="!isLoading" class="mt-2 text-center text-[11px] text-text-muted opacity-60">
         {{ t("aiAssistant.warning") }}
       </div>
     </div>
@@ -1631,6 +1644,29 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Typing dots for AI thinking indicator */
+.ai-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: var(--color-primary, currentColor);
+  opacity: 0.4;
+  animation: ai-typing-bounce 1.2s infinite ease-in-out;
+}
+
+@keyframes ai-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
 /* Styles for markdown content */
 :deep(.markdown-content) {
   line-height: 1.5;

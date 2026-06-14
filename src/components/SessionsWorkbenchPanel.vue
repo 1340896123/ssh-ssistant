@@ -302,11 +302,11 @@ function formatDuration(timestamp: number) {
 
             <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
               <button
-                class="rounded-md p-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary"
+                class="rounded-md p-1.5 text-text-secondary hover:bg-bg-secondary hover:text-warning"
                 :title="t('sessionsPane.closeOther')"
                 @click.stop="closeOtherSessions(session.id)"
               >
-                <Rows3 class="h-3.5 w-3.5" />
+                <X class="h-3.5 w-3.5" />
               </button>
               <button
                 v-if="session.status === 'connected'"

@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick, shallowRef, tri
 import { invoke } from '@tauri-apps/api/core';
 import { join, tempDir } from '@tauri-apps/api/path';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, FolderUp, Briefcase, Copy, MessageSquareQuote, Terminal as TerminalIcon } from 'lucide-vue-next';
+import { ArrowUp, ChevronRight, RefreshCw, Upload, FilePlus, FolderPlus, FolderUp, Briefcase, Copy, MessageSquareQuote, Terminal as TerminalIcon } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, remove, stat } from '@tauri-apps/plugin-fs';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
@@ -367,6 +367,7 @@ const currentPath = ref('.');
 const files = shallowRef<FileEntry[]>([]);
 const contextMenu = ref<{ show: boolean, x: number, y: number, file: FileEntry | null, treePath: string | null, isTree: boolean, isBackground: boolean }>({ show: false, x: 0, y: 0, file: null, treePath: null, isTree: false, isBackground: false });
 const contextMenuRef = ref<HTMLElement | null>(null);
+const contextSubmenuOpen = ref(false);
 const isEditingPath = ref(false);
 const pathInput = ref('');
 const renamingPath = ref<string | null>(null);
@@ -1590,6 +1591,7 @@ function showContextMenu(e: MouseEvent, file: FileEntry) {
 
 function closeContextMenu() {
     contextMenu.value.show = false;
+    contextSubmenuOpen.value = false;
 }
 
 function getSelectedAiContextPaths() {
@@ -2346,7 +2348,7 @@ function formatSize(size: number): string {
 <template>
     <div ref="containerRef" tabindex="0" class="flex h-full min-h-0 min-w-0 flex-col bg-bg-primary p-2 text-text-primary outline-none" @click="handleContainerClick">
         <!-- Toolbar -->
-        <div class="flex flex-col space-y-2 mb-2 bg-bg-secondary p-2 rounded border border-subtle hover:border-primary/30 transition-all duration-fast">
+        <div class="mb-2 flex flex-col space-y-2 px-1 pb-2 border-b border-subtle">
             <!-- Path Bar -->
             <div class="flex items-center space-x-2">
                 <button @click="goUp" class="p-1 hover:bg-bg-tertiary rounded text-text-secondary hover:text-primary transition-all duration-fast "
@@ -2376,7 +2378,7 @@ function formatSize(size: number): string {
             </div>
 
             <!-- Action Buttons -->
-            <div class="flex items-center space-x-2 border-t border-subtle pt-2">
+            <div class="flex items-center space-x-2 pt-1">
                 <button @click="createFile"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-bg-tertiary hover:bg-bg-hover rounded text-text-primary transition-all duration-fast "
                     :title="t('fileManager.toolbar.newFile')">
@@ -2571,21 +2573,33 @@ function formatSize(size: number): string {
                     {{ t('fileManager.workspace.setAction') }}
                 </button>
                 <button @click.stop="copyPath(contextMenu.file!)"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">{{
-                        t('fileManager.contextMenu.copyPath') }}</button>
-                <button @click.stop="copyName(contextMenu.file!)"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">{{
-                        t('fileManager.contextMenu.copyName') }}</button>
-                <button @click.stop="handleChangePermissions(contextMenu.file!)"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">{{
-                        t('fileManager.contextMenu.changePermissions')
-                    }}</button>
-                <div class="border-t border-subtle my-1"></div>
-                <button v-if="contextMenu.file?.isDir" @click.stop="handleSwitchToTerminalPath()"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center transition-all duration-fast">
+                    <Copy class="w-4 h-4 mr-2 text-text-tertiary" />
+                    {{ t('fileManager.contextMenu.copyPath') }}
+                </button>
+                <button @click.stop="handleSwitchToTerminalPath()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center">
                     <TerminalIcon class="w-4 h-4 mr-2 text-text-muted" />
                     {{ t('fileManager.contextMenu.switchToTerminalPath') }}
                 </button>
+                <!-- More submenu: secondary actions -->
+                <div class="relative" @mouseover="contextSubmenuOpen = true" @mouseleave="contextSubmenuOpen = false">
+                    <button class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center transition-all duration-fast">
+                        <span class="flex-1">{{ t('fileManager.contextMenu.more') }}</span>
+                        <ChevronRight class="w-4 h-4 text-text-tertiary" />
+                    </button>
+                    <div v-if="contextSubmenuOpen"
+                        class="absolute left-full top-0 -ml-1 min-w-[150px] bg-bg-secondary border border-subtle shadow-xl rounded z-50 py-1">
+                        <button @click.stop="copyName(contextMenu.file!); closeContextMenu()"
+                            class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">
+                            {{ t('fileManager.contextMenu.copyName') }}
+                        </button>
+                        <button @click.stop="handleChangePermissions(contextMenu.file!); closeContextMenu()"
+                            class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">
+                            {{ t('fileManager.contextMenu.changePermissions') }}
+                        </button>
+                    </div>
+                </div>
             </template>
         </div>
     </div>
