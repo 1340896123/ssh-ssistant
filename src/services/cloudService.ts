@@ -616,4 +616,104 @@ export const cloudService = {
     }
     return response.json();
   },
+
+  /**
+   * Build the browser entry-point URL for the OAuth-style login flow.
+   *
+   * The client opens this URL in the system browser; the user authenticates /
+   * registers on the web, then the web redirects back to
+   * `{scheme}://auth/callback?payload=<urlencoded-json>` carrying the full
+   * login response. No credentials are ever typed inside the client.
+   */
+  buildAuthStartUrl(
+    baseUrl: string | null | undefined,
+    options: { variant: string; scheme: string; cloudMode: "personal" | "enterpriseSubAccount" },
+  ) {
+    const redirectUri = `${options.scheme}://auth/callback`;
+    const params = new URLSearchParams({
+      client: options.variant,
+      mode: options.cloudMode,
+      redirect_uri: redirectUri,
+    });
+    return `${normalizeBaseUrl(baseUrl)}/auth/start?${params.toString()}`;
+  },
+
+  /**
+   * Parse a deep-link callback URL produced by the browser login flow.
+   * Returns the mapped login response, or `null` if the URL is not an auth
+   * callback (e.g. it's a billing deep-link instead).
+   *
+   * Accepted shapes (both supported for backend flexibility):
+   *   {scheme}://auth/callback?payload=<urlencoded-json>
+   *   {scheme}://auth/callback?mode=...&accountKey=...&accessToken=...&...
+   */
+  parseAuthCallback(url: string): ClientLoginResponse | null {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+    if (parsed.hostname !== "auth" || parsed.pathname !== "/callback") {
+      return null;
+    }
+
+    const payloadParam = parsed.searchParams.get("payload");
+    if (payloadParam) {
+      try {
+        const decoded = JSON.parse(payloadParam) as ClientLoginResponsePayload;
+        return mapLoginResponse(decoded);
+      } catch {
+        return null;
+      }
+    }
+
+    // Flat query-string fallback. Requires at minimum an accessToken + mode.
+    const accessToken = parsed.searchParams.get("accessToken");
+    const mode = parsed.searchParams.get("mode");
+    if (!accessToken || !mode) {
+      return null;
+    }
+
+    const flatPayload: ClientLoginResponsePayload = {
+      mode,
+      accountKey: parsed.searchParams.get("accountKey") || "",
+      displayName: parsed.searchParams.get("displayName") || "",
+      email: parsed.searchParams.get("email") || "",
+      enterpriseId: parsed.searchParams.get("enterpriseId") || "",
+      enterpriseName: parsed.searchParams.get("enterpriseName") || "",
+      subAccountId: parsed.searchParams.get("subAccountId") || "",
+      accessToken,
+      refreshToken: parsed.searchParams.get("refreshToken") || "",
+      expiresAt: parsed.searchParams.get("expiresAt") || "",
+      refreshExpiresAt: parsed.searchParams.get("refreshExpiresAt") || "",
+      syncEndpointUrl: parsed.searchParams.get("syncEndpointUrl") || "",
+      // Subscription/endpoint details are not present in the flat form; the
+      // caller should refresh the managed AI runtime afterwards.
+      aiSubscription: {
+        planName: "free",
+        status: "inactive",
+        seats: 1,
+        allowCustomEndpoint: true,
+        syncCustomEndpoint: true,
+      },
+      endpointSync: {
+        endpointName: "",
+        provider: "",
+        baseUrl: "",
+        modelName: "",
+        syncToClients: false,
+        updatedAt: "",
+      },
+      customEndpoint: {
+        useCustomEndpoint: false,
+        endpointName: "",
+        provider: "",
+        baseUrl: "",
+        apiKey: "",
+        modelName: "",
+      },
+    };
+    return mapLoginResponse(flatPayload);
+  },
 };

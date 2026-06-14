@@ -526,8 +526,14 @@
   },
   "loginGateway": {
     "title": "Sign In To Workspace",
-    "heroTitle": "One Gateway For Three Account Modes",
-    "heroDescription": "Personal accounts, enterprise sub-accounts, and local mode all share one entry point. After sign-in, the asset center, settings, and AI endpoint policy are restored automatically.",
+    "heroTitle": {
+      "personal": "Your Personal SSH Workspace",
+      "enterprise": "Your Enterprise SSH Workspace"
+    },
+    "heroDescription": {
+      "personal": "Sign in with your personal account to sync connections, AI subscriptions, and endpoint settings across devices. Authentication happens in your browser — no password is ever typed inside this app.",
+      "enterprise": "Sign in with your enterprise sub-account to inherit the asset scope and AI policy assigned by your administrator. Authentication happens in your browser — no password is ever typed inside this app."
+    },
     "modeCards": {
       "personal": "Sync personal assets, AI subscription status, and your personal custom endpoint.",
       "enterpriseSubAccount": "Only pull the asset scope assigned by the enterprise backend and inherit enterprise subscription policy.",
@@ -536,48 +542,23 @@
     "subscriptionStatusTitle": "Current Subscription Status",
     "subscriptionRenewal": "renews {date}",
     "currentInvoiceSummary": "Current cycle {billingMonth} · {status} · remaining {remainingAmount} {currency}",
-    "switchToLocalMode": "Switch To Local Mode",
     "globalScope": "Global",
     "freeBilling": "USD 0/seat",
-    "tabs": {
-      "login": "Sign In",
-      "register": "Register"
-    },
     "modeDescriptions": {
       "personalLogin": "Sign in with a personal account to sync personal assets and personal AI subscription settings.",
-      "personalRegister": "Register a personal account and you will be signed in immediately with a free + trialing subscription.",
       "enterpriseSubAccount": "Sign in with an enterprise sub-account to sync only the asset scope assigned by your admin.",
       "local": "Local mode does not require cloud sign-in and still lets you enter the workspace with offline assets."
     },
-    "fields": {
-      "email": "Email",
-      "displayName": "Display Name",
-      "password": "Password",
-      "secret": "Login Secret",
-      "personalIdentifier": "Account Identifier (Email or User ID)",
-      "enterpriseIdentifier": "Sub-Account Identifier (Email or Sub-Account ID)"
-    },
-    "placeholders": {
-      "identifier": "For example: user{'@'}example.com",
-      "displayName": "For example: Alice",
-      "password": "At least 6 characters",
-      "enterpriseId": "For example: ent-001",
-      "enterpriseName": "For example: Enterprise Name",
-      "secret": "Temporary login secret"
-    },
-    "login": {
-      "submit": "Enter Workspace",
-      "submitting": "Entering workspace..."
-    },
-    "register": {
-      "submit": "Register And Enter Workspace",
-      "submitting": "Registering and signing in...",
-      "autoLoginSuccess": "Registration succeeded and you are now signed in."
-    },
-    "errors": {
-      "emailRegistered": "This email is already registered. Please sign in instead.",
-      "invalidParameters": "The registration details are invalid. Please check the email, display name, and password.",
-      "serviceUnavailable": "The service is temporarily unavailable. Please try again later."
+    "browserLogin": {
+      "button": {
+        "personal": "Continue In Browser",
+        "enterprise": "Continue In Browser"
+      },
+      "awaiting": "Waiting for you to complete sign-in in the browser…",
+      "success": "Signed in successfully.",
+      "failed": "Browser sign-in failed.",
+      "openFailed": "Could not open the browser. Please check your setup and try again.",
+      "hint": "A browser window will open for you to sign in. After you finish, this app will continue automatically."
     }
   },
   "themes": {

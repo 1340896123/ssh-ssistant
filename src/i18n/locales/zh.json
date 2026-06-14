@@ -526,8 +526,14 @@
   },
   "loginGateway": {
     "title": "登录工作台",
-    "heroTitle": "三种账号模式统一登录",
-    "heroDescription": "个人账号、企业子账号、本地模式共用一套入口。登录后自动拉取资产中心、同步设置，并继续沿用后台下发的 AI 订阅与自定义端点策略。",
+    "heroTitle": {
+      "personal": "你的个人 SSH 工作台",
+      "enterprise": "你的企业 SSH 工作台"
+    },
+    "heroDescription": {
+      "personal": "使用个人账号登录，即可跨设备同步连接、AI 订阅与端点设置。登录在浏览器中完成，本应用内无需输入任何密码。",
+      "enterprise": "使用企业子账号登录，继承管理员分配的资产范围与 AI 策略。登录在浏览器中完成，本应用内无需输入任何密码。"
+    },
     "modeCards": {
       "personal": "同步个人资产、AI 订阅状态与个人自定义端点。",
       "enterpriseSubAccount": "只拉取企业后台分配的资产范围，并继承企业订阅策略。",
@@ -536,48 +542,23 @@
     "subscriptionStatusTitle": "当前订阅状态",
     "subscriptionRenewal": "续期 {date}",
     "currentInvoiceSummary": "当前账期 {billingMonth} · {status} · 待付 {remainingAmount} {currency}",
-    "switchToLocalMode": "切换为本地模式",
     "globalScope": "全局",
     "freeBilling": "USD 0/席位",
-    "tabs": {
-      "login": "登录",
-      "register": "注册"
-    },
     "modeDescriptions": {
       "personalLogin": "使用个人账号登录后，会同步个人资产与个人 AI 订阅设置。",
-      "personalRegister": "注册个人账号后会立即自动登录，并以 free + trialing 订阅进入工作台。",
       "enterpriseSubAccount": "使用企业子账号登录后，仅同步被授权的资产范围。",
       "local": "本地模式不会强制云登录，但仍可进入工作台使用离线资产。"
     },
-    "fields": {
-      "email": "邮箱",
-      "displayName": "显示名",
-      "password": "密码",
-      "secret": "登录密钥",
-      "personalIdentifier": "账号标识（邮箱或用户 ID）",
-      "enterpriseIdentifier": "子账号标识（邮箱或子账号 ID）"
-    },
-    "placeholders": {
-      "identifier": "例如：user{'@'}example.com",
-      "displayName": "例如：Alice",
-      "password": "至少 6 位密码",
-      "enterpriseId": "例如：ent-001",
-      "enterpriseName": "例如：Enterprise Name",
-      "secret": "临时登录密钥"
-    },
-    "login": {
-      "submit": "进入工作台",
-      "submitting": "正在进入工作台..."
-    },
-    "register": {
-      "submit": "注册并进入工作台",
-      "submitting": "正在注册并登录...",
-      "autoLoginSuccess": "注册成功，已自动登录。"
-    },
-    "errors": {
-      "emailRegistered": "该邮箱已注册，请直接登录。",
-      "invalidParameters": "注册信息不合法，请检查邮箱、显示名和密码。",
-      "serviceUnavailable": "服务暂时不可用，请稍后重试。"
+    "browserLogin": {
+      "button": {
+        "personal": "在浏览器中继续",
+        "enterprise": "在浏览器中继续"
+      },
+      "awaiting": "正在等待你在浏览器中完成登录…",
+      "success": "登录成功。",
+      "failed": "浏览器登录失败。",
+      "openFailed": "无法打开浏览器，请检查环境后重试。",
+      "hint": "点击后将打开浏览器进行登录，完成后本应用会自动继续。"
     }
   },
   "themes": {

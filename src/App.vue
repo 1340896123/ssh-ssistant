@@ -10,7 +10,8 @@ import {
   watch,
 } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrent } from "@tauri-apps/plugin-deep-link";
+import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import LoginGateway from "./components/LoginGateway.vue";
 import SessionTabs from "./components/SessionTabs.vue";
 import { useSessionStore } from "./stores/sessions";
@@ -19,6 +20,8 @@ import { useSettingsStore } from "./stores/settings";
 import { useNotificationStore } from "./stores/notifications";
 import { useTransferStore } from "./stores/transfers";
 import { useI18n } from "./composables/useI18n";
+import { ACTIVE_VARIANT_META, APP_VARIANT, isLocalVariant } from "./config/variant";
+import { cloudService } from "./services";
 import type { AccessEndpoint, CredentialRef, HostAsset } from "./types";
 import {
   Bot,
@@ -135,6 +138,10 @@ const transferStore = useTransferStore();
 const { t } = useI18n();
 const appReady = ref(false);
 const requiresLogin = ref(false);
+// Browser-login flow state (personal/enterprise variants only).
+const isAwaitingBrowserAuth = ref(false);
+const browserAuthError = ref("");
+let deepLinkUnlisten: (() => void) | null = null;
 
 const WORKSPACE_LAYOUT_STORAGE_KEY = "appWorkspaceLayout";
 const RESOURCE_PANE_MIN = 260;
@@ -875,7 +882,12 @@ async function handlePaymentDeepLink(url: string) {
     return;
   }
 
-  if (parsed.protocol !== "sshstar:" || parsed.hostname !== "billing") {
+  // Billing deep-links use the active variant's scheme. The local variant has
+  // no scheme and no billing, so it never reaches here.
+  const expectedScheme = ACTIVE_VARIANT_META.scheme
+    ? `${ACTIVE_VARIANT_META.scheme}:`
+    : null;
+  if (!expectedScheme || parsed.protocol !== expectedScheme || parsed.hostname !== "billing") {
     return;
   }
 
@@ -887,6 +899,116 @@ async function handlePaymentDeepLink(url: string) {
     notificationStore.success(t("settings.paymentReturnSuccess"));
   } else if (parsed.pathname === "/cancel") {
     notificationStore.info(t("settings.paymentReturnCancelled"));
+  }
+}
+
+/**
+ * Handle a browser-login auth deep-link callback (personal/enterprise variants).
+ * Returns true if the URL was consumed as an auth callback.
+ */
+async function handleAuthDeepLink(url: string): Promise<boolean> {
+  if (isLocalVariant()) {
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const expectedScheme = ACTIVE_VARIANT_META.scheme
+    ? `${ACTIVE_VARIANT_META.scheme}:`
+    : null;
+  if (!expectedScheme || parsed.protocol !== expectedScheme || parsed.hostname !== "auth") {
+    return false;
+  }
+
+  try {
+    await settingsStore.applyBrowserAuthCallback(url);
+    browserAuthError.value = "";
+    isAwaitingBrowserAuth.value = false;
+    notificationStore.success(t("loginGateway.browserLogin.success"));
+    if (requiresLogin.value) {
+      await handleAuthenticated();
+    } else {
+      // Already in workbench (re-auth / token rotation): just refresh cloud state.
+      await refreshCloudManagedState().catch(() => undefined);
+    }
+    return true;
+  } catch (error) {
+    browserAuthError.value =
+      error instanceof Error ? error.message : String(error);
+    isAwaitingBrowserAuth.value = false;
+    notificationStore.error(browserAuthError.value, t("loginGateway.browserLogin.failed"));
+    return true;
+  }
+}
+
+/**
+ * Unified deep-link dispatcher: try auth callback first, then billing.
+ */
+async function dispatchDeepLink(url: string) {
+  const consumed = await handleAuthDeepLink(url);
+  if (!consumed) {
+    await handlePaymentDeepLink(url);
+  }
+}
+
+/**
+ * Open the system browser to start the OAuth-style login flow.
+ */
+async function beginBrowserLogin() {
+  if (isLocalVariant()) {
+    return;
+  }
+  const scheme = ACTIVE_VARIANT_META.scheme;
+  const cloudMode = ACTIVE_VARIANT_META.cloudMode;
+  if (!scheme || !cloudMode) {
+    return;
+  }
+  const baseUrl =
+    settingsStore.sync.endpointUrl || ACTIVE_VARIANT_META.defaultCloudEndpoint || "";
+  if (!baseUrl) {
+    browserAuthError.value = t("loginGateway.browserLogin.openFailed");
+    return;
+  }
+  const authUrl = cloudService.buildAuthStartUrl(baseUrl, {
+    variant: APP_VARIANT,
+    scheme,
+    cloudMode,
+  });
+  browserAuthError.value = "";
+  isAwaitingBrowserAuth.value = true;
+  try {
+    await openUrl(authUrl);
+  } catch (error) {
+    isAwaitingBrowserAuth.value = false;
+    browserAuthError.value =
+      error instanceof Error ? error.message : String(error);
+    notificationStore.error(browserAuthError.value, t("loginGateway.browserLogin.openFailed"));
+  }
+}
+
+/**
+ * Register the runtime deep-link listener (for callbacks that arrive while
+ * the app is already open — i.e. waiting on the LoginGateway).
+ *
+ * Note: on Windows/Linux this requires the single-instance plugin to be
+ * active so that a second launch (the OS opening the callback URL) forwards
+ * the URL into the running instance instead of starting a new window.
+ */
+async function setupAuthDeepLinkListener() {
+  if (isLocalVariant() || deepLinkUnlisten) {
+    return;
+  }
+  try {
+    deepLinkUnlisten = await onOpenUrl((urls: string[]) => {
+      for (const url of urls ?? []) {
+        void dispatchDeepLink(url);
+      }
+    });
+  } catch (error) {
+    console.warn("Deep link listener registration skipped:", error);
   }
 }
 
@@ -1027,7 +1149,34 @@ onMounted(async () => {
   };
 
   await settingsStore.loadSettings();
+  // Bind persisted mode to the active build variant (no-op if already aligned).
+  await settingsStore.reconcileModeWithVariant().catch((error) => {
+    console.warn("Variant mode reconciliation skipped:", error);
+  });
+  // Register the runtime deep-link listener for browser-auth + billing callbacks.
+  await setupAuthDeepLinkListener();
   initializeShellUiRuntime();
+
+  // Local variant: fully offline, skip all cloud/login checks, boot straight in.
+  if (isLocalVariant()) {
+    await getCurrent()
+      .then(async (urls: string[] | null) => {
+        for (const url of urls ?? []) {
+          await dispatchDeepLink(url);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("Deep link current URL fetch skipped:", error);
+      });
+    await bootstrapAuthenticatedSession({
+      restoreLocalSnapshot: false,
+    }).catch((error) => {
+      console.warn("Workbench bootstrap skipped:", error);
+    });
+    appReady.value = true;
+    return;
+  }
+
   if (settingsStore.isLoginGatewayRequired()) {
     requiresLogin.value = true;
     appReady.value = true;
@@ -1076,7 +1225,7 @@ onMounted(async () => {
   await getCurrent()
     .then(async (urls: string[] | null) => {
       for (const url of urls ?? []) {
-        await handlePaymentDeepLink(url);
+        await dispatchDeepLink(url);
       }
     })
     .catch((error: unknown) => {
@@ -1121,6 +1270,10 @@ onUnmounted(() => {
   window.removeEventListener("keydown", handleGlobalKeydown);
   window.removeEventListener("focus", handleWindowFocus);
   sessionStore.cleanupEventListeners();
+  if (deepLinkUnlisten) {
+    deepLinkUnlisten();
+    deepLinkUnlisten = null;
+  }
   if (clockTimer.value !== null) {
     clearInterval(clockTimer.value);
     clockTimer.value = null;
@@ -1147,6 +1300,9 @@ onUnmounted(() => {
 
   <LoginGateway
     v-else-if="requiresLogin"
+    :is-awaiting-browser-auth="isAwaitingBrowserAuth"
+    :browser-auth-error="browserAuthError"
+    @request-browser-login="beginBrowserLogin"
     @authenticated="handleAuthenticated"
   />
 
@@ -1224,6 +1380,7 @@ onUnmounted(() => {
             <Settings class="h-[18px] w-[18px]" />
           </button>
           <button
+            v-if="!isLocalVariant()"
             class="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary"
             :title="t('workbench.switchAccount')"
             @click="handleSwitchAccount"

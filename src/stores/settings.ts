@@ -4,6 +4,12 @@ import type { ClientSubscriptionSnapshot, Settings } from '../types';
 import { setI18nLanguage } from '../i18n';
 import { cloudService, workspaceSnapshotService } from '../services';
 import { useAssetStore } from './assets';
+import {
+  ACTIVE_VARIANT_META,
+  APP_VARIANT,
+  VARIANT_META,
+  isLocalVariant,
+} from '../config/variant';
 
 const DEFAULT_CHECKOUT_RETURN_URL = 'sshstar://billing/success';
 const DEFAULT_CHECKOUT_CANCEL_URL = 'sshstar://billing/cancel';
@@ -709,6 +715,65 @@ export const useSettingsStore = defineStore('settings', {
       };
       this.resetCloudManagedAiState();
       await invoke('save_settings', { settings: this.$state });
+    },
+    /**
+     * Handle a browser-login deep-link callback. Parses the callback URL and,
+     * if valid, applies the contained login response exactly like a normal
+     * cloud login. Throws if the URL is not a valid auth callback for the
+     * active variant.
+     */
+    async applyBrowserAuthCallback(url: string) {
+      if (isLocalVariant()) {
+        throw new Error('Browser auth callbacks are not applicable to the local variant.');
+      }
+      const response = cloudService.parseAuthCallback(url);
+      if (!response) {
+        throw new Error('Invalid browser auth callback URL.');
+      }
+      // Guard against a callback routed to the wrong binary.
+      if (
+        response.mode &&
+        response.mode !== ACTIVE_VARIANT_META.mode
+      ) {
+        throw new Error(
+          `Auth callback mode "${response.mode}" does not match this client variant (${APP_VARIANT}).`,
+        );
+      }
+      await this.applyCloudLoginResponse(response);
+      return response;
+    },
+    /**
+     * Ensure the persisted account mode matches the active build variant.
+     * Called after loadSettings(). If a stale mode (from a previous single-app
+     * install) is found, reset to the variant's bound mode. For the local
+     * variant this also clears any leftover cloud tokens.
+     */
+    async reconcileModeWithVariant() {
+      const expectedMode = ACTIVE_VARIANT_META.mode;
+      if (this.account.mode === expectedMode) {
+        return false;
+      }
+      this.account = {
+        ...createSignedOutAccount(this.account, { nextMode: expectedMode, preserveIdentity: false }),
+      };
+      if (isLocalVariant()) {
+        this.sync = {
+          ...this.sync,
+          enabled: false,
+          organizationScope: '',
+          lastCloudSyncAt: null,
+        };
+        this.resetCloudManagedAiState();
+      } else {
+        // Cloud variants: seed the default endpoint from the variant meta.
+        this.sync = {
+          ...this.sync,
+          endpointUrl:
+            this.sync.endpointUrl || VARIANT_META[APP_VARIANT].defaultCloudEndpoint || '',
+        };
+      }
+      await invoke('save_settings', { settings: this.$state });
+      return true;
     },
     isCloudSessionExpired() {
       return Boolean(this.account.expiresAt && this.account.expiresAt <= Date.now());
