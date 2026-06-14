@@ -55,3 +55,4 @@ tmp/
 .trae/
 .playwright-cli/
 .claude/
+backend/SshAssistant.AdminApi/ssh-assistant-admin.db.bak-20260615-005808
