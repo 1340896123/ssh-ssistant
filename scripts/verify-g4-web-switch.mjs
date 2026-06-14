@@ -1,10 +1,18 @@
 import { writeFile } from "node:fs/promises";
+import { loadPlaywright, chromiumLaunchOptions } from "./helpers/playwright-runtime.mjs";
+import { startPreviewServer } from "./helpers/web-preview.mjs";
+import { exitFailure, exitSuccess } from "./helpers/script-exit.mjs";
 
-const PLAYWRIGHT_MODULE = "file:///C:/Users/jieok/AppData/Roaming/npm/node_modules/playwright/index.mjs";
+const DEFAULT_WEB_APP_URL = process.env.SSH_ASSISTANT_WEB_APP_URL || "http://127.0.0.1:4173";
 
 async function main() {
-  const { chromium } = await import(PLAYWRIGHT_MODULE);
-  const browser = await chromium.launch({ headless: true });
+  let previewServer = null;
+  const webAppUrl = process.env.SSH_ASSISTANT_WEB_APP_URL
+    ? DEFAULT_WEB_APP_URL
+    : (previewServer = await startPreviewServer({ port: 4173, label: "verify-g4-web-switch" })).baseUrl;
+  const { module: playwright } = await loadPlaywright();
+  const { chromium } = playwright;
+  const browser = await chromium.launch(chromiumLaunchOptions(chromium, { headless: true }));
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
 
   await page.addInitScript(() => {
@@ -172,11 +180,17 @@ async function main() {
     window.__G4_NOOP_ASYNC__ = noopAsync;
   });
 
-  await page.goto("http://127.0.0.1:4173", { waitUntil: "networkidle" });
+  await page.goto(webAppUrl, { waitUntil: "networkidle" });
   const before = await page.locator("body").innerText();
 
   await page.getByRole("button", { name: "Switch" }).click();
-  await page.waitForTimeout(1200);
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("登录工作台") &&
+      document.body.innerText.includes("三种账号模式统一登录"),
+    null,
+    { timeout: 15000 },
+  );
 
   const after = await page.locator("body").innerText();
   const screenshotPath = ".playwright-cli/g4-web-switch-flow.png";
@@ -193,6 +207,7 @@ async function main() {
         after.includes("登录工作台") &&
         after.includes("切换为本地模式"),
     },
+    webAppUrl,
     screenshotPath,
     beforeSnippet: before.slice(0, 1200),
     afterSnippet: after.slice(0, 1200),
@@ -206,9 +221,12 @@ async function main() {
 
   console.log(JSON.stringify(payload, null, 2));
   await browser.close();
+  await previewServer?.stop();
 }
 
-main().catch((error) => {
+main()
+  .then(() => exitSuccess())
+  .catch((error) => {
   console.error(
     JSON.stringify(
       {
@@ -219,5 +237,5 @@ main().catch((error) => {
       2,
     ),
   );
-  process.exitCode = 1;
+  void exitFailure();
 });

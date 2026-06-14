@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
+import { ensureAvailablePort, nextPort, startTempAdminApi } from "./helpers/temp-admin-api.mjs";
 
 const DEFAULT_BASE_URL = process.env.SSH_ASSISTANT_ADMIN_BASE_URL || "http://localhost:5047";
-const MOCK_PORT = 5059;
 const SUBSCRIPTION_STATUS_ACTIVE = 2;
 
 function normalizeBaseUrl(url) {
@@ -72,14 +72,16 @@ async function waitForServer(port, timeoutMs = 15000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      await fetch(`http://127.0.0.1:${port}/chat/completions`, {
+      const response = await fetch(`http://127.0.0.1:${port}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "ping", messages: [] }),
-      }).catch(() => null);
-      return;
+      });
+      if (response.ok) {
+        return;
+      }
     } catch {
-      // ignore
+      // Wait for the mock server to bind and accept requests.
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
@@ -87,7 +89,21 @@ async function waitForServer(port, timeoutMs = 15000) {
 }
 
 async function main() {
-  const baseUrl = normalizeBaseUrl(process.argv[2]);
+  let server = null;
+  const requestedBaseUrl = process.argv[2] || process.env.SSH_ASSISTANT_ADMIN_BASE_URL;
+  const baseUrl = requestedBaseUrl
+    ? normalizeBaseUrl(requestedBaseUrl)
+    : normalizeBaseUrl(
+        (
+          server = await startTempAdminApi({
+            port: nextPort(5700),
+            label: "verify-g4-ai",
+          })
+        ).baseUrl,
+      );
+  const mockPort = process.env.MOCK_OPENAI_PORT
+    ? Number(process.env.MOCK_OPENAI_PORT)
+    : await ensureAvailablePort(nextPort(5050));
   const suffix = nowSuffix();
   const personalId = `usr-g4-ai-${suffix}`;
   const enterpriseId = `ent-g4-ai-${suffix}`;
@@ -99,10 +115,14 @@ async function main() {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+    env: {
+      ...process.env,
+      MOCK_OPENAI_PORT: String(mockPort),
+    },
   });
 
   try {
-    await waitForServer(MOCK_PORT);
+    await waitForServer(mockPort);
 
     const adminLogin = await requestJson(baseUrl, "/api/admin/login", {
       method: "POST",
@@ -194,7 +214,7 @@ async function main() {
       body: JSON.stringify({
         endpointName: "Mock OpenAI Gateway",
         provider: "openai",
-        baseUrl: `http://127.0.0.1:${MOCK_PORT}`,
+        baseUrl: `http://127.0.0.1:${mockPort}`,
         apiKey: "mock-key",
         modelName: "mock-model",
         syncToClients: true,
@@ -311,6 +331,7 @@ async function main() {
     );
   } finally {
     mockServer.kill();
+    await server?.stop();
   }
 }
 

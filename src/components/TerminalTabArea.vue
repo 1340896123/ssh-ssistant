@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
-import TerminalView from './TerminalView.vue';
-import FileEditorModal from './FileEditorModal.vue';
+import { ref, computed, nextTick, defineAsyncComponent } from 'vue';
 import { Terminal, FileText, X } from 'lucide-vue-next';
 import { useI18n } from '../composables/useI18n';
+
+const TerminalView = defineAsyncComponent(() => import('./TerminalView.vue'));
+const FileEditorModal = defineAsyncComponent(() => import('./FileEditorModal.vue'));
 
 defineProps<{
   sessionId: string;
@@ -169,14 +170,16 @@ defineExpose({
         </button>
 
         <!-- Editor Tabs -->
-        <div
-          v-for="file in editorFiles"
-          :key="file.id"
-          role="button"
-          tabindex="0"
-          @click="activateEditor(file.id)"
-          @keydown="handleEditorTabKeydown($event, file.id)"
-          :class="[
+      <div
+        v-for="file in editorFiles"
+        :key="file.id"
+        role="button"
+        tabindex="0"
+        data-testid="terminal-editor-tab"
+        :data-file-path="file.path"
+        @click="activateEditor(file.id)"
+        @keydown="handleEditorTabKeydown($event, file.id)"
+        :class="[
             'group flex max-w-[200px] flex-shrink-0 items-center border-r border-subtle px-2 py-1 text-xs transition-all duration-normal whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary',
             activeTab === 'editor' && activeEditorId === file.id
               ? 'bg-bg-tertiary text-text-primary border-l border-l-primary'
@@ -211,9 +214,11 @@ defineExpose({
 
       <!-- File Editor View -->
       <div v-show="activeTab === 'editor' && activeEditorFile" class="h-full w-full">
-        <FileEditorModal v-if="activeEditorFile" ref="fileEditorModalRef" :show="true" :sessionId="sessionId"
-          :filePath="activeEditorFile.path" :fileName="activeEditorFile.fileName" @close="handleEditorClose"
-          @save="handleEditorSave" />
+        <div data-testid="terminal-editor-panel" class="h-full w-full">
+          <FileEditorModal v-if="activeEditorFile" ref="fileEditorModalRef" :show="true" :sessionId="sessionId"
+            :filePath="activeEditorFile.path" :fileName="activeEditorFile.fileName" @close="handleEditorClose"
+            @save="handleEditorSave" />
+        </div>
       </div>
     </div>
   </div>

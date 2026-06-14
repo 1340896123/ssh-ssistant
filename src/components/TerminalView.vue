@@ -3,18 +3,11 @@ import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import { SearchAddon } from 'xterm-addon-search';
-import * as Zmodem from 'zmodem.js';
-import { save, open } from '@tauri-apps/plugin-dialog';
-import { writeFile, readFile } from '@tauri-apps/plugin-fs';
 import 'xterm/css/xterm.css';
 import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown, RotateCw, Unplug, Eraser } from 'lucide-vue-next';
 import { useSettingsStore } from '../stores/settings';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
-import { cloudService, resolveAiRuntimeConfig } from '../services';
 
 const props = defineProps<{ sessionId: string }>();
 const { t } = useI18n();
@@ -141,6 +134,70 @@ let zmodemSentry: any = null;
 let resizeObserver: ResizeObserver | null = null;
 let resizeRaf = 0;
 
+type TerminalModule = typeof import('xterm');
+type FitAddonModule = typeof import('xterm-addon-fit');
+type SearchAddonModule = typeof import('xterm-addon-search');
+type ZmodemModule = typeof import('zmodem.js');
+type DialogModule = typeof import('@tauri-apps/plugin-dialog');
+type FsModule = typeof import('@tauri-apps/plugin-fs');
+type ServicesModule = typeof import('../services');
+type Terminal = import('xterm').Terminal;
+type FitAddon = import('xterm-addon-fit').FitAddon;
+type SearchAddon = import('xterm-addon-search').SearchAddon;
+
+let terminalRuntimePromise: Promise<{
+  Terminal: TerminalModule['Terminal'];
+  FitAddon: FitAddonModule['FitAddon'];
+  SearchAddon: SearchAddonModule['SearchAddon'];
+}> | null = null;
+let zmodemModulePromise: Promise<ZmodemModule> | null = null;
+let dialogModulePromise: Promise<DialogModule> | null = null;
+let fsModulePromise: Promise<FsModule> | null = null;
+let servicesModulePromise: Promise<ServicesModule> | null = null;
+
+function getTerminalRuntime() {
+  if (!terminalRuntimePromise) {
+    terminalRuntimePromise = Promise.all([
+      import('xterm'),
+      import('xterm-addon-fit'),
+      import('xterm-addon-search'),
+    ]).then(([terminalModule, fitAddonModule, searchAddonModule]) => ({
+      Terminal: terminalModule.Terminal,
+      FitAddon: fitAddonModule.FitAddon,
+      SearchAddon: searchAddonModule.SearchAddon,
+    }));
+  }
+  return terminalRuntimePromise;
+}
+
+function getZmodemModule() {
+  if (!zmodemModulePromise) {
+    zmodemModulePromise = import('zmodem.js');
+  }
+  return zmodemModulePromise;
+}
+
+function getDialogModule() {
+  if (!dialogModulePromise) {
+    dialogModulePromise = import('@tauri-apps/plugin-dialog');
+  }
+  return dialogModulePromise;
+}
+
+function getFsModule() {
+  if (!fsModulePromise) {
+    fsModulePromise = import('@tauri-apps/plugin-fs');
+  }
+  return fsModulePromise;
+}
+
+function getServicesModule() {
+  if (!servicesModulePromise) {
+    servicesModulePromise = import('../services');
+  }
+  return servicesModulePromise;
+}
+
 function scheduleFit() {
   if (!term || !fitAddon || !terminalContainer.value) return;
   if (resizeRaf) {
@@ -192,8 +249,9 @@ onMounted(async () => {
   if (!terminalContainer.value) return;
 
   const appearance = settingsStore.terminalAppearance;
+  const terminalRuntime = await getTerminalRuntime();
 
-  term = new Terminal({
+  term = new terminalRuntime.Terminal({
     cursorBlink: true,
     fontSize: appearance.fontSize,
     fontFamily: appearance.fontFamily,
@@ -205,13 +263,16 @@ onMounted(async () => {
     allowProposedApi: true
   });
 
-  fitAddon = new FitAddon();
-  searchAddon = new SearchAddon();
+  fitAddon = new terminalRuntime.FitAddon();
+  searchAddon = new terminalRuntime.SearchAddon();
   term.loadAddon(fitAddon);
   term.loadAddon(searchAddon);
 
-  // Zmodem Integration
-  zmodemSentry = new Zmodem.Sentry({
+  const zmodem = await getZmodemModule();
+
+  // Zmodem integration is lazy-loaded because file transfer is infrequent
+  // compared to the core terminal session lifecycle.
+  zmodemSentry = new zmodem.Sentry({
     to_terminal: (octets: any) => {
         // console.log('Zmodem sentry to_terminal', octets.byteLength || octets.length);
         term?.write(octets);
@@ -384,6 +445,11 @@ onMounted(async () => {
 });
 
 async function handleZmodemDownload(zsession: any) {
+  const [{ save }, { writeFile }] = await Promise.all([
+    getDialogModule(),
+    getFsModule(),
+  ]);
+
   zsession.on("offer", async (xfer: any) => {
     const offer = xfer.get_details();
     try {
@@ -422,6 +488,11 @@ async function handleZmodemDownload(zsession: any) {
 
 async function handleZmodemUpload(zsession: any) {
   try {
+    const [{ open }, { readFile }] = await Promise.all([
+      getDialogModule(),
+      getFsModule(),
+    ]);
+
     const selected = await open({
       multiple: true,
       title: 'Select files to upload'
@@ -443,7 +514,8 @@ async function handleZmodemUpload(zsession: any) {
         });
       }
 
-      Zmodem.Browser.send_files(zsession, fileObjects, {
+      const zmodem = await getZmodemModule();
+      zmodem.Browser.send_files(zsession, fileObjects, {
         on_offer_response(_obj: any, _xfer: any) {
           // console.log("offer response", xfer);
         },
@@ -716,6 +788,7 @@ async function triggerAiCompletion() {
   previewText.value = ''; // Clear traditional preview
 
   try {
+    const { cloudService, resolveAiRuntimeConfig } = await getServicesModule();
     const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
     if (!runtimeConfig.enabled) {
       console.warn('AI completion unavailable:', runtimeConfig.reason, aiRuntimeReasonMessage(runtimeConfig.reason));

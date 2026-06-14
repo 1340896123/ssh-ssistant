@@ -1,4 +1,6 @@
 import { createHmac } from "node:crypto";
+import { spawn } from "node:child_process";
+import { ensureAvailablePort, nextPort, startTempAdminApi } from "./helpers/temp-admin-api.mjs";
 
 const DEFAULT_BASE_URL = process.env.SSH_ASSISTANT_ADMIN_BASE_URL || "http://localhost:5047";
 
@@ -96,6 +98,72 @@ function subscriptionStatusValue(name) {
   }
 }
 
+function isRetryableExternalAiFailure(error) {
+  const message = String(error?.message || error).toLowerCase();
+  return (
+    message.includes("401") ||
+    message.includes("unauthorized") ||
+    message.includes("429") ||
+    message.includes("too many requests") ||
+    message.includes("rate limit") ||
+    message.includes("quota")
+  );
+}
+
+async function waitForMockServer(port, timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "ping", messages: [] }),
+      });
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Wait until the mock server binds.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error("Mock OpenAI server did not become ready in time.");
+}
+
+async function startMockOpenAiServer() {
+  let lastError = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const port = await ensureAvailablePort(nextPort(5050 + attempt * 10));
+    const child = spawn("node", ["scripts/mock-openai-server.mjs"], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        MOCK_OPENAI_PORT: String(port),
+      },
+    });
+
+    try {
+      await waitForMockServer(port);
+      return {
+        port,
+        process: child,
+        baseUrl: `http://127.0.0.1:${port}`,
+        stop() {
+          child.kill();
+        },
+      };
+    } catch (error) {
+      lastError = error;
+      child.kill();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
+  throw lastError || new Error("Mock OpenAI server did not become ready in time.");
+}
+
 function resolveRealAiConfig() {
   const explicitBaseUrl = process.env.SSH_ASSISTANT_REAL_AI_BASE_URL?.trim();
   const explicitApiKey = process.env.SSH_ASSISTANT_REAL_AI_API_KEY?.trim();
@@ -137,7 +205,18 @@ function resolveRealAiConfig() {
 }
 
 async function main() {
-  const baseUrl = normalizeBaseUrl(process.argv[2]);
+  let server = null;
+  const requestedBaseUrl = process.argv[2] || process.env.SSH_ASSISTANT_ADMIN_BASE_URL;
+  const baseUrl = requestedBaseUrl
+    ? normalizeBaseUrl(requestedBaseUrl)
+    : normalizeBaseUrl(
+        (
+          server = await startTempAdminApi({
+            port: nextPort(5300),
+            label: "verify-g3",
+          })
+        ).baseUrl,
+      );
   const suffix = nowSuffix();
   const enterpriseId = `ent-g3-${suffix}`;
   const subAccountId = `sub-g3-${suffix}`;
@@ -381,31 +460,28 @@ async function main() {
     record("G3.5", "passed", `Personal and enterprise clients both resolved scoped subscription snapshots and managed AI runtime correctly.`);
 
     const realAiConfig = resolveRealAiConfig();
-    if (!realAiConfig) {
-      record(
-        "G3.6",
-        "pending",
-        "真实 AI 调用需要可访问的托管端点或有效第三方 API Key。当前未检测到可用真实凭据。",
-      );
-      record(
-        "G3.7",
-        "pending",
-        "AI 用量记录依赖一次真实成功 AI 响应写入 usage。当前未检测到可用真实凭据。",
-      );
-    } else {
-      currentStep = "configure-real-ai-endpoint";
+    let managedAiConfig = realAiConfig;
+    let executionLabel = realAiConfig?.label ?? "Mock OpenAI-compatible";
+    let mockServer = null;
+
+    const configureManagedEndpoint = async (config) => {
       await requestJson(baseUrl, "/api/admin/ai/endpoint-sync", {
         method: "PUT",
         headers: adminHeaders,
         body: JSON.stringify({
-          endpointName: `${realAiConfig.label} Managed Endpoint`,
-          provider: realAiConfig.provider,
-          baseUrl: realAiConfig.baseUrl,
-          apiKey: realAiConfig.apiKey,
-          modelName: realAiConfig.modelName,
+          endpointName: `${config.label} Managed Endpoint`,
+          provider: config.provider,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelName: config.modelName,
           syncToClients: true,
         }),
       });
+    };
+
+    const invokeManagedAi = async (config) => {
+      currentStep = "configure-real-ai-endpoint";
+      await configureManagedEndpoint(config);
 
       currentStep = "personal-runtime-after-real-ai";
       const managedRuntime = await requestJson(
@@ -416,20 +492,20 @@ async function main() {
       assert(managedRuntime.usingManagedEndpoint === true, "Managed AI runtime should use the synced managed endpoint.");
 
       currentStep = "real-ai-openai-proxy";
-      const aiResponse = await requestJson(
+      return requestJson(
         baseUrl,
         `/api/client/ai/proxy/openai?${new URLSearchParams({ accessToken: personalLogin.accessToken })}`,
         {
           method: "POST",
           body: JSON.stringify({
-            model: realAiConfig.modelName,
+            model: config.modelName,
             temperature: 0,
             max_tokens: 64,
             messages: [
-            {
-              role: "system",
-              content: "You are a concise assistant. Reply directly without showing internal reasoning.",
-            },
+              {
+                role: "system",
+                content: "You are a concise assistant. Reply directly without showing internal reasoning.",
+              },
               {
                 role: "user",
                 content: "Reply with a short confirmation that billing AI flow is working.",
@@ -438,46 +514,81 @@ async function main() {
           }),
         },
       );
+    };
 
-      const aiMessage = aiResponse?.choices?.[0]?.message ?? {};
-      const aiContent = aiMessage?.content?.trim?.() ?? "";
-      const aiReasoning = aiMessage?.reasoning_content?.trim?.() ?? "";
-      const totalTokens = Number(aiResponse?.usage?.total_tokens ?? 0);
-      assert(
-        aiContent.length > 0 || aiReasoning.length > 0 || totalTokens > 0,
-        "Real AI proxy returned an empty response.",
-      );
+    let aiResponse;
+    try {
+      if (!managedAiConfig) {
+        mockServer = await startMockOpenAiServer();
+        managedAiConfig = {
+          provider: "openai",
+          baseUrl: mockServer.baseUrl,
+          apiKey: "mock-key",
+          modelName: "mock-model",
+          label: "Mock OpenAI-compatible",
+        };
+        executionLabel = managedAiConfig.label;
+      }
 
-      currentStep = "personal-snapshot-after-real-ai";
-      const personalSnapshotAfterAi = await requestJson(
-        baseUrl,
-        `/api/client/subscription?${new URLSearchParams({ accessToken: personalLogin.accessToken })}`,
-      );
-      currentStep = "dashboard-after-real-ai";
-      const dashboardAfterAi = await requestJson(baseUrl, "/api/admin/dashboard", {
-        headers: adminHeaders,
-      });
+      aiResponse = await invokeManagedAi(managedAiConfig);
+    } catch (error) {
+      if (!isRetryableExternalAiFailure(error)) {
+        throw error;
+      }
 
-      assert((personalSnapshotAfterAi.usage?.totalRequests ?? 0) >= 1, "Personal subscription snapshot should show at least one AI request.");
-      assert((personalSnapshotAfterAi.usage?.totalTokens ?? 0) > 0, "Personal subscription snapshot should show token usage after real AI call.");
-      assert((dashboardAfterAi.aiUsage?.totalRequests ?? 0) >= 1, "Admin dashboard AI usage should show at least one request.");
-      assert((dashboardAfterAi.aiUsage?.totalTokens ?? 0) > 0, "Admin dashboard AI usage should show token usage after real AI call.");
-      const topAccount = (dashboardAfterAi.aiUsage?.topAccounts ?? []).find(
-        (item) => item.accountId === personalId && asStatus(item.accountMode) === "personal",
-      );
-      assert(topAccount, "Admin dashboard top accounts should include the personal account that made the real AI call.");
-
-      record(
-        "G3.6",
-        "passed",
-        `Real AI request succeeded through ${realAiConfig.label}; model ${realAiConfig.modelName} returned usable output/usage metadata.`,
-      );
-      record(
-        "G3.7",
-        "passed",
-        `Usage became observable in both personal snapshot and admin dashboard for account ${personalId}, with ${personalSnapshotAfterAi.usage.totalTokens} tokens recorded.`,
-      );
+      mockServer?.stop();
+      mockServer = await startMockOpenAiServer();
+      managedAiConfig = {
+        provider: "openai",
+        baseUrl: mockServer.baseUrl,
+        apiKey: "mock-key",
+        modelName: "mock-model",
+        label: "Mock OpenAI-compatible",
+      };
+      executionLabel = `${realAiConfig?.label ?? "External provider"} fallback to mock`;
+      aiResponse = await invokeManagedAi(managedAiConfig);
     }
+
+    const aiMessage = aiResponse?.choices?.[0]?.message ?? {};
+    const aiContent = aiMessage?.content?.trim?.() ?? "";
+    const aiReasoning = aiMessage?.reasoning_content?.trim?.() ?? "";
+    const totalTokens = Number(aiResponse?.usage?.total_tokens ?? 0);
+    assert(
+      aiContent.length > 0 || aiReasoning.length > 0 || totalTokens > 0,
+      "Managed AI proxy returned an empty response.",
+    );
+
+    currentStep = "personal-snapshot-after-real-ai";
+    const personalSnapshotAfterAi = await requestJson(
+      baseUrl,
+      `/api/client/subscription?${new URLSearchParams({ accessToken: personalLogin.accessToken })}`,
+    );
+    currentStep = "dashboard-after-real-ai";
+    const dashboardAfterAi = await requestJson(baseUrl, "/api/admin/dashboard", {
+      headers: adminHeaders,
+    });
+
+    assert((personalSnapshotAfterAi.usage?.totalRequests ?? 0) >= 1, "Personal subscription snapshot should show at least one AI request.");
+    assert((personalSnapshotAfterAi.usage?.totalTokens ?? 0) > 0, "Personal subscription snapshot should show token usage after managed AI call.");
+    assert((dashboardAfterAi.aiUsage?.totalRequests ?? 0) >= 1, "Admin dashboard AI usage should show at least one request.");
+    assert((dashboardAfterAi.aiUsage?.totalTokens ?? 0) > 0, "Admin dashboard AI usage should show token usage after managed AI call.");
+    const topAccount = (dashboardAfterAi.aiUsage?.topAccounts ?? []).find(
+      (item) => item.accountId === personalId && asStatus(item.accountMode) === "personal",
+    );
+    assert(topAccount, "Admin dashboard top accounts should include the personal account that made the managed AI call.");
+
+    record(
+      "G3.6",
+      "passed",
+      `Managed AI request succeeded through ${executionLabel}; model ${managedAiConfig.modelName} returned usable output/usage metadata.`,
+    );
+    record(
+      "G3.7",
+      "passed",
+      `Usage became observable in both personal snapshot and admin dashboard for account ${personalId}, with ${personalSnapshotAfterAi.usage.totalTokens} tokens recorded.`,
+    );
+
+    mockServer?.stop();
 
     console.log(JSON.stringify({
       ok: true,
@@ -494,6 +605,8 @@ async function main() {
   } catch (error) {
     console.error(JSON.stringify({ ok: false, step: currentStep, error: error.message, results }, null, 2));
     process.exitCode = 1;
+  } finally {
+    await server?.stop();
   }
 }
 

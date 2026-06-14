@@ -80,9 +80,9 @@ const modeDescription = computed(() => {
 const subscriptionSummary = computed(() => {
   if (settingsStore.account.mode === "local" && !settingsStore.account.accessToken) {
     return {
-      label: "Free",
-      scope: "global",
-      billing: "USD 0/seat",
+      label: t("settings.subscriptionPlans.free"),
+      scope: t("loginGateway.globalScope"),
+      billing: t("loginGateway.freeBilling"),
       renewal: null,
     };
   }
@@ -227,39 +227,48 @@ async function enterLocalMode() {
   <div class="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_#d7eadf,_#f7f3eb_40%,_#eadfd0_100%)] px-6 py-10">
     <div class="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
       <section class="rounded-[32px] border border-white/70 bg-white/80 p-8 shadow-[0_28px_80px_rgba(67,52,30,0.14)] backdrop-blur">
-        <p class="text-sm font-semibold uppercase tracking-[0.32em] text-emerald-700">SSH Assistant</p>
+        <p class="text-sm font-semibold uppercase tracking-[0.32em] text-emerald-700">{{ t("app.title") }}</p>
         <h1 class="mt-4 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
-          三种账号模式统一登录
+          {{ t("loginGateway.heroTitle") }}
         </h1>
         <p class="mt-5 max-w-2xl text-base leading-8 text-slate-600">
-          个人账号、企业子账号、本地模式共用一套入口。登录后自动拉取资产中心、同步设置，并继续沿用后台下发的 AI 订阅与自定义端点策略。
+          {{ t("loginGateway.heroDescription") }}
         </p>
 
         <div class="mt-8 grid gap-4 md:grid-cols-3">
           <article class="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-            <p class="text-sm font-semibold text-slate-500">个人账号</p>
-            <p class="mt-3 text-sm leading-7 text-slate-700">同步个人资产、AI 订阅状态与个人自定义端点。</p>
+            <p class="text-sm font-semibold text-slate-500">{{ t("settings.accountModes.personal") }}</p>
+            <p class="mt-3 text-sm leading-7 text-slate-700">{{ t("loginGateway.modeCards.personal") }}</p>
           </article>
           <article class="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-            <p class="text-sm font-semibold text-slate-500">企业子账号</p>
-            <p class="mt-3 text-sm leading-7 text-slate-700">只拉取企业后台分配的资产范围，并继承企业订阅策略。</p>
+            <p class="text-sm font-semibold text-slate-500">{{ t("settings.accountModes.enterpriseSubAccount") }}</p>
+            <p class="mt-3 text-sm leading-7 text-slate-700">{{ t("loginGateway.modeCards.enterpriseSubAccount") }}</p>
           </article>
           <article class="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-            <p class="text-sm font-semibold text-slate-500">本地模式</p>
-            <p class="mt-3 text-sm leading-7 text-slate-700">无需云登录即可进入桌面工作台，保留离线资产体验。</p>
+            <p class="text-sm font-semibold text-slate-500">{{ t("settings.accountModes.local") }}</p>
+            <p class="mt-3 text-sm leading-7 text-slate-700">{{ t("loginGateway.modeCards.local") }}</p>
           </article>
         </div>
 
         <div class="mt-8 rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-          <p class="text-sm font-semibold text-slate-500">当前订阅状态</p>
+          <p class="text-sm font-semibold text-slate-500">{{ t("loginGateway.subscriptionStatusTitle") }}</p>
           <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
             <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ subscriptionSummary.label }}</span>
             <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ subscriptionSummary.scope }}</span>
             <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ subscriptionSummary.billing }}</span>
-            <span v-if="subscriptionSummary.renewal" class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">renew {{ subscriptionSummary.renewal }}</span>
+            <span v-if="subscriptionSummary.renewal" class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+              {{ t("loginGateway.subscriptionRenewal", { date: subscriptionSummary.renewal }) }}
+            </span>
           </div>
           <p v-if="currentInvoice" class="mt-3 text-xs text-slate-500">
-            当前账期 {{ currentInvoice.billingMonth }} · {{ currentInvoice.status }} · remaining {{ currentInvoice.remainingAmount }} {{ currentInvoice.currency }}
+            {{
+              t("loginGateway.currentInvoiceSummary", {
+                billingMonth: currentInvoice.billingMonth,
+                status: currentInvoice.status,
+                remainingAmount: currentInvoice.remainingAmount,
+                currency: currentInvoice.currency,
+              })
+            }}
           </p>
         </div>
       </section>
@@ -270,9 +279,9 @@ async function enterLocalMode() {
           <p class="mt-2 text-sm text-slate-500">{{ modeDescription }}</p>
         </div>
 
-        <div class="mt-6 space-y-5">
+        <form class="mt-6 space-y-5" @submit.prevent="submit">
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">账号模式</label>
+            <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.accountMode") }}</label>
             <select
               v-model="form.mode"
               class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
@@ -288,6 +297,8 @@ async function enterLocalMode() {
             class="inline-flex rounded-2xl bg-slate-100 p-1 text-sm font-semibold text-slate-600"
           >
             <button
+              data-testid="login-gateway-tab-login"
+              type="button"
               class="rounded-xl px-4 py-2 transition"
               :class="personalAuthView === 'login' ? 'bg-white text-slate-900 shadow-sm' : ''"
               @click="personalAuthView = 'login'"
@@ -295,6 +306,8 @@ async function enterLocalMode() {
               {{ t("loginGateway.tabs.login") }}
             </button>
             <button
+              data-testid="login-gateway-tab-register"
+              type="button"
               class="rounded-xl px-4 py-2 transition"
               :class="personalAuthView === 'register' ? 'bg-white text-slate-900 shadow-sm' : ''"
               @click="personalAuthView = 'register'"
@@ -316,7 +329,7 @@ async function enterLocalMode() {
             <input
               v-model="form.identifier"
               class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
-              placeholder="user@example.com"
+              :placeholder="t('loginGateway.placeholders.identifier')"
             />
           </div>
 
@@ -333,20 +346,20 @@ async function enterLocalMode() {
 
           <template v-if="form.mode === 'enterpriseSubAccount'">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">企业 ID</label>
+              <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.enterpriseId") }}</label>
               <input
                 v-model="form.enterpriseId"
                 class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
-                placeholder="ent-001"
+                :placeholder="t('loginGateway.placeholders.enterpriseId')"
               />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">企业名称</label>
+              <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.enterpriseName") }}</label>
               <input
                 v-model="form.enterpriseName"
                 class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
-                placeholder="Enterprise Name"
+                :placeholder="t('loginGateway.placeholders.enterpriseName')"
               />
             </div>
           </template>
@@ -362,13 +375,13 @@ async function enterLocalMode() {
               :placeholder="
                 isRegistering
                   ? t('loginGateway.placeholders.password')
-                  : 'temporary login secret'
+                  : t('loginGateway.placeholders.secret')
               "
             />
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">后台地址</label>
+            <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.cloudSyncEndpoint") }}</label>
             <input
               v-model="form.endpointUrl"
               class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
@@ -377,18 +390,18 @@ async function enterLocalMode() {
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">组织范围</label>
+            <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.organizationScope") }}</label>
             <input
               v-model="form.organizationScope"
               class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
-              placeholder="default-org"
+              :placeholder="t('settings.organizationScopePlaceholder')"
             />
           </div>
 
           <button
+            type="submit"
             class="w-full rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60"
             :disabled="isSubmitting"
-            @click="submit"
           >
             {{
               isSubmitting
@@ -403,10 +416,11 @@ async function enterLocalMode() {
 
           <button
             v-if="!isLocalMode"
+            type="button"
             class="w-full rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             @click="enterLocalMode"
           >
-            切换为本地模式
+            {{ t("loginGateway.switchToLocalMode") }}
           </button>
 
           <p
@@ -419,7 +433,7 @@ async function enterLocalMode() {
           <p v-if="errorMessage" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {{ errorMessage }}
           </p>
-        </div>
+        </form>
       </section>
     </div>
   </div>

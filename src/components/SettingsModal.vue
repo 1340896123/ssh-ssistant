@@ -56,7 +56,7 @@ function createClearedAiConfig(ai: Settings['ai']) {
     providerType: 'openai' as const,
     customEndpoint: {
       useCustomEndpoint: true,
-      endpointName: 'Default Custom Endpoint',
+      endpointName: t('settings.defaultCustomEndpointName'),
       apiUrl: 'https://api.openai.com/v1',
       apiKey: '',
       modelName: 'gpt-3.5-turbo',
@@ -85,8 +85,8 @@ function normalizeAccountForSave(account: Settings['account']) {
   const shouldClearCloudState = account.mode === 'local' || currentFingerprint !== nextFingerprint;
   const nextDisplayName =
     account.mode === 'local'
-      ? 'Local Workspace'
-      : (account.displayName || account.email || account.userId || account.subAccountId || 'Personal Account');
+      ? t('settings.localWorkspace')
+      : (account.displayName || account.email || account.userId || account.subAccountId || t('settings.personalAccountFallback'));
 
   return {
     ...account,
@@ -235,15 +235,15 @@ async function loginToCloud() {
         ...form.value.account,
         displayName:
           form.value.account.mode === 'local'
-            ? 'Local Workspace'
+            ? t('settings.localWorkspace')
             : form.value.account.mode === 'enterpriseSubAccount'
               ? (
                   form.value.account.displayName ||
                   form.value.account.enterpriseName ||
                   form.value.account.subAccountId ||
-                  'Enterprise Sub-Account'
+                  t('settings.enterpriseSubAccountFallback')
                 )
-              : (form.value.account.displayName || form.value.account.email || form.value.account.userId || 'Personal Account'),
+              : (form.value.account.displayName || form.value.account.email || form.value.account.userId || t('settings.personalAccountFallback')),
         email:
           form.value.account.mode === 'personal'
             ? (form.value.account.email || form.value.account.userId || '').trim() || null
@@ -318,7 +318,9 @@ async function syncSettingsNow() {
     form.value.sync = { ...store.sync };
     form.value.ai = { ...store.ai };
     subscriptionSummary.value = store.activeSubscriptionSummary();
-    cloudStatusMessage.value = response ? `Synced at ${new Date(response.syncedAt).toLocaleString()}` : 'Cloud sync disabled';
+    cloudStatusMessage.value = response
+      ? t('settings.cloudSyncedAt', { time: new Date(response.syncedAt).toLocaleString() })
+      : t('settings.cloudSyncDisabled');
   } catch (error) {
     cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -333,9 +335,9 @@ async function openInvoiceCheckout(invoiceId: string) {
     const transaction = await store.createClientCheckoutSession(invoiceId, selectedCheckoutProvider.value || 'manual');
     if (transaction.checkoutUrl) {
       window.open(transaction.checkoutUrl, '_blank', 'noopener,noreferrer');
-      cloudStatusMessage.value = 'Payment link opened';
+      cloudStatusMessage.value = t('settings.paymentLinkOpened');
     } else {
-      cloudStatusMessage.value = 'Payment link created';
+      cloudStatusMessage.value = t('settings.paymentLinkCreated');
     }
     let refreshCount = 0;
     const refreshLoop = async () => {
@@ -376,7 +378,7 @@ async function refreshBillingSnapshot() {
     await store.loadClientSubscriptionSnapshot();
     form.value.ai = { ...store.ai };
     subscriptionSummary.value = store.activeSubscriptionSummary();
-    cloudStatusMessage.value = 'Billing status refreshed';
+    cloudStatusMessage.value = t('settings.billingStatusRefreshed');
   } catch (error) {
     cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -459,7 +461,7 @@ const tabs = [
       <div class="flex min-h-0 flex-grow flex-col overflow-hidden">
         <div class="border-b border-border-primary py-2">
           <nav class="flex space-x-2 px-4 overflow-x-auto no-scrollbar" aria-label="Tabs">
-            <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id" :class="[
+            <button v-for="tab in tabs" :key="tab.id" :data-testid="`settings-tab-${tab.id}`" @click="activeTab = tab.id" :class="[
               'px-3 py-2 text-sm font-medium whitespace-nowrap rounded transition-all-fast',
               activeTab === tab.id
                 ? 'bg-accent text-text-primary'
@@ -706,7 +708,7 @@ const tabs = [
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customModelName') }}</label>
                     <input v-model="form.ai.customEndpoint.modelName" type="text"
                       class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      placeholder="gpt-4o-mini" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
+                      :placeholder="t('settings.customModelNamePlaceholder')" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customProviderType') }}</label>
@@ -785,13 +787,13 @@ const tabs = [
                 </label>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.cloudSyncEndpoint') }}</label>
-                  <input v-model="form.sync.endpointUrl" type="text"
+                  <input v-model="form.sync.endpointUrl" type="text" data-testid="settings-sync-endpoint"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
                     placeholder="https://sync.example.com/api" />
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.organizationScope') }}</label>
-                  <input v-model="form.sync.organizationScope" type="text"
+                  <input v-model="form.sync.organizationScope" type="text" data-testid="settings-organization-scope"
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
                     :placeholder="t('settings.organizationScopePlaceholder')" />
                 </div>
@@ -810,7 +812,7 @@ const tabs = [
                     <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.cloudAccessToken') }}</label>
                     <input v-model="cloudSecret" type="password"
                       class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      placeholder="temporary login secret" />
+                      :placeholder="t('settings.cloudAccessTokenPlaceholder')" />
                   </div>
                   <div class="flex flex-wrap gap-3">
                     <button
@@ -818,14 +820,14 @@ const tabs = [
                       :disabled="isCloudLoggingIn"
                       @click="loginToCloud"
                     >
-                      {{ isCloudLoggingIn ? 'Connecting...' : 'Cloud Login' }}
+                      {{ isCloudLoggingIn ? t('settings.cloudLoginConnecting') : t('settings.cloudLogin') }}
                     </button>
                     <button
                       class="px-4 py-2 text-sm bg-success hover:bg-success/80 text-text-primary rounded disabled:opacity-50"
                       :disabled="isCloudSyncing"
                       @click="syncSettingsNow"
                     >
-                      {{ isCloudSyncing ? 'Syncing...' : 'Sync Settings Now' }}
+                      {{ isCloudSyncing ? t('settings.syncingSettings') : t('settings.syncSettingsNow') }}
                     </button>
                   </div>
                   <p v-if="cloudStatusMessage" class="text-xs text-text-secondary">{{ cloudStatusMessage }}</p>
@@ -1232,7 +1234,7 @@ const tabs = [
         <button @click="$emit('close')"
           class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded">{{ t('settings.cancel')
           }}</button>
-        <button @click="save" class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded">{{
+        <button @click="save" data-testid="settings-save-button" class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded">{{
           t('settings.saveChanges') }}</button>
       </div>
     </div>

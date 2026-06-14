@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   Star,
   Tags,
+  Trash2,
 } from "lucide-vue-next";
 import { useAssetStore } from "../stores/assets";
 import { useSessionStore } from "../stores/sessions";
@@ -205,7 +206,7 @@ function selectAsset(asset: HostAsset) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="flex h-full flex-col overflow-hidden" data-testid="asset-center-root">
     <div class="border-b border-border-primary bg-bg-secondary/95 px-3 py-3 backdrop-blur">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
@@ -218,12 +219,14 @@ function selectAsset(asset: HostAsset) {
           <button
             class="flex h-9 w-9 items-center justify-center rounded border border-border-primary bg-bg-tertiary text-text-primary transition-all hover:bg-bg-elevated"
             :title="t('assetCenter.newFolderTitle')"
+            data-testid="asset-center-new-folder"
             @click.stop="createFolder()"
           >
             <FolderPlus class="h-4 w-4" />
           </button>
           <button
             class="flex h-9 items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-all hover:bg-bg-elevated"
+            data-testid="asset-center-new-asset"
             @click.stop="editAsset()"
           >
             <Plus class="h-3.5 w-3.5" />
@@ -239,6 +242,7 @@ function selectAsset(asset: HostAsset) {
             v-model="searchQuery"
             type="text"
             :placeholder="t('assetCenter.searchPlaceholder')"
+            data-testid="asset-center-search"
             class="h-9 w-full rounded border border-border-primary bg-bg-tertiary pl-8 pr-3 text-sm text-text-primary outline-none focus:border-accent"
           />
         </div>
@@ -260,7 +264,11 @@ function selectAsset(asset: HostAsset) {
       </div>
     </div>
 
-    <div v-if="assets.length === 0" class="flex-1 overflow-y-auto px-3 py-3">
+    <div
+      v-if="assets.length === 0"
+      class="flex-1 overflow-y-auto px-3 py-3"
+      data-testid="asset-center-empty-state"
+    >
       <div class="rounded-xl border border-dashed border-border-primary bg-bg-secondary/70 p-5 text-center">
         <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-bg-tertiary text-accent">
           <HardDrive class="h-6 w-6" />
@@ -272,6 +280,7 @@ function selectAsset(asset: HostAsset) {
         <div class="mt-4 flex items-center justify-center gap-2">
           <button
             class="h-9 rounded border border-border-primary bg-accent px-3 text-sm text-white transition-all hover:opacity-90"
+            data-testid="asset-center-empty-create-asset"
             @click.stop="editAsset()"
           >
             {{ t('assetCenter.empty.createAsset') }}
@@ -287,7 +296,11 @@ function selectAsset(asset: HostAsset) {
       </div>
     </div>
 
-    <div v-else-if="isSearchMode" class="flex-1 overflow-y-auto px-3 py-3">
+    <div
+      v-else-if="isSearchMode"
+      class="flex-1 overflow-y-auto px-3 py-3"
+      data-testid="asset-center-search-results"
+    >
       <div v-if="searchResults.length === 0" class="rounded-xl border border-dashed border-border-primary bg-bg-secondary/70 p-5 text-center">
         <div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg-tertiary text-text-secondary">
           <Search class="h-5 w-5" />
@@ -302,10 +315,16 @@ function selectAsset(asset: HostAsset) {
         <div
           v-for="asset in searchResults"
           :key="asset.id"
+          data-testid="asset-center-search-result-card"
           class="rounded-lg border border-border-primary bg-bg-primary px-3 py-3"
         >
           <div class="flex items-start justify-between gap-3">
-            <button class="min-w-0 flex-1 text-left" @click="selectAsset(asset); connect(asset, 'search')">
+            <button
+              class="min-w-0 flex-1 text-left"
+              data-testid="asset-center-search-result-connect"
+              :data-asset-name="asset.name"
+              @click="selectAsset(asset); connect(asset, 'search')"
+            >
               <div class="flex items-center gap-2">
                 <span class="truncate text-sm text-text-primary">{{ asset.name }}</span>
                 <span
@@ -338,8 +357,15 @@ function selectAsset(asset: HostAsset) {
               <button class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-warning" @click.stop="toggleFavorite(asset)">
                 <Star class="h-3.5 w-3.5" :class="assetStore.isFavorite(asset.id ?? -1) ? 'fill-current text-warning' : ''" />
               </button>
-              <button class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-text-primary" @click.stop="editAsset(asset)">
+              <button
+                data-testid="asset-center-search-result-edit"
+                class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+                @click.stop="editAsset(asset)"
+              >
                 <Briefcase class="h-3.5 w-3.5" />
+              </button>
+              <button data-testid="asset-center-search-result-delete" class="rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-error" @click.stop="deleteAsset(asset)">
+                <Trash2 class="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
@@ -347,7 +373,7 @@ function selectAsset(asset: HostAsset) {
       </div>
     </div>
 
-    <div v-else class="min-h-0 flex-1 overflow-y-auto">
+    <div v-else class="min-h-0 flex-1 overflow-y-auto" data-testid="asset-center-content">
       <div class="shrink-0 space-y-3 border-b border-border-primary bg-bg-secondary/35 px-3 py-3">
         <div class="grid grid-cols-2 gap-2 text-xs">
           <div class="rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">

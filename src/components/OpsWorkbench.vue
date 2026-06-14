@@ -300,7 +300,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col bg-bg-secondary">
+  <div class="flex h-full min-h-0 flex-col bg-bg-secondary" data-testid="ops-workbench-root">
     <div class="border-b border-border-primary px-4 py-3">
       <div class="flex items-start justify-between gap-3">
         <div>
@@ -339,6 +339,7 @@ onMounted(async () => {
     <div class="border-b border-border-primary px-3">
       <div class="no-scrollbar flex h-11 min-w-0 items-center gap-2 overflow-x-auto">
       <button
+        data-testid="ops-tab-console"
         class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'console' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'console'"
@@ -349,6 +350,7 @@ onMounted(async () => {
         </span>
       </button>
       <button
+        data-testid="ops-tab-jobs"
         class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'jobs' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'jobs'"
@@ -359,6 +361,7 @@ onMounted(async () => {
         </span>
       </button>
       <button
+        data-testid="ops-tab-audit"
         class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'audit' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'audit'"
@@ -369,6 +372,7 @@ onMounted(async () => {
         </span>
       </button>
       <button
+        data-testid="ops-tab-sync"
         class="inline-flex shrink-0 items-center rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors"
         :class="activeTab === 'sync' ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'"
         @click="activeTab = 'sync'"
@@ -382,13 +386,14 @@ onMounted(async () => {
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-      <div v-if="activeTab === 'console'" class="space-y-4">
+      <div v-if="activeTab === 'console'" class="space-y-4" data-testid="ops-console-panel">
         <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
           <div class="grid gap-3">
             <div class="min-w-0">
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.console.queryLabel') }}</label>
               <textarea
                 v-model="consoleQuery"
+                data-testid="ops-console-query"
                 rows="3"
                 class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                 :placeholder="t('opsWorkbench.console.queryPlaceholder')"
@@ -398,6 +403,7 @@ onMounted(async () => {
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.console.focusAssetLabel') }}</label>
               <select
                 v-model="selectedAssetId"
+                data-testid="ops-console-asset-select"
                 class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
               >
                 <option :value="null">{{ t('opsWorkbench.console.focusAssetAuto') }}</option>
@@ -408,6 +414,7 @@ onMounted(async () => {
             </div>
             <div class="flex justify-end">
               <button
+                data-testid="ops-console-run"
                 class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-accent px-4 text-sm text-white hover:opacity-90"
                 :disabled="isRunningConsole"
                 @click="runConsoleQuery"
@@ -422,6 +429,7 @@ onMounted(async () => {
         <div
           v-if="consoleAnswer"
           class="space-y-4 rounded-xl border border-border-primary bg-bg-primary p-4"
+          data-testid="ops-console-answer"
         >
           <div>
             <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.console.summary') }}</div>
@@ -532,7 +540,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div v-else-if="activeTab === 'jobs'" class="space-y-4">
+      <div v-else-if="activeTab === 'jobs'" class="space-y-4" data-testid="ops-jobs-panel">
         <div class="grid gap-4">
           <div class="space-y-4">
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
@@ -603,6 +611,7 @@ onMounted(async () => {
                 <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.templateNameLabel') }}</label>
                 <input
                   v-model="newTemplateName"
+                  data-testid="ops-jobs-template-name"
                   class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   :placeholder="t('opsWorkbench.jobs.templateNamePlaceholder')"
                 />
@@ -612,6 +621,7 @@ onMounted(async () => {
                 <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.commandLabel') }}</label>
                 <textarea
                   v-model="batchForm.commandText"
+                  data-testid="ops-jobs-command"
                   rows="3"
                   class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-accent"
                   :placeholder="t('opsWorkbench.jobs.commandPlaceholder')"
@@ -623,6 +633,7 @@ onMounted(async () => {
                   <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.scopeLabel') }}</label>
                   <select
                     v-model="batchForm.scopeType"
+                    data-testid="ops-jobs-scope-type"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   >
                     <option value="tag">{{ t('opsWorkbench.jobs.scopeOptions.tag') }}</option>
@@ -635,6 +646,7 @@ onMounted(async () => {
                   <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.scopeValueLabel') }}</label>
                   <input
                     v-model="batchForm.scopeValue"
+                    data-testid="ops-jobs-scope-value"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                     :placeholder="t('opsWorkbench.jobs.scopeValuePlaceholder')"
                   />
@@ -643,6 +655,7 @@ onMounted(async () => {
                   <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('opsWorkbench.jobs.riskLabel') }}</label>
                   <select
                     v-model="batchForm.riskLevel"
+                    data-testid="ops-jobs-risk-level"
                     class="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
                   >
                     <option value="low">{{ t('opsWorkbench.jobs.riskOptions.low') }}</option>
@@ -656,6 +669,7 @@ onMounted(async () => {
               <label class="inline-flex items-center gap-2 text-sm text-text-secondary">
                 <input
                   v-model="newTemplateRequiresConfirmation"
+                  data-testid="ops-jobs-requires-confirmation"
                   type="checkbox"
                   class="rounded border-border-primary bg-bg-tertiary text-accent focus:ring-accent"
                 />
@@ -664,6 +678,7 @@ onMounted(async () => {
 
               <div class="flex flex-wrap gap-2">
                 <button
+                  data-testid="ops-jobs-save-template"
                   class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-bg-tertiary px-4 text-sm text-text-primary hover:bg-bg-elevated"
                   @click="createTemplateFromForm"
                 >
@@ -671,6 +686,7 @@ onMounted(async () => {
                   <span>{{ t('opsWorkbench.jobs.saveTemplate') }}</span>
                 </button>
                 <button
+                  data-testid="ops-jobs-preview"
                   class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-accent px-4 text-sm text-white hover:opacity-90"
                   :disabled="isPreviewingBatch"
                   @click="previewBatch"
@@ -679,6 +695,7 @@ onMounted(async () => {
                   <span>{{ isPreviewingBatch ? t('opsWorkbench.jobs.previewingScope') : t('opsWorkbench.jobs.previewScope') }}</span>
                 </button>
                 <button
+                  data-testid="ops-jobs-execute"
                   class="inline-flex h-10 items-center gap-2 rounded border border-border-primary bg-warning px-4 text-sm text-text-primary hover:opacity-90"
                   :disabled="isExecutingBatch"
                   @click="executeBatch"
@@ -689,7 +706,7 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div v-if="batchPreview" class="mt-5 rounded-xl border border-border-primary bg-bg-secondary p-4">
+            <div v-if="batchPreview" class="mt-5 rounded-xl border border-border-primary bg-bg-secondary p-4" data-testid="ops-jobs-preview-result">
               <div class="flex items-center justify-between gap-3">
                 <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.batchPreviewTitle') }}</div>
                 <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary">
@@ -729,7 +746,7 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div v-if="batchResult" class="mt-5 rounded-xl border border-border-primary bg-bg-secondary p-4">
+            <div v-if="batchResult" class="mt-5 rounded-xl border border-border-primary bg-bg-secondary p-4" data-testid="ops-jobs-execution-result">
               <div class="flex items-center justify-between gap-3">
                 <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.executionReviewTitle') }}</div>
                 <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary">

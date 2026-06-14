@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { nextPort, requestJson, startTempAdminApi } from "./helpers/temp-admin-api.mjs";
-
-const PLAYWRIGHT_MODULE = "file:///C:/Users/jieok/AppData/Roaming/npm/node_modules/playwright/index.mjs";
-const WEB_APP_URL = process.env.SSH_ASSISTANT_WEB_APP_URL || "http://127.0.0.1:4173";
+import { findAvailablePort, nextPort, requestJson, startTempAdminApi } from "./helpers/temp-admin-api.mjs";
+import { loadPlaywright, chromiumLaunchOptions } from "./helpers/playwright-runtime.mjs";
+import { startPreviewServer, waitForWebApp } from "./helpers/web-preview.mjs";
+import { exitFailure, exitSuccess } from "./helpers/script-exit.mjs";
+const DEFAULT_WEB_APP_URL = process.env.SSH_ASSISTANT_WEB_APP_URL || "http://127.0.0.1:4173";
 
 function nowSuffix() {
   return new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
@@ -122,25 +123,7 @@ function buildDefaultSettings(mode = "personal") {
   };
 }
 
-async function waitForWebApp(url, timeoutMs = 30000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // Wait until the app is available.
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-
-  throw new Error(`Timed out waiting for frontend app at ${url}.`);
-}
-
-async function createMockedPage(browser, { endpointUrl, mode = "personal" }) {
+async function createMockedPage(browser, webAppUrl, { endpointUrl, mode = "personal" }) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
   });
@@ -295,18 +278,47 @@ async function createMockedPage(browser, { endpointUrl, mode = "personal" }) {
     endpointUrl,
   });
 
-  await page.goto(WEB_APP_URL, { waitUntil: "domcontentloaded" });
-  await page.getByText("登录工作台").waitFor({ timeout: 20000 });
+  await page.goto(webAppUrl, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("登录工作台") &&
+      document.body.innerText.includes("三种账号模式统一登录"),
+    null,
+    { timeout: 20000 },
+  );
   return {
     context,
     page,
   };
 }
 
-async function main() {
-  await waitForWebApp(WEB_APP_URL);
+async function openRegisterTab(page) {
+  const registerTab = page.getByTestId("login-gateway-tab-register");
+  if ((await registerTab.count()) > 0) {
+    await registerTab.click();
+    return;
+  }
+  await page.getByRole("button", { name: "注册" }).click();
+}
 
-  const port = Number(process.env.SSH_ASSISTANT_REGISTER_WEB_TEST_PORT || nextPort(5200));
+function registrationFields(page) {
+  const identifier = page.locator('input').nth(0);
+  const displayName = page.locator('input').nth(1);
+  const password = page.locator('input[type="password"]').nth(0);
+  return { identifier, displayName, password };
+}
+
+async function main() {
+  let previewServer = null;
+  const webAppUrl = process.env.SSH_ASSISTANT_WEB_APP_URL
+    ? DEFAULT_WEB_APP_URL
+    : (previewServer = await startPreviewServer({ port: 4173, label: "verify-personal-register-web" })).baseUrl;
+  await waitForWebApp(webAppUrl);
+
+  const port = Number(
+    process.env.SSH_ASSISTANT_REGISTER_WEB_TEST_PORT ||
+      (await findAvailablePort(nextPort(5200), 20, 1)),
+  );
   const server = await startTempAdminApi({
     port,
     label: "register-web",
@@ -318,8 +330,9 @@ async function main() {
   const duplicateEmail = `web-duplicate-${suffix}@example.com`;
   const password = "secret123";
 
-  const { chromium } = await import(PLAYWRIGHT_MODULE);
-  const browser = await chromium.launch({ headless: true });
+  const { module: playwright } = await loadPlaywright();
+  const { chromium } = playwright;
+  const browser = await chromium.launch(chromiumLaunchOptions(chromium, { headless: true }));
 
   try {
     await requestJson(server.baseUrl, "/api/client/register", {
@@ -331,16 +344,19 @@ async function main() {
       }),
     });
 
-    const successScenario = await createMockedPage(browser, {
+    const successScenario = await createMockedPage(browser, webAppUrl, {
       endpointUrl: server.baseUrl,
       mode: "personal",
     });
     const successPage = successScenario.page;
 
-    await successPage.getByRole("button", { name: "注册" }).click();
-    await successPage.locator('input[placeholder="user@example.com"]').fill(successEmail);
-    await successPage.locator('input[placeholder="例如：Alice"]').fill(successDisplayName);
-    await successPage.locator('input[placeholder="至少 6 位密码"]').fill(password);
+    await openRegisterTab(successPage);
+    {
+      const fields = registrationFields(successPage);
+      await fields.identifier.fill(successEmail);
+      await fields.displayName.fill(successDisplayName);
+      await fields.password.fill(password);
+    }
     await successPage.getByRole("button", { name: "注册并进入工作台" }).click();
     await successPage.waitForFunction(() => document.body.innerText.includes("Switch"), null, {
       timeout: 15000,
@@ -353,53 +369,62 @@ async function main() {
     await successPage.screenshot({ path: successScreenshotPath, fullPage: true });
     await successScenario.context.close();
 
-    const duplicateScenario = await createMockedPage(browser, {
+    const duplicateScenario = await createMockedPage(browser, webAppUrl, {
       endpointUrl: server.baseUrl,
       mode: "personal",
     });
     const duplicatePage = duplicateScenario.page;
-    await duplicatePage.getByRole("button", { name: "注册" }).click();
-    await duplicatePage.locator('input[placeholder="user@example.com"]').fill(duplicateEmail);
-    await duplicatePage.locator('input[placeholder="例如：Alice"]').fill(`Duplicate ${suffix}`);
-    await duplicatePage.locator('input[placeholder="至少 6 位密码"]').fill(password);
+    await openRegisterTab(duplicatePage);
+    {
+      const fields = registrationFields(duplicatePage);
+      await fields.identifier.fill(duplicateEmail);
+      await fields.displayName.fill(`Duplicate ${suffix}`);
+      await fields.password.fill(password);
+    }
     await duplicatePage.getByRole("button", { name: "注册并进入工作台" }).click();
     await duplicatePage.getByText("该邮箱已注册，请直接登录。").waitFor({ timeout: 10000 });
     await duplicateScenario.context.close();
 
-    const invalidScenario = await createMockedPage(browser, {
+    const invalidScenario = await createMockedPage(browser, webAppUrl, {
       endpointUrl: server.baseUrl,
       mode: "personal",
     });
     const invalidPage = invalidScenario.page;
-    await invalidPage.getByRole("button", { name: "注册" }).click();
-    await invalidPage.locator('input[placeholder="user@example.com"]').fill("bad-email");
-    await invalidPage.locator('input[placeholder="例如：Alice"]').fill("");
-    await invalidPage.locator('input[placeholder="至少 6 位密码"]').fill("123");
+    await openRegisterTab(invalidPage);
+    {
+      const fields = registrationFields(invalidPage);
+      await fields.identifier.fill("bad-email");
+      await fields.displayName.fill("");
+      await fields.password.fill("123");
+    }
     await invalidPage.getByRole("button", { name: "注册并进入工作台" }).click();
     await invalidPage.getByText("注册信息不合法，请检查邮箱、显示名和密码。").waitFor({ timeout: 10000 });
     await invalidScenario.context.close();
 
-    const serviceUnavailableScenario = await createMockedPage(browser, {
+    const serviceUnavailableScenario = await createMockedPage(browser, webAppUrl, {
       endpointUrl: "http://127.0.0.1:1",
       mode: "personal",
     });
     const serviceUnavailablePage = serviceUnavailableScenario.page;
-    await serviceUnavailablePage.getByRole("button", { name: "注册" }).click();
-    await serviceUnavailablePage.locator('input[placeholder="user@example.com"]').fill(`offline-${suffix}@example.com`);
-    await serviceUnavailablePage.locator('input[placeholder="例如：Alice"]').fill(`Offline ${suffix}`);
-    await serviceUnavailablePage.locator('input[placeholder="至少 6 位密码"]').fill(password);
+    await openRegisterTab(serviceUnavailablePage);
+    {
+      const fields = registrationFields(serviceUnavailablePage);
+      await fields.identifier.fill(`offline-${suffix}@example.com`);
+      await fields.displayName.fill(`Offline ${suffix}`);
+      await fields.password.fill(password);
+    }
     await serviceUnavailablePage.getByRole("button", { name: "注册并进入工作台" }).click();
     await serviceUnavailablePage.getByText("服务暂时不可用，请稍后重试。").waitFor({ timeout: 10000 });
     await serviceUnavailableScenario.context.close();
 
-    const enterpriseScenario = await createMockedPage(browser, {
+    const enterpriseScenario = await createMockedPage(browser, webAppUrl, {
       endpointUrl: server.baseUrl,
       mode: "enterpriseSubAccount",
     });
     const enterpriseHasRegister = await enterpriseScenario.page.getByRole("button", { name: "注册" }).count();
     await enterpriseScenario.context.close();
 
-    const localScenario = await createMockedPage(browser, {
+    const localScenario = await createMockedPage(browser, webAppUrl, {
       endpointUrl: server.baseUrl,
       mode: "local",
     });
@@ -454,10 +479,13 @@ async function main() {
   } finally {
     await browser.close();
     await server.stop();
+    await previewServer?.stop();
   }
 }
 
-main().catch((error) => {
+main()
+  .then(() => exitSuccess())
+  .catch((error) => {
   console.error(
     JSON.stringify(
       {
@@ -468,5 +496,5 @@ main().catch((error) => {
       2,
     ),
   );
-  process.exitCode = 1;
+  void exitFailure();
 });

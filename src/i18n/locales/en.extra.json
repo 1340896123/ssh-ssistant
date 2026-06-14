@@ -241,7 +241,7 @@
       "unassigned": "Unassigned",
       "noWorkspace": "No default workspace configured",
       "noEndpoint": "No access endpoint configured",
-      "jumpVia": "Jump via {username}@{host}:{port}",
+      "jumpVia": "Jump via {username}{'@'}{host}:{port}",
       "noRecentAudit": "No recent audit events"
     },
     "actions": {

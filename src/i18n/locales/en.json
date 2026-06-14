@@ -32,7 +32,13 @@
     "contextTitle": "Shared context",
     "contextEmptyTitle": "Waiting for a connection",
     "contextEmptyDescription": "Once a session is connected, AI and file context will appear here.",
-    "sessionTabsLabel": "sessions"
+    "sessionTabsLabel": "sessions",
+    "welcomeTitle": "SSH Assistant Ops",
+    "welcomeDescription": "Select an asset to open terminal, files, tunnels, and AI ops context.",
+    "openAssetCenter": "Open Asset Center",
+    "newAsset": "New Asset",
+    "openOpsWorkbench": "Open Ops Workbench",
+    "switchAccount": "Switch"
   },
   "sessionsPane": {
     "title": "Session workbench",
@@ -308,10 +314,25 @@
     "customApiKey": "Custom API Key",
     "customModelName": "Custom Model Name",
     "customProviderType": "Custom Provider",
+    "customModelNamePlaceholder": "For example: gpt-4o-mini",
     "apiUrl": "API Base URL",
     "apiKey": "API Key",
     "modelName": "Model Name",
     "providerType": "Provider Type",
+    "localWorkspace": "Local Workspace",
+    "personalAccountFallback": "Personal Account",
+    "enterpriseSubAccountFallback": "Enterprise Sub-Account",
+    "defaultCustomEndpointName": "Default Custom Endpoint",
+    "cloudAccessTokenPlaceholder": "Temporary login secret",
+    "cloudLogin": "Cloud Login",
+    "cloudLoginConnecting": "Connecting...",
+    "syncSettingsNow": "Sync Settings Now",
+    "syncingSettings": "Syncing...",
+    "cloudSyncDisabled": "Cloud sync disabled",
+    "cloudSyncedAt": "Synced at {time}",
+    "paymentLinkOpened": "Payment link opened",
+    "paymentLinkCreated": "Payment link created",
+    "billingStatusRefreshed": "Billing status refreshed",
     "saveChanges": "Save Changes",
     "cancel": "Cancel",
     "general": "General",
@@ -489,6 +510,19 @@
   },
   "loginGateway": {
     "title": "Sign In To Workspace",
+    "heroTitle": "One Gateway For Three Account Modes",
+    "heroDescription": "Personal accounts, enterprise sub-accounts, and local mode all share one entry point. After sign-in, the asset center, settings, and AI endpoint policy are restored automatically.",
+    "modeCards": {
+      "personal": "Sync personal assets, AI subscription status, and your personal custom endpoint.",
+      "enterpriseSubAccount": "Only pull the asset scope assigned by the enterprise backend and inherit enterprise subscription policy.",
+      "local": "Enter the desktop workspace without cloud sign-in and keep the offline asset experience."
+    },
+    "subscriptionStatusTitle": "Current Subscription Status",
+    "subscriptionRenewal": "renews {date}",
+    "currentInvoiceSummary": "Current cycle {billingMonth} · {status} · remaining {remainingAmount} {currency}",
+    "switchToLocalMode": "Switch To Local Mode",
+    "globalScope": "Global",
+    "freeBilling": "USD 0/seat",
     "tabs": {
       "login": "Sign In",
       "register": "Register"
@@ -508,8 +542,12 @@
       "enterpriseIdentifier": "Sub-Account Identifier (Email or Sub-Account ID)"
     },
     "placeholders": {
+      "identifier": "For example: user{'@'}example.com",
       "displayName": "For example: Alice",
-      "password": "At least 6 characters"
+      "password": "At least 6 characters",
+      "enterpriseId": "For example: ent-001",
+      "enterpriseName": "For example: Enterprise Name",
+      "secret": "Temporary login secret"
     },
     "login": {
       "submit": "Enter Workspace",

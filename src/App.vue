@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   computed,
+  defineAsyncComponent,
   onBeforeUpdate,
   onMounted,
   onUnmounted,
@@ -10,19 +11,8 @@ import {
 } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrent } from "@tauri-apps/plugin-deep-link";
-import AssetCenter from "./components/AssetCenter.vue";
 import LoginGateway from "./components/LoginGateway.vue";
-import ConnectionModal from "./components/ConnectionModal.vue";
-import TunnelModal from "./components/TunnelModal.vue";
-import TunnelPanel from "./components/TunnelPanel.vue";
-import OpsWorkbench from "./components/OpsWorkbench.vue";
 import SessionTabs from "./components/SessionTabs.vue";
-import SessionsWorkbenchPanel from "./components/SessionsWorkbenchPanel.vue";
-import TerminalTabArea from "./components/TerminalTabArea.vue";
-import FileManager from "./components/FileManager.vue";
-import AIAssistant from "./components/AIAssistant.vue";
-import SettingsModal from "./components/SettingsModal.vue";
-import NotificationModal from "./components/NotificationModal.vue";
 import { useSessionStore } from "./stores/sessions";
 import { useAssetStore } from "./stores/assets";
 import { useSettingsStore } from "./stores/settings";
@@ -102,6 +92,40 @@ interface SessionStats {
   cpu: CpuInfo | null;
   memory: MemoryInfo | null;
 }
+
+const AssetCenter = defineAsyncComponent(
+  () => import("./components/AssetCenter.vue"),
+);
+const ConnectionModal = defineAsyncComponent(
+  () => import("./components/ConnectionModal.vue"),
+);
+const TunnelModal = defineAsyncComponent(
+  () => import("./components/TunnelModal.vue"),
+);
+const TunnelPanel = defineAsyncComponent(
+  () => import("./components/TunnelPanel.vue"),
+);
+const OpsWorkbench = defineAsyncComponent(
+  () => import("./components/OpsWorkbench.vue"),
+);
+const SessionsWorkbenchPanel = defineAsyncComponent(
+  () => import("./components/SessionsWorkbenchPanel.vue"),
+);
+const TerminalTabArea = defineAsyncComponent(
+  () => import("./components/TerminalTabArea.vue"),
+);
+const FileManager = defineAsyncComponent(
+  () => import("./components/FileManager.vue"),
+);
+const AIAssistant = defineAsyncComponent(
+  () => import("./components/AIAssistant.vue"),
+);
+const SettingsModal = defineAsyncComponent(
+  () => import("./components/SettingsModal.vue"),
+);
+const NotificationModal = defineAsyncComponent(
+  () => import("./components/NotificationModal.vue"),
+);
 
 const sessionStore = useSessionStore();
 const assetStore = useAssetStore();
@@ -1196,6 +1220,7 @@ onUnmounted(() => {
 
         <div class="flex flex-col items-center gap-2 border-t border-border-primary px-2 py-3">
           <button
+            data-testid="app-settings-button"
             class="flex h-10 w-10 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary"
             :title="t('app.settings')"
             @click="showSettingsModal = true"
@@ -1574,6 +1599,7 @@ onUnmounted(() => {
 
           <div class="flex h-11 items-center gap-2 border-b border-border-primary px-3">
             <button
+              data-testid="context-tab-ai"
               class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
               :class="
                 activeContextTab === 'ai'
@@ -1589,6 +1615,7 @@ onUnmounted(() => {
               </span>
             </button>
             <button
+              data-testid="context-tab-files"
               class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
               :class="
                 activeContextTab === 'files'
@@ -1763,6 +1790,7 @@ onUnmounted(() => {
 
           <div class="flex h-11 items-center gap-2 border-b border-border-primary px-3">
             <button
+              data-testid="drawer-context-tab-ai"
               class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
               :class="
                 activeContextTab === 'ai'
@@ -1775,6 +1803,7 @@ onUnmounted(() => {
               AI
             </button>
             <button
+              data-testid="drawer-context-tab-files"
               class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
               :class="
                 activeContextTab === 'files'
@@ -1848,6 +1877,7 @@ onUnmounted(() => {
     </div>
 
     <ConnectionModal
+      v-if="showConnectionModal"
       :show="showConnectionModal"
       :assetToEdit="editingAsset"
       :endpointToEdit="editingAccessEndpoint"
@@ -1856,11 +1886,16 @@ onUnmounted(() => {
       @save="handleSaveConnection"
     />
     <TunnelModal
+      v-if="showTunnelModal"
       :show="showTunnelModal"
       :asset="tunnelAsset"
       @close="showTunnelModal = false"
     />
-    <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
+    <SettingsModal
+      v-if="showSettingsModal"
+      :show="showSettingsModal"
+      @close="showSettingsModal = false"
+    />
 
     <NotificationModal
       v-if="notificationStore.show"

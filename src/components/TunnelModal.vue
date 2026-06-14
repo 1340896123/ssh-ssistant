@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { Pencil, Play, Plus, Square, Trash2 } from 'lucide-vue-next';
+import { ArrowLeft, ChevronRight, Pencil, Play, Plus, Square, Trash2, X } from 'lucide-vue-next';
 import type { AccessEndpoint, HostAsset, Tunnel, TunnelType } from '../types';
 import { useTunnelStore } from '../stores/tunnels';
 import { useAssetStore } from '../stores/assets';
@@ -271,8 +271,8 @@ async function stopTunnel(tunnel: Tunnel) {
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay">
-    <div class="max-h-[90vh] w-[780px] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary">
+  <div v-if="show" data-testid="tunnel-modal-overlay" class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay">
+    <div data-testid="tunnel-modal" class="max-h-[90vh] w-[780px] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary">
       <div class="mb-4 flex items-center justify-between">
         <div>
           <h2 class="text-xl font-bold text-text-primary">
@@ -282,7 +282,9 @@ async function stopTunnel(tunnel: Tunnel) {
             {{ asset.name }}
           </div>
         </div>
-        <button @click="$emit('close')" class="text-text-muted hover:text-text-primary">✕</button>
+        <button @click="$emit('close')" class="rounded p-1.5 text-text-muted transition-colors hover:bg-bg-tertiary hover:text-text-primary" :title="t('common.close') || 'Close'">
+          <X class="h-5 w-5" />
+        </button>
       </div>
 
       <div v-if="mode === 'list'" class="space-y-4">
@@ -298,6 +300,7 @@ async function stopTunnel(tunnel: Tunnel) {
             </div>
             <button
             @click="startCreate()"
+              data-testid="tunnel-modal-new"
               class="inline-flex items-center gap-2 rounded bg-accent px-3 py-2 text-sm text-white hover:bg-accent/80"
             >
               <Plus class="h-4 w-4" />
@@ -388,18 +391,21 @@ async function stopTunnel(tunnel: Tunnel) {
 
       <div v-else class="space-y-4">
         <div class="flex items-center justify-between">
-          <div>
-            <div class="text-sm font-semibold text-text-primary">{{ formTitle }}</div>
-            <div class="mt-1 text-xs text-text-secondary">
-              {{ t('tunnels.createHint') }}
-            </div>
+          <div class="flex items-center gap-2 text-sm">
+            <button
+              @click="resetToList()"
+              class="inline-flex items-center gap-1 rounded text-text-muted transition-colors hover:text-text-primary"
+              :title="t('tunnels.backToList')"
+            >
+              <ArrowLeft class="h-4 w-4" />
+              <span class="text-xs">{{ t('tunnels.title') }}</span>
+            </button>
+            <ChevronRight class="h-3.5 w-3.5 text-text-muted" />
+            <span class="font-semibold text-text-primary">{{ formTitle }}</span>
           </div>
-          <button
-            @click="resetToList()"
-            class="text-xs text-text-muted hover:text-text-primary"
-          >
-            {{ t('tunnels.backToList') }}
-          </button>
+          <div class="text-xs text-text-secondary">
+            {{ t('tunnels.createHint') }}
+          </div>
         </div>
 
         <div class="grid grid-cols-3 gap-3">
@@ -407,6 +413,7 @@ async function stopTunnel(tunnel: Tunnel) {
             v-for="scenario in scenarioCards"
             :key="scenario.type"
             @click="applyScenario(scenario.type)"
+            :data-testid="`tunnel-scenario-${scenario.type}`"
             class="rounded-lg border p-4 text-left transition-colors"
             :class="
               activeScenario === scenario.type
@@ -444,6 +451,7 @@ async function stopTunnel(tunnel: Tunnel) {
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('tunnels.accessEndpoint') }}</label>
               <select
                 v-model.number="form.accessEndpointId"
+                data-testid="tunnel-endpoint-select"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               >
                 <option :value="0" disabled>{{ t('tunnels.selectEndpoint') }}</option>
@@ -451,17 +459,8 @@ async function stopTunnel(tunnel: Tunnel) {
                   {{ formatEndpoint(endpoint) }}
                 </option>
               </select>
-            </div>
-
-            <div class="col-span-2 rounded border border-border-secondary bg-bg-primary p-3">
-              <div class="text-[11px] uppercase tracking-wide text-text-muted">
-                {{ t('tunnels.connectionSourceTitle') }}
-              </div>
-              <div class="mt-1 text-sm text-text-secondary">
-                {{ t('tunnels.connectionSourceDescription') }}
-              </div>
-              <div class="mt-2 text-xs text-text-muted">
-                {{ formatEndpoint(selectedEndpoint) }}
+              <div v-if="selectedEndpoint" class="mt-1.5 text-[11px] text-text-muted">
+                {{ t('tunnels.connectionSourceDescription') }} · {{ formatEndpoint(selectedEndpoint) }}
               </div>
             </div>
 
@@ -469,6 +468,7 @@ async function stopTunnel(tunnel: Tunnel) {
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('tunnels.name') }}</label>
               <input
                 v-model="form.name"
+                data-testid="tunnel-name-input"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                 :placeholder="t('tunnels.placeholderName')"
               />
@@ -478,6 +478,7 @@ async function stopTunnel(tunnel: Tunnel) {
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('tunnels.localHost') }}</label>
               <input
                 v-model="form.localHost"
+                data-testid="tunnel-local-host-input"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                 placeholder="127.0.0.1"
               />
@@ -488,6 +489,7 @@ async function stopTunnel(tunnel: Tunnel) {
               <input
                 v-model.number="form.localPort"
                 type="number"
+                data-testid="tunnel-local-port-input"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                 :placeholder="isDynamic ? '1080' : '8080'"
               />
@@ -498,6 +500,7 @@ async function stopTunnel(tunnel: Tunnel) {
                 <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('tunnels.remoteHost') }}</label>
                 <input
                   v-model="form.remoteHost"
+                  data-testid="tunnel-remote-host-input"
                   class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                   placeholder="10.0.0.12"
                 />
@@ -507,6 +510,7 @@ async function stopTunnel(tunnel: Tunnel) {
                 <input
                   v-model.number="form.remotePort"
                   type="number"
+                  data-testid="tunnel-remote-port-input"
                   class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                   placeholder="80"
                 />
@@ -518,6 +522,7 @@ async function stopTunnel(tunnel: Tunnel) {
                 <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('tunnels.remoteBindHost') }}</label>
                 <input
                   v-model="form.remoteBindHost"
+                  data-testid="tunnel-remote-bind-host-input"
                   class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                   placeholder="127.0.0.1"
                 />
@@ -527,6 +532,7 @@ async function stopTunnel(tunnel: Tunnel) {
                 <input
                   v-model.number="form.remotePort"
                   type="number"
+                  data-testid="tunnel-remote-port-input"
                   class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                   placeholder="10022"
                 />
@@ -554,6 +560,7 @@ async function stopTunnel(tunnel: Tunnel) {
             <button
               @click="saveTunnel"
               :disabled="!hasSelectedScenario"
+              data-testid="tunnel-save-button"
               class="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {{ t('tunnels.save') }}

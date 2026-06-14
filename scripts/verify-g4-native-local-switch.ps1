@@ -21,8 +21,43 @@ public static class Win32NativeFlow {
 }
 "@
 
+function Start-AppWindow {
+  $candidates = @(
+    "D:\source\ssh-ssistant-tauri\target\debug\app.exe",
+    "D:\source\ssh-ssistant-tauri\src-tauri\target\debug\app.exe"
+  )
+
+  $existing = @(
+    Get-Process SshStar -ErrorAction SilentlyContinue
+    Get-Process app -ErrorAction SilentlyContinue
+    Get-Process | Where-Object { $_.MainWindowTitle -eq "SshStar" }
+  ) | Where-Object { $_ -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+
+  if ($existing) {
+    return $existing
+  }
+
+  $exePath = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $exePath) {
+    throw "Could not find a Tauri debug executable to launch."
+  }
+
+  $proc = Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath -Parent) -PassThru
+
+  for ($i = 0; $i -lt 30; $i++) {
+    Start-Sleep -Milliseconds 500
+    $started = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+    if ($started -and $started.MainWindowHandle -ne 0) {
+      return $started
+    }
+  }
+
+  throw "Tauri window process started but no main window became available."
+}
+
 function Get-AppWindowRect {
-  $proc = Get-Process app -ErrorAction Stop | Select-Object -First 1
+  $proc = Start-AppWindow
+
   $hwnd = $proc.MainWindowHandle
   [Win32NativeFlow]::ShowWindow($hwnd, 5) | Out-Null
   [Win32NativeFlow]::SetForegroundWindow($hwnd) | Out-Null

@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick, shallowRef, tri
 import { invoke } from '@tauri-apps/api/core';
 import { join, tempDir } from '@tauri-apps/api/path';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, Briefcase, Copy, MessageSquareQuote, Terminal as TerminalIcon } from 'lucide-vue-next';
+import { ArrowUp, RefreshCw, Upload, FilePlus, FolderPlus, FolderUp, Briefcase, Copy, MessageSquareQuote, Terminal as TerminalIcon } from 'lucide-vue-next';
 import { open, save, ask } from '@tauri-apps/plugin-dialog';
 import { readDir, mkdir, remove, stat } from '@tauri-apps/plugin-fs';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
@@ -2390,24 +2390,24 @@ function formatSize(size: number): string {
                     <span>{{ t('fileManager.toolbar.newFolder') }}</span>
                 </button>
                 <div class="w-px h-4 bg-subtle mx-1"></div>
-                <button @click="handleUpload"
+                <button @click="handleUpload" data-testid="file-manager-upload-file"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast "
                     :title="t('fileManager.toolbar.uploadFile')">
                     <Upload class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.uploadFile') }}</span>
                 </button>
                 <!-- Upload Directory placeholder -->
-                <button @click="handleUploadDirectory"
+                <button @click="handleUploadDirectory" data-testid="file-manager-upload-directory"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast "
                     :title="t('fileManager.toolbar.uploadDirectory')">
-                    <FolderPlus class="w-3 h-3" />
+                    <FolderUp class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.uploadDirectory') }}</span>
                 </button>
             </div>
         </div>
 
         <!-- File List -->
-        <div ref="fileListScrollRef" class="min-h-0 flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
+        <div ref="fileListScrollRef" data-testid="file-manager-list" class="min-h-0 flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
             @scroll="handleFileListScroll"
             @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu="handleContainerContextMenu">
             <!-- Header -->
@@ -2482,6 +2482,7 @@ function formatSize(size: number): string {
 
         <!-- Context Menu -->
         <div v-if="contextMenu.show" ref="contextMenuRef"
+            data-testid="file-manager-context-menu"
             :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
             class="fixed bg-bg-secondary border border-subtle shadow-xl rounded z-50 py-1 min-w-[150px]  backdrop-blur-md">
 
@@ -2510,7 +2511,7 @@ function formatSize(size: number): string {
                 </button>
                 <button @click.stop="handleUploadDirectory(); closeContextMenu()"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary flex items-center transition-all duration-fast">
-                    <FolderPlus class="w-4 h-4 mr-2 text-text-tertiary" />
+                    <FolderUp class="w-4 h-4 mr-2 text-text-tertiary" />
                     {{ t('fileManager.toolbar.uploadDirectory') }}
                 </button>
                 <div class="border-t border-subtle my-1"></div>
@@ -2555,10 +2556,10 @@ function formatSize(size: number): string {
                             contextMenu.isTree ? selectedTreePaths.size : selectedFiles.size
                         }})</span>
                 </button>
-                <button @click.stop="handleRename(contextMenu.file!)"
+                <button @click.stop="handleRename(contextMenu.file!)" data-testid="file-manager-context-rename"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary transition-all duration-fast">{{ t('fileManager.contextMenu.rename')
                     }}</button>
-                <button @click.stop="handleDelete(contextMenu.file!)"
+                <button @click.stop="handleDelete(contextMenu.file!)" data-testid="file-manager-context-delete"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-bg-tertiary text-error  transition-all duration-fast">
                     {{ t('fileManager.contextMenu.delete') }} {{ selectedFiles.size > 1 ? `(${selectedFiles.size})` : ''
                     }}

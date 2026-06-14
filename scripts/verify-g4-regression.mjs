@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { nextPort, startTempAdminApi } from "./helpers/temp-admin-api.mjs";
 
 const DEFAULT_BASE_URL = process.env.SSH_ASSISTANT_ADMIN_BASE_URL || "http://localhost:5047";
 const DEFAULT_OUTPUT_DIR = process.env.SSH_ASSISTANT_G4_OUTPUT_DIR || path.resolve("tmp", "regression");
@@ -180,7 +181,18 @@ function toMarkdownReport(payload) {
 }
 
 async function main() {
-  const baseUrl = normalizeBaseUrl(process.argv[2]);
+  let server = null;
+  const requestedBaseUrl = process.argv[2] || process.env.SSH_ASSISTANT_ADMIN_BASE_URL;
+  const baseUrl = requestedBaseUrl
+    ? normalizeBaseUrl(requestedBaseUrl)
+    : normalizeBaseUrl(
+        (
+          server = await startTempAdminApi({
+            port: nextPort(5600),
+            label: "verify-g4",
+          })
+        ).baseUrl,
+      );
   const suffix = nowSuffix();
   const enterpriseId = `ent-g4-${suffix}`;
   const subAccountId = `sub-g4-${suffix}`;
@@ -596,7 +608,7 @@ async function main() {
     currentStep = "managed-ai-call-test";
     const aiCallTest = runCommand(
       "node",
-      ["scripts/verify-g4-ai-call.mjs"],
+      ["scripts/verify-g4-ai-call.mjs", baseUrl],
       { cwd: path.resolve(".") },
     );
     assert(
@@ -734,6 +746,8 @@ async function main() {
     };
     console.error(JSON.stringify(failure, null, 2));
     process.exitCode = 1;
+  } finally {
+    await server?.stop();
   }
 }
 

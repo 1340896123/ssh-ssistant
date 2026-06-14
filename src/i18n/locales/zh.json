@@ -308,10 +308,25 @@
     "customApiKey": "自定义 API 密钥",
     "customModelName": "自定义模型名称",
     "customProviderType": "自定义提供商",
+    "customModelNamePlaceholder": "例如：gpt-4o-mini",
     "apiUrl": "API 基础地址",
     "apiKey": "API 密钥",
     "modelName": "模型名称",
     "providerType": "提供商类型",
+    "localWorkspace": "本地工作台",
+    "personalAccountFallback": "个人账号",
+    "enterpriseSubAccountFallback": "企业子账号",
+    "defaultCustomEndpointName": "默认自定义端点",
+    "cloudAccessTokenPlaceholder": "临时登录密钥",
+    "cloudLogin": "云端登录",
+    "cloudLoginConnecting": "连接中...",
+    "syncSettingsNow": "立即同步设置",
+    "syncingSettings": "同步中...",
+    "cloudSyncDisabled": "云同步已禁用",
+    "cloudSyncedAt": "已同步于 {time}",
+    "paymentLinkOpened": "已打开支付链接",
+    "paymentLinkCreated": "已创建支付链接",
+    "billingStatusRefreshed": "账单状态已刷新",
     "saveChanges": "保存更改",
     "cancel": "取消",
     "general": "通用",
@@ -489,6 +504,19 @@
   },
   "loginGateway": {
     "title": "登录工作台",
+    "heroTitle": "三种账号模式统一登录",
+    "heroDescription": "个人账号、企业子账号、本地模式共用一套入口。登录后自动拉取资产中心、同步设置，并继续沿用后台下发的 AI 订阅与自定义端点策略。",
+    "modeCards": {
+      "personal": "同步个人资产、AI 订阅状态与个人自定义端点。",
+      "enterpriseSubAccount": "只拉取企业后台分配的资产范围，并继承企业订阅策略。",
+      "local": "无需云登录即可进入桌面工作台，保留离线资产体验。"
+    },
+    "subscriptionStatusTitle": "当前订阅状态",
+    "subscriptionRenewal": "续期 {date}",
+    "currentInvoiceSummary": "当前账期 {billingMonth} · {status} · 待付 {remainingAmount} {currency}",
+    "switchToLocalMode": "切换为本地模式",
+    "globalScope": "全局",
+    "freeBilling": "USD 0/席位",
     "tabs": {
       "login": "登录",
       "register": "注册"
@@ -508,8 +536,12 @@
       "enterpriseIdentifier": "子账号标识（邮箱或子账号 ID）"
     },
     "placeholders": {
+      "identifier": "例如：user{'@'}example.com",
       "displayName": "例如：Alice",
-      "password": "至少 6 位密码"
+      "password": "至少 6 位密码",
+      "enterpriseId": "例如：ent-001",
+      "enterpriseName": "例如：Enterprise Name",
+      "secret": "临时登录密钥"
     },
     "login": {
       "submit": "进入工作台",

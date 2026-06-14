@@ -241,7 +241,7 @@
       "unassigned": "未分配",
       "noWorkspace": "未配置默认工作区",
       "noEndpoint": "未配置访问端点",
-      "jumpVia": "通过 {username}@{host}:{port} 跳转",
+      "jumpVia": "通过 {username}{'@'}{host}:{port} 跳转",
       "noRecentAudit": "暂无最近审计事件"
     },
     "actions": {

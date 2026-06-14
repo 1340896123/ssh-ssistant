@@ -139,7 +139,7 @@ async function deleteTunnel(tunnel: Tunnel) {
 </script>
 
 <template>
-  <div class="space-y-3">
+  <div class="space-y-3" data-testid="tunnel-panel-root">
     <div class="flex items-center justify-between">
       <div class="text-sm font-semibold text-text-primary">{{ t('tunnels.title') }}</div>
       <button @click="loadData" class="p-1.5 rounded hover:bg-bg-tertiary text-text-muted hover:text-text-primary"
@@ -151,7 +151,7 @@ async function deleteTunnel(tunnel: Tunnel) {
     <div class="grid grid-cols-2 gap-2">
       <div>
         <label class="block text-xs text-text-secondary uppercase mb-1">{{ t('tunnels.asset') }}</label>
-        <select v-model="selectedAssetId"
+        <select v-model="selectedAssetId" data-testid="tunnel-panel-asset-select"
           class="w-full p-2 bg-bg-tertiary text-text-primary rounded border border-border-primary focus:border-accent outline-none">
           <option value="all">{{ t('tunnels.allAssets') }}</option>
           <option v-for="asset in assetStore.assets" :key="asset.id" :value="asset.id">
@@ -160,14 +160,14 @@ async function deleteTunnel(tunnel: Tunnel) {
         </select>
       </div>
       <div class="flex items-end">
-        <button @click="openManage()" class="w-full px-3 py-2 bg-accent text-white rounded text-sm hover:bg-accent/80">
+        <button @click="openManage()" data-testid="tunnel-panel-manage-selected" class="w-full px-3 py-2 bg-accent text-white rounded text-sm hover:bg-accent/80">
           {{ t('tunnels.manageSelectedAsset') }}
         </button>
       </div>
     </div>
 
     <div class="space-y-2">
-      <div v-for="tunnel in tunnelStore.tunnels" :key="tunnel.id" class="border border-border-secondary rounded p-3">
+      <div v-for="tunnel in tunnelStore.tunnels" :key="tunnel.id" data-testid="tunnel-panel-item" :data-tunnel-name="tunnel.name" class="border border-border-secondary rounded p-3">
         <div class="flex items-center justify-between">
           <div class="min-w-0">
             <div class="text-sm font-semibold text-text-primary truncate">{{ tunnel.name }}</div>
@@ -195,11 +195,11 @@ async function deleteTunnel(tunnel: Tunnel) {
               {{ t('tunnels.active') }}
             </span>
 
-            <button v-if="!tunnelStore.isActive(tunnel.id || 0)" @click="startTunnel(tunnel)"
+            <button v-if="!tunnelStore.isActive(tunnel.id || 0)" data-testid="tunnel-panel-start" @click="startTunnel(tunnel)"
               class="p-1 text-success hover:text-success/80" :title="t('tunnels.start')">
               <Play class="w-4 h-4" />
             </button>
-            <button v-else @click="stopTunnel(tunnel)"
+            <button v-else data-testid="tunnel-panel-stop" @click="stopTunnel(tunnel)"
               class="p-1 text-warning hover:text-warning/80" :title="t('tunnels.stop')">
               <Square class="w-4 h-4" />
             </button>
@@ -207,7 +207,7 @@ async function deleteTunnel(tunnel: Tunnel) {
             <button @click="openManage(tunnel)" class="p-1 text-text-muted hover:text-info" :title="t('tunnels.manage')">
               <Settings2 class="w-4 h-4" />
             </button>
-            <button @click="deleteTunnel(tunnel)" class="p-1 text-text-muted hover:text-error" :title="t('tunnels.delete')">
+            <button @click="deleteTunnel(tunnel)" data-testid="tunnel-panel-delete" class="p-1 text-text-muted hover:text-error" :title="t('tunnels.delete')">
               <Trash2 class="w-4 h-4" />
             </button>
           </div>

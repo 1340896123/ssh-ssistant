@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useSessionStore } from "../stores/sessions";
 import { useI18n } from "../composables/useI18n";
 import {
@@ -21,6 +21,23 @@ const emit = defineEmits<{
 const sessionStore = useSessionStore();
 const { t } = useI18n();
 const showBulkActions = ref(false);
+const bulkActionsRef = ref<HTMLElement | null>(null);
+
+function handleDocumentClick(event: MouseEvent) {
+  if (!showBulkActions.value) return;
+  const target = event.target as Node | null;
+  if (bulkActionsRef.value && target && !bulkActionsRef.value.contains(target)) {
+    showBulkActions.value = false;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener("click", handleDocumentClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleDocumentClick);
+});
 
 const sessions = computed(() => sessionStore.sessions);
 const activeSession = computed(() => sessionStore.activeSession);
@@ -99,7 +116,7 @@ function formatDuration(timestamp: number) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col bg-bg-secondary">
+  <div class="flex h-full flex-col bg-bg-secondary" data-testid="sessions-pane-root">
     <div class="border-b border-border-primary px-4 py-3">
       <div class="flex items-center justify-between gap-3">
         <div>
@@ -138,7 +155,7 @@ function formatDuration(timestamp: number) {
     </div>
 
     <div class="border-b border-border-primary px-4 py-3">
-      <div class="relative">
+      <div ref="bulkActionsRef" class="relative">
         <button
           class="flex h-9 w-full items-center justify-between rounded-md border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-colors hover:bg-bg-elevated"
           @click="showBulkActions = !showBulkActions"
@@ -217,6 +234,8 @@ function formatDuration(timestamp: number) {
         <div
           v-for="session in sessions"
           :key="session.id"
+          data-testid="sessions-pane-card"
+          :data-session-id="session.id"
           role="button"
           tabindex="0"
           class="group w-full rounded-xl border px-3 py-3 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary"
@@ -291,6 +310,7 @@ function formatDuration(timestamp: number) {
               </button>
               <button
                 v-if="session.status === 'connected'"
+                data-testid="sessions-pane-disconnect"
                 class="rounded-md p-1.5 text-text-secondary hover:bg-bg-secondary hover:text-warning"
                 :title="t('sessionsPane.disconnect')"
                 @click.stop="sessionStore.disconnectSession(session.id)"
@@ -299,6 +319,7 @@ function formatDuration(timestamp: number) {
               </button>
               <button
                 v-else
+                data-testid="sessions-pane-reconnect"
                 class="rounded-md p-1.5 text-text-secondary hover:bg-bg-secondary hover:text-success"
                 :title="t('sessionsPane.reconnect')"
                 @click.stop="sessionStore.reconnectSession(session.id)"

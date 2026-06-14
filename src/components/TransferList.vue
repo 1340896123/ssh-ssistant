@@ -75,9 +75,9 @@ function toggleExpand() {
 </script>
 
 <template>
-    <div v-if="visible" class="border-t border-border-primary bg-bg-secondary flex flex-col transition-all duration-300" :class="{'h-48': isExpanded, 'h-8': !isExpanded}">
+    <div v-if="visible" data-testid="transfer-list-root" class="border-t border-border-primary bg-bg-secondary flex flex-col transition-all duration-300" :class="{'h-48': isExpanded, 'h-8': !isExpanded}">
         <!-- Header / Summary Bar -->
-        <div @click="toggleExpand" class="flex items-center justify-between px-2 h-8 bg-bg-tertiary cursor-pointer hover:bg-bg-secondary select-none border-b border-border-primary">
+        <div @click="toggleExpand" data-testid="transfer-list-header" class="flex items-center justify-between px-2 h-8 bg-bg-tertiary cursor-pointer hover:bg-bg-secondary select-none border-b border-border-primary">
             <div class="flex items-center space-x-2 text-xs text-text-secondary">
                  <ChevronDown v-if="isExpanded" class="w-4 h-4" />
                  <ChevronUp v-else class="w-4 h-4" />
@@ -106,7 +106,7 @@ function toggleExpand() {
         </div>
 
         <!-- List -->
-        <div v-if="isExpanded" ref="virtualizerContainerRef" class="flex-1 overflow-y-auto p-2 space-y-2 bg-bg-tertiary/50">
+        <div v-if="isExpanded" ref="virtualizerContainerRef" data-testid="transfer-list-body" class="flex-1 overflow-y-auto p-2 space-y-2 bg-bg-tertiary/50">
             <div 
                 :style="{ height: virtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }"
             >
@@ -122,7 +122,7 @@ function toggleExpand() {
                         transform: `translateY(${virtualItem.start}px)`,
                     }"
                 >
-                    <div class="bg-bg-secondary border border-border-primary rounded p-2 text-xs h-full">
+                    <div data-testid="transfer-list-item" class="bg-bg-secondary border border-border-primary rounded p-2 text-xs h-full">
                         <div class="flex items-center justify-between mb-1">
                             <div class="flex items-center space-x-2 truncate">
                                 <FileUp v-if="visibleItems[virtualItem.index].type === 'upload'" class="w-3 h-3 text-accent" />

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
+import net from "node:net";
 
 const ADMIN_API_PROJECT = path.resolve("backend", "SshAssistant.AdminApi", "SshAssistant.AdminApi.csproj");
 
@@ -86,35 +87,49 @@ export async function waitForHttp(baseUrl, pathName = "/api/admin/dashboard", ti
 
 export async function buildAdminApi(outputDir) {
   await mkdir(outputDir, { recursive: true });
+  let lastError = null;
 
-  const result = spawnSync(
-    "dotnet",
-    [
-      "build",
-      ADMIN_API_PROJECT,
-      "--disable-build-servers",
-      "-o",
-      outputDir,
-      "-p:UseSharedCompilation=false",
-    ],
-    {
-      cwd: path.resolve("."),
-      encoding: "utf8",
-      windowsHide: true,
-      maxBuffer: 1024 * 1024 * 20,
-    },
-  );
-
-  if (result.status !== 0) {
-    throw new Error(
-      `dotnet build failed: ${result.stderr || result.stdout || result.error || "unknown error"}`,
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const result = spawnSync(
+      "dotnet",
+      [
+        "build",
+        ADMIN_API_PROJECT,
+        "--disable-build-servers",
+        "-o",
+        outputDir,
+        "-p:UseSharedCompilation=false",
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+        windowsHide: true,
+        maxBuffer: 1024 * 1024 * 20,
+      },
     );
+
+    if (result.status === 0) {
+      return {
+        stdout: result.stdout || "",
+        stderr: result.stderr || "",
+      };
+    }
+
+    const output = `${result.stderr || ""}\n${result.stdout || ""}\n${result.error || ""}`;
+    lastError = output.trim() || "unknown error";
+
+    const isTransientLockError =
+      output.includes("being used by another process") ||
+      output.includes("MSB3501");
+
+    if (!isTransientLockError || attempt === 3) {
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
   }
 
-  return {
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-  };
+  throw new Error(`dotnet build failed: ${lastError}`);
 }
 
 export async function startTempAdminApi({
@@ -131,7 +146,8 @@ export async function startTempAdminApi({
 
   const stdoutChunks = [];
   const stderrChunks = [];
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const resolvedPort = await ensureAvailablePort(port);
+  const baseUrl = `http://127.0.0.1:${resolvedPort}`;
   const server = spawn("dotnet", ["SshAssistant.AdminApi.dll", "--urls", baseUrl], {
     cwd: outputDir,
     env: {
@@ -176,4 +192,41 @@ export async function startTempAdminApi({
 
 export function nextPort(start = 5061) {
   return start + Math.floor(Math.random() * 200);
+}
+
+export function ensureAvailablePort(port) {
+  return new Promise((resolve, reject) => {
+    const tester = net.createServer();
+    tester.unref();
+    tester.once("error", reject);
+    tester.listen(port, "127.0.0.1", () => {
+      const address = tester.address();
+      tester.close((closeError) => {
+        if (closeError) {
+          reject(closeError);
+          return;
+        }
+        if (typeof address === "object" && address?.port) {
+          resolve(address.port);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
+export async function findAvailablePort(start = 5061, attempts = 12, step = 1) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const candidate = start + attempt * step;
+    try {
+      return await ensureAvailablePort(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error(`Unable to find available port near ${start}.`);
 }

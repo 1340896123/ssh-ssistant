@@ -1,3 +1,5 @@
+import { nextPort, startTempAdminApi } from "./helpers/temp-admin-api.mjs";
+
 const DEFAULT_BASE_URL = process.env.SSH_ASSISTANT_ADMIN_BASE_URL || "http://localhost:5047";
 const SUBSCRIPTION_STATUS_ACTIVE = 2;
 
@@ -85,7 +87,18 @@ function buildSettingsPayload({ account, sync, customEndpoint, settingsJson }) {
 }
 
 async function main() {
-  const baseUrl = normalizeBaseUrl(process.argv[2]);
+  let server = null;
+  const requestedBaseUrl = process.argv[2] || process.env.SSH_ASSISTANT_ADMIN_BASE_URL;
+  const baseUrl = requestedBaseUrl
+    ? normalizeBaseUrl(requestedBaseUrl)
+    : normalizeBaseUrl(
+        (
+          server = await startTempAdminApi({
+            port: nextPort(5400),
+            label: "verify-enterprise",
+          })
+        ).baseUrl,
+      );
   const suffix = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   const enterpriseId = `ent-g2-${suffix}`;
   const subAccountId = `sub-g2-${suffix}`;
@@ -382,10 +395,12 @@ async function main() {
   } catch (error) {
     console.error(JSON.stringify({ ok: false, error: error.message, results }, null, 2));
     process.exitCode = 1;
-    return;
+  } finally {
+    await server?.stop();
   }
-
-  console.log(JSON.stringify({ ok: true, baseUrl, results }, null, 2));
+  if (process.exitCode !== 1) {
+    console.log(JSON.stringify({ ok: true, baseUrl, results }, null, 2));
+  }
 }
 
 main();

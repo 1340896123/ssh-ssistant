@@ -332,9 +332,11 @@ function save() {
   <div
     v-if="show"
     class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay"
+    data-testid="connection-modal-overlay"
   >
     <div
       class="max-h-[90vh] w-[680px] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary"
+      data-testid="connection-modal"
     >
       <h2 class="mb-4 text-xl font-bold text-text-primary">
         {{ assetToEdit ? t('connectionModal.editTitle') : t('connectionModal.newTitle') }}
@@ -350,6 +352,7 @@ function save() {
             <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.name') }}</label>
             <input
               v-model="formAsset.name"
+              data-testid="connection-modal-name"
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               :placeholder="t('connectionModal.placeholders.name')"
             />
@@ -360,6 +363,7 @@ function save() {
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.host') }}</label>
               <input
                 v-model="formAsset.host"
+                data-testid="connection-modal-host"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                 :placeholder="t('connectionModal.placeholders.host')"
               />
@@ -369,6 +373,7 @@ function save() {
               <input
                 v-model.number="formAsset.port"
                 type="number"
+                data-testid="connection-modal-port"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                 :placeholder="t('connectionModal.placeholders.port')"
               />
@@ -433,6 +438,7 @@ function save() {
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.owner') }}</label>
               <input
                 v-model="formAsset.owner"
+                data-testid="connection-modal-owner"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                 :placeholder="t('connectionModal.placeholders.owner')"
               />
@@ -441,6 +447,7 @@ function save() {
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.labels') }}</label>
               <input
                 v-model="labelsInput"
+                data-testid="connection-modal-labels"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
                 :placeholder="t('connectionModal.placeholders.labels')"
               />
@@ -485,6 +492,7 @@ function save() {
             <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.endpointUsername') }}</label>
             <input
               v-model="formEndpoint.username"
+              data-testid="connection-modal-username"
               class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
               :placeholder="t('connectionModal.placeholders.endpointUsername')"
             />
@@ -520,6 +528,7 @@ function save() {
               <input
                 v-model="formCredentialRef!.secret"
                 :type="showPassword ? 'text' : 'password'"
+                data-testid="connection-modal-password"
                 class="w-full rounded border border-border-primary bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
                 :placeholder="t('connectionModal.placeholders.password')"
               />
@@ -610,6 +619,7 @@ function save() {
         <button
           class="flex items-center gap-2 rounded bg-warning px-4 py-2 text-sm text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="isTesting"
+          data-testid="connection-modal-test"
           @click="testConnection"
         >
           <Loader2 v-if="isTesting" class="h-4 w-4 animate-spin" />
@@ -619,12 +629,14 @@ function save() {
         <div class="flex gap-2">
           <button
             class="rounded bg-bg-tertiary px-4 py-2 text-sm text-text-primary hover:bg-bg-elevated"
+            data-testid="connection-modal-cancel"
             @click="emit('close')"
           >
             {{ t('common.cancel') }}
           </button>
           <button
             class="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/80"
+            data-testid="connection-modal-save"
             @click="save"
           >
             {{ t('common.save') }}

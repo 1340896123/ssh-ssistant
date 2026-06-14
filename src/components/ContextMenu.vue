@@ -44,7 +44,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div ref="menuRef" class="fixed z-[100] bg-bg-elevated border border-border-primary rounded-lg shadow-xl py-1 min-w-[160px]"
+    <div ref="menuRef" data-testid="context-menu-root" class="fixed z-[100] bg-bg-elevated border border-border-primary rounded-lg shadow-xl py-1 min-w-[160px]"
         :style="{ top: `${y}px`, left: `${x}px` }" @contextmenu.prevent>
         <template v-for="(item, index) in items" :key="index">
             <div v-if="item.separator" class="my-1 border-t border-border-secondary"></div>

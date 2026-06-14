@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ClientSubscriptionSnapshot, Settings } from '../types';
 import { setI18nLanguage } from '../i18n';
 import { cloudService, workspaceSnapshotService } from '../services';
+import { useAssetStore } from './assets';
 
 const DEFAULT_CHECKOUT_RETURN_URL = 'sshstar://billing/success';
 const DEFAULT_CHECKOUT_CANCEL_URL = 'sshstar://billing/cancel';
@@ -496,7 +497,7 @@ export const useSettingsStore = defineStore('settings', {
       await this.saveSettings({});
     },
     async saveCurrentLocalWorkspaceSnapshot() {
-      const assetSnapshot = await (await import('./assets')).useAssetStore().exportLocalWorkspaceSnapshot();
+      const assetSnapshot = await useAssetStore().exportLocalWorkspaceSnapshot();
       await workspaceSnapshotService.save(LOCAL_WORKSPACE_SNAPSHOT_KEY, {
         ...assetSnapshot,
         settings: JSON.parse(JSON.stringify(this.$state)) as Settings,
@@ -520,7 +521,7 @@ export const useSettingsStore = defineStore('settings', {
         return false;
       }
 
-      await (await import('./assets')).useAssetStore().restoreLocalWorkspaceSnapshot(snapshot);
+      await useAssetStore().restoreLocalWorkspaceSnapshot(snapshot);
       this.$patch(snapshot.settings);
       this.account = createDefaultAccount();
       this.sync = {

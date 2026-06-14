@@ -5,7 +5,6 @@ import { useSessionStore } from "../stores/sessions";
 import { useAssetStore } from "../stores/assets";
 import { useNotificationStore } from "../stores/notifications";
 import { invoke } from "@tauri-apps/api/core";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import {
   Send,
@@ -23,15 +22,49 @@ import {
   Check,
   X,
 } from "lucide-vue-next";
-import MarkdownIt from "markdown-it";
 import { useI18n } from "../composables/useI18n";
-import { cloudService, resolveAiRuntimeConfig } from "../services";
 
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  breaks: true,
-});
+type MarkdownItModule = typeof import("markdown-it");
+type DialogModule = typeof import("@tauri-apps/plugin-dialog");
+type ServicesModule = typeof import("../services");
+
+let markdownRendererPromise: Promise<{
+  render: (content: string) => string;
+}> | null = null;
+let dialogModulePromise: Promise<DialogModule> | null = null;
+let servicesModulePromise: Promise<ServicesModule> | null = null;
+
+function getMarkdownRenderer() {
+  if (!markdownRendererPromise) {
+    markdownRendererPromise = import("markdown-it").then((module: MarkdownItModule) => {
+      const MarkdownIt = module.default;
+      const instance = new MarkdownIt({
+        html: false,
+        linkify: true,
+        breaks: true,
+      });
+      return {
+        render: (content: string) => instance.render(content),
+      };
+    });
+  }
+
+  return markdownRendererPromise;
+}
+
+function getDialogModule() {
+  if (!dialogModulePromise) {
+    dialogModulePromise = import("@tauri-apps/plugin-dialog");
+  }
+  return dialogModulePromise;
+}
+
+function getServicesModule() {
+  if (!servicesModulePromise) {
+    servicesModulePromise = import("../services");
+  }
+  return servicesModulePromise;
+}
 
 const props = withDefaults(
   defineProps<{
@@ -51,6 +84,14 @@ const sessionStore = useSessionStore();
 const assetStore = useAssetStore();
 const notificationStore = useNotificationStore();
 const { t } = useI18n();
+const markdownRenderer = ref<{ render: (content: string) => string } | null>(null);
+
+async function warmMarkdownRenderer() {
+  const renderer = await getMarkdownRenderer();
+  if (markdownRenderer.value !== renderer) {
+    markdownRenderer.value = renderer;
+  }
+}
 
 const activeWorkspace = computed(() => {
   const session = sessionStore.sessions.find((s) => s.id === props.sessionId);
@@ -62,9 +103,21 @@ const activeAsset = computed(() => {
   return assetStore.assets.find((asset) => asset.id === session.assetId) ?? null;
 });
 
+function escapeHtml(content: string) {
+  return content
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function renderMarkdown(content: string) {
   if (!content) return "";
-  return md.render(content);
+  if (markdownRenderer.value) {
+    return markdownRenderer.value.render(content);
+  }
+  return escapeHtml(content).replace(/\n/g, "<br>");
 }
 
 interface Message {
@@ -729,6 +782,7 @@ ${activeWorkspace.value.context}
   apiMessages.unshift({ role: "system", content: systemContent });
 
   try {
+    const { cloudService, resolveAiRuntimeConfig } = await getServicesModule();
     const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
     if (!runtimeConfig.enabled) {
       const reasonMessage = aiRuntimeReasonMessage(runtimeConfig.reason);
@@ -895,6 +949,7 @@ ${activeWorkspace.value.context}
 
           // --- DANGER ZONE ---
           if (isDangerous(cmd)) {
+            const { confirm } = await getDialogModule();
             const confirmed = await confirm(
               t("aiAssistant.messages.dangerousCommandConfirm", {
                 command: cmd,
@@ -1038,6 +1093,7 @@ ${activeWorkspace.value.context}
             mode?: "overwrite" | "append";
           };
           try {
+            const { confirm } = await getDialogModule();
             const confirmed = await confirm(
               t("aiAssistant.messages.writeFileConfirm", { path: args.path }),
             );
@@ -1151,6 +1207,7 @@ ${activeWorkspace.value.context}
 }
 
 onMounted(async () => {
+  void warmMarkdownRenderer();
   scrollToBottom();
 });
 

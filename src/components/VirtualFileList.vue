@@ -65,6 +65,16 @@ const virtualizer = useVirtualizer(virtualizerOptions);
 const virtualItems = computed(() => virtualizer.value.getVirtualItems());
 
 const totalSize = computed(() => virtualizer.value.getTotalSize());
+const fallbackVisibleItems = computed(() =>
+    props.items.map((_, index) => ({
+        index,
+        size: 32,
+        start: index * 32
+    }))
+);
+const renderedItems = computed(() =>
+    virtualItems.value.length > 0 ? virtualItems.value : fallbackVisibleItems.value
+);
 
 const { getFileIcon } = useFileIcon();
 const { t } = useI18n();
@@ -147,6 +157,20 @@ function getIconForFile(name: string) {
     return undefined;
 }
 
+function getFlatItem(index: number) {
+    return props.items[index] as FileEntry;
+}
+
+function getTreeItem(index: number) {
+    return props.items[index] as TreeNode;
+}
+
+const FlatFileRow = (rowProps: { item: FileEntry; index: number }) =>
+    renderFileItem(rowProps.item, rowProps.index);
+
+const TreeFileRow = (rowProps: { node: TreeNode }) =>
+    renderTreeNode(rowProps.node);
+
 
 function renderFileItem(item: FileEntry, index: number) {
     const isSelected = props.selectedFiles.has(item.name);
@@ -160,6 +184,8 @@ function renderFileItem(item: FileEntry, index: number) {
     return h('div', {
         key: item.name,
         'data-file-item': 'true',
+        'data-testid': 'file-list-item',
+        'data-file-name': item.name,
         draggable: item.name !== '..',
         class: [
             'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
@@ -200,6 +226,8 @@ function renderFileItem(item: FileEntry, index: number) {
             shouldShowInput
                 ? h('input', {
                     value: props.renameInput,
+                    'data-testid': 'file-manager-rename-input',
+                    'data-file-name': item.name,
                     class: 'bg-bg-tertiary text-text-primary px-1 rounded border border-accent focus:outline-none w-full',
                     autofocus: true,
                     onClick: (e: MouseEvent) => e.stopPropagation(),
@@ -285,6 +313,8 @@ function renderTreeNode(node: TreeNode) {
     return h('div', {
         key: node.path,
         'data-file-item': 'true',
+        'data-testid': 'file-tree-item',
+        'data-file-name': node.entry.name,
         draggable: !isParentDir,
         class: [
             'list-item-interactive flex items-center p-2 cursor-pointer border-b border-border-secondary transition-colors select-none h-full',
@@ -336,6 +366,8 @@ function renderTreeNode(node: TreeNode) {
             (props.renamingPath && props.renamingPath === node.path)
                 ? h('input', {
                     value: props.renameInput,
+                    'data-testid': 'file-manager-rename-input',
+                    'data-file-name': node.entry.name,
                     class: 'bg-bg-tertiary text-text-primary px-1 rounded border border-accent focus:outline-none w-full',
                     autofocus: true,
                     onClick: (e: MouseEvent) => e.stopPropagation(),
@@ -382,7 +414,7 @@ function renderTreeNode(node: TreeNode) {
 <template>
     <div ref="virtualizerContainerRef" :class="props.scrollElement ? 'overflow-hidden' : 'overflow-auto'">
         <div :style="{ height: totalSize + 'px', width: '100%', position: 'relative' }">
-            <div v-for="virtualItem in virtualItems" :key="virtualItem.index" :style="{
+            <div v-for="virtualItem in renderedItems" :key="virtualItem.index" :style="{
                 position: 'absolute',
                 top: 0,
                 left: 0,
@@ -391,10 +423,10 @@ function renderTreeNode(node: TreeNode) {
                 transform: `translateY(${virtualItem.start}px)`,
             }">
                 <template v-if="viewMode === 'flat'">
-                    <component :is="renderFileItem(items[virtualItem.index] as FileEntry, virtualItem.index)" />
+                    <FlatFileRow :item="getFlatItem(virtualItem.index)" :index="virtualItem.index" />
                 </template>
                 <template v-else>
-                    <component :is="renderTreeNode(items[virtualItem.index] as TreeNode)" />
+                    <TreeFileRow :node="getTreeItem(virtualItem.index)" />
                 </template>
             </div>
         </div>

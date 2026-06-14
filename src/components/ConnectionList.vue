@@ -524,7 +524,7 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
 </script>
 
 <template>
-  <div ref="containerRef" class="relative flex h-full flex-col overflow-hidden" @contextmenu.prevent="handleContextMenu">
+  <div ref="containerRef" data-testid="connection-list-root" class="relative flex h-full flex-col overflow-hidden" @contextmenu.prevent="handleContextMenu">
     <div
       v-if="isImportDragOver"
       class="absolute inset-0 z-50 flex items-center justify-center rounded border-2 border-accent bg-accent/10 pointer-events-none"
@@ -638,6 +638,8 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
               <div
                 v-for="result in searchConnectionResults"
                 :key="getSearchResultKey(result)"
+                data-testid="connection-search-result-card"
+                :data-connection-name="result.item.name"
                 class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
               >
                 <div class="flex items-start justify-between gap-3">
