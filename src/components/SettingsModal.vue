@@ -7,7 +7,7 @@ import { useSessionStore } from '../stores/sessions';
 import { useTransferStore } from '../stores/transfers';
 import type { AISubscriptionConfig, Settings } from '../types';
 import { useI18n } from '../composables/useI18n';
-import { X, Plus, Trash2, Key } from 'lucide-vue-next';
+import { X, Plus, Trash2, Key, ChevronDown } from 'lucide-vue-next';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits(['close']);
@@ -23,6 +23,7 @@ const cloudSecret = ref('');
 const cloudStatusMessage = ref('');
 const isCloudLoggingIn = ref(false);
 const isCloudSyncing = ref(false);
+const isBillingSectionOpen = ref(false);
 const subscriptionSummary = ref(store.activeSubscriptionSummary());
 const isCloudManagedSubscription = computed(() => store.isCloudManagedSubscription());
 const subscriptionSnapshot = computed(() => store.ai.subscriptionSnapshot);
@@ -144,29 +145,44 @@ const genKey = ref({
   passphrase: ''
 });
 
+function buildFormFromStore() {
+  return {
+    theme: store.theme,
+    language: store.language,
+    account: { ...store.account },
+    sync: { ...store.sync },
+    ai: { ...store.ai },
+    terminalAppearance: { ...store.terminalAppearance },
+    fileManager: { ...store.fileManager },
+    sshPool: { ...store.sshPool },
+    connectionTimeout: { ...store.connectionTimeout },
+    reconnect: { ...store.reconnect },
+    heartbeat: { ...store.heartbeat },
+    poolHealth: { ...store.poolHealth },
+    networkAdaptive: { ...store.networkAdaptive }
+  };
+}
+
+function resetForm() {
+  form.value = buildFormFromStore();
+}
+
+const isDirty = computed(() => {
+  const current = form.value;
+  const baseline = buildFormFromStore();
+  return JSON.stringify(current) !== JSON.stringify(baseline);
+});
+
 watch(() => props.show, (val) => {
   if (val) {
     activeTab.value = 'general';
-    form.value = {
-      theme: store.theme,
-      language: store.language,
-      account: { ...store.account },
-      sync: { ...store.sync },
-      ai: { ...store.ai },
-      terminalAppearance: { ...store.terminalAppearance },
-      fileManager: { ...store.fileManager },
-      sshPool: { ...store.sshPool },
-      connectionTimeout: { ...store.connectionTimeout },
-      reconnect: { ...store.reconnect },
-      heartbeat: { ...store.heartbeat },
-      poolHealth: { ...store.poolHealth },
-      networkAdaptive: { ...store.networkAdaptive }
-    };
+    form.value = buildFormFromStore();
     subscriptionSummary.value = store.activeSubscriptionSummary();
     selectedCheckoutProvider.value = store.ai.subscriptionSnapshot?.paymentProviders?.[0]?.providerKey || 'manual';
     sshKeyStore.loadKeys();
     showAddKeyForm.value = false;
     newKey.value = { name: '', content: '', passphrase: '' };
+    isBillingSectionOpen.value = false;
   }
 });
 
@@ -389,10 +405,6 @@ async function refreshBillingSnapshot() {
 function clearCache() {
   localStorage.removeItem('appWorkspaceLayout');
   localStorage.removeItem('sidebarWidth');
-  // 重置侧边栏宽度到默认值
-  const defaultWidth = 256;
-  localStorage.setItem('sidebarWidth', defaultWidth.toString());
-  // 触发页面刷新或重新加载以应用更改
   window.location.reload();
 }
 
@@ -450,7 +462,7 @@ const tabs = [
 
 <template>
   <div v-if="show" class="fixed inset-0 z-modal flex items-center justify-center bg-bg-overlay backdrop-blur-sm">
-    <div class="flex max-h-[85vh] w-[700px] min-h-0 min-w-0 flex-col rounded-lg border border-border-primary bg-bg-elevated">
+    <div class="flex max-h-[85vh] w-[min(700px,92vw)] min-h-0 min-w-0 flex-col rounded-lg border border-border-primary bg-bg-elevated">
       <div class="flex items-center justify-between p-4 border-b border-border-primary">
         <h2 class="text-lg font-semibold text-text-primary">{{ t('settings.title') }}</h2>
         <button @click="$emit('close')" class="text-text-secondary hover:text-text-primary transition-colors-fast">
@@ -514,8 +526,8 @@ const tabs = [
           <!-- AI Tab -->
           <div v-if="activeTab === 'ai'" class="space-y-6">
             <section>
-              <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.aiAssistant') }}</h3>
-              <p class="text-sm text-text-secondary mb-4">{{ t('settings.aiAssistantDesc') }}</p>
+              <h3 class="text-lg font-semibold text-text-primary mb-1">{{ t('settings.aiModelConfigTitle') }}</h3>
+              <p class="text-sm text-text-secondary mb-4">{{ t('settings.aiModelConfigDesc') }}</p>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.providerType') }}</label>
@@ -547,7 +559,15 @@ const tabs = [
                     class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="gpt-3.5-turbo" />
                 </div>
-                <div class="rounded border border-border-primary bg-bg-tertiary/50 p-4 space-y-4">
+                <div class="rounded border border-border-primary bg-bg-tertiary/50 p-4">
+                  <button type="button" class="flex w-full items-center justify-between gap-2 text-left" @click="isBillingSectionOpen = !isBillingSectionOpen">
+                    <div>
+                      <div class="text-sm font-semibold text-text-primary">{{ t('settings.aiBillingSectionTitle') }}</div>
+                      <div class="mt-0.5 text-xs text-text-secondary">{{ t('settings.aiBillingSectionDesc') }}</div>
+                    </div>
+                    <ChevronDown class="h-4 w-4 shrink-0 text-text-secondary transition-transform" :class="isBillingSectionOpen ? '' : '-rotate-90'" />
+                  </button>
+                  <div v-show="isBillingSectionOpen" class="mt-4 space-y-4">
                   <div>
                     <h4 class="text-sm font-semibold text-text-primary">{{ t('settings.aiSubscriptionTitle') }}</h4>
                     <p class="mt-1 text-xs text-text-secondary">{{ t('settings.aiSubscriptionDesc') }}</p>
@@ -677,6 +697,7 @@ const tabs = [
                       </div>
                     </div>
                   </div>
+                  </div>
                 </div>
                 <div class="rounded border border-border-primary bg-bg-tertiary/50 p-4 space-y-4">
                   <div>
@@ -728,6 +749,9 @@ const tabs = [
             <section>
               <h3 class="text-lg font-semibold text-text-primary mb-4">{{ t('settings.accountModeTitle') }}</h3>
               <p class="text-sm text-text-secondary mb-4">{{ t('settings.accountModeDesc') }}</p>
+              <div class="mb-4 rounded border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-text-secondary">
+                {{ t('settings.accountTabHint') }}
+              </div>
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountMode') }}</label>
@@ -1230,12 +1254,22 @@ const tabs = [
         </div>
       </div>
 
-      <div class="p-4 border-t border-border-primary flex justify-end space-x-3">
-        <button @click="$emit('close')"
-          class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded">{{ t('settings.cancel')
-          }}</button>
-        <button @click="save" data-testid="settings-save-button" class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded">{{
-          t('settings.saveChanges') }}</button>
+      <div class="flex items-center justify-between gap-3 border-t border-border-primary p-4">
+        <div v-if="isDirty" class="flex items-center gap-2 text-xs text-accent">
+          <span class="inline-block h-1.5 w-1.5 rounded-full bg-accent"></span>
+          <span>{{ t('settings.unsavedChanges') }}</span>
+        </div>
+        <div v-else></div>
+        <div class="flex justify-end space-x-3">
+          <button v-if="isDirty" @click="resetForm"
+            class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded">{{ t('settings.resetChanges')
+            }}</button>
+          <button @click="$emit('close')"
+            class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded">{{ t('settings.cancel')
+            }}</button>
+          <button @click="save" data-testid="settings-save-button" class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded">{{
+            t('settings.saveChanges') }}</button>
+        </div>
       </div>
     </div>
   </div>
