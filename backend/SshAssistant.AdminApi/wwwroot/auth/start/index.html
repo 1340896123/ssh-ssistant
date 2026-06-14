@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>SshStar 登录</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #1f2329;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #dc2626;
+      --input-bg: #ffffff;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1115;
+        --card: #1a1d24;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --border: #2a2f3a;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --input-bg: #14171d;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .container {
+      min-height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px 28px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .logo-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -1px;
+    }
+    .title {
+      margin: 12px 0 4px;
+      font-size: 20px;
+      font-weight: 600;
+      text-align: center;
+    }
+    .subtitle {
+      margin: 0 0 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 18px;
+      padding: 4px;
+      background: var(--bg);
+      border-radius: 8px;
+    }
+    .tab {
+      flex: 1;
+      padding: 8px 12px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab.active {
+      background: var(--card);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    .form { display: none; }
+    .form.active { display: block; }
+    .field {
+      margin-bottom: 14px;
+    }
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .field input {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .field input:focus {
+      border-color: var(--primary);
+    }
+    .field input::placeholder { color: var(--muted); }
+    .submit {
+      width: 100%;
+      padding: 11px 16px;
+      margin-top: 4px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--primary);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .submit:hover:not(:disabled) { background: var(--primary-hover); }
+    .submit:disabled { opacity: 0.6; cursor: not-allowed; }
+    .error {
+      margin-top: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: var(--danger);
+      background: rgba(220, 38, 38, 0.08);
+      border-radius: 8px;
+      display: none;
+    }
+    .error.show { display: block; }
+    .fatal {
+      text-align: center;
+      color: var(--danger);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .hint {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="logo"><div class="logo-mark" id="logoMark">S</div></div>
+      <h1 class="title" id="title">登录到 SshStar</h1>
+      <p class="subtitle" id="subtitle">在浏览器中完成认证后将自动返回客户端</p>
+
+      <!-- Fatal error block (invalid redirect_uri, etc.) -->
+      <div id="fatalBox" style="display:none;">
+        <p class="fatal" id="fatalMsg"></p>
+      </div>
+
+      <!-- Main login/register UI -->
+      <div id="mainUi" style="display:none;">
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-tab="login" id="tabLogin">登录</button>
+          <button class="tab" data-tab="register" id="tabRegister" style="display:none;">注册</button>
+        </div>
+
+        <!-- Login form -->
+        <form class="form active" id="loginForm" autocomplete="on">
+          <div class="field">
+            <label for="loginEmail">邮箱</label>
+            <input type="email" id="loginEmail" name="email" autocomplete="username"
+                   placeholder="you@example.com" required />
+          </div>
+          <div class="field">
+            <label for="loginPassword">密码</label>
+            <input type="password" id="loginPassword" name="password" autocomplete="current-password"
+                   placeholder="请输入密码" required />
+          </div>
+          <button type="submit" class="submit" id="loginSubmit">登录</button>
+        </form>
+
+        <!-- Register form (personal mode only) -->
+        <form class="form" id="registerForm" autocomplete="on">
+          <div class="field">
+            <label for="regEmail">邮箱</label>
+            <input type="email" id="regEmail" name="email" autocomplete="username"
+                   placeholder="you@example.com" required />
+          </div>
+          <div class="field">
+            <label for="regName">显示名称</label>
+            <input type="text" id="regName" name="name" autocomplete="nickname"
+                   placeholder="你的名字" required />
+          </div>
+          <div class="field">
+            <label for="regPassword">密码</label>
+            <input type="password" id="regPassword" name="new-password" autocomplete="new-password"
+                   placeholder="至少 6 位" minlength="6" required />
+          </div>
+          <button type="submit" class="submit" id="registerSubmit">创建账号</button>
+        </form>
+
+        <div class="error" id="errorBox"></div>
+      </div>
+
+      <p class="hint" id="hint"></p>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    // --- Read query params ---
+    const params = new URLSearchParams(window.location.search);
+    const client = params.get("client") || "";
+    const mode = params.get("mode") || "personal"; // personal | enterpriseSubAccount
+    const redirectUri = params.get("redirect_uri") || "";
+
+    // Only these schemes are allowed as redirect targets (open-redirect guard).
+    const ALLOWED_SCHEMES = ["sshstar-personal://", "sshstar-enterprise://"];
+
+    // --- Element refs ---
+    const logoMark = document.getElementById("logoMark");
+    const titleEl = document.getElementById("title");
+    const subtitleEl = document.getElementById("subtitle");
+    const hintEl = document.getElementById("hint");
+    const fatalBox = document.getElementById("fatalBox");
+    const fatalMsg = document.getElementById("fatalMsg");
+    const mainUi = document.getElementById("mainUi");
+    const tabsEl = document.getElementById("tabs");
+    const tabLogin = document.getElementById("tabLogin");
+    const tabRegister = document.getElementById("tabRegister");
+    const loginForm = document.getElementById("loginForm");
+    const registerForm = document.getElementById("registerForm");
+    const errorBox = document.getElementById("errorBox");
+    const loginSubmit = document.getElementById("loginSubmit");
+    const registerSubmit = document.getElementById("registerSubmit");
+
+    const isEnterprise = mode === "enterpriseSubAccount";
+
+    // --- Apply branding / mode-specific UI ---
+    logoMark.textContent = (client || "SshStar").charAt(0).toUpperCase();
+    titleEl.textContent = isEnterprise
+      ? "登录到企业版"
+      : "登录到 SshStar";
+    subtitleEl.textContent = isEnterprise
+      ? "请使用企业管理员分配的子账号登录"
+      : "在浏览器中完成认证后将自动返回客户端";
+
+    // Personal mode shows the register tab; enterprise mode does not.
+    if (!isEnterprise) {
+      tabRegister.style.display = "";
+    }
+
+    // --- Validate redirect_uri (whitelist) ---
+    function isAllowedRedirect(uri) {
+      return ALLOWED_SCHEMES.some((s) => uri.startsWith(s));
+    }
+
+    if (!isAllowedRedirect(redirectUri)) {
+      fatalBox.style.display = "";
+      fatalMsg.textContent =
+        "回调地址无效或不被允许。请从客户端重新发起登录。";
+      mainUi.style.display = "none";
+      hintEl.textContent = "";
+    } else {
+      mainUi.style.display = "";
+      hintEl.textContent =
+        "登录后将通过 " + redirectUri.split("://")[0] + ":// 协议返回客户端";
+    }
+
+    // --- Tab switching ---
+    function switchTab(which) {
+      const isLogin = which === "login";
+      tabLogin.classList.toggle("active", isLogin);
+      tabRegister.classList.toggle("active", !isLogin);
+      loginForm.classList.toggle("active", isLogin);
+      registerForm.classList.toggle("active", !isLogin);
+      hideError();
+    }
+    tabLogin.addEventListener("click", () => switchTab("login"));
+    tabRegister.addEventListener("click", () => switchTab("register"));
+
+    // --- Error helpers ---
+    function showError(msg) {
+      errorBox.textContent = msg;
+      errorBox.classList.add("show");
+    }
+    function hideError() {
+      errorBox.classList.remove("show");
+      errorBox.textContent = "";
+    }
+
+    // --- Redirect back to the client with the login payload ---
+    function finishWithPayload(loginResponse) {
+      const payload = encodeURIComponent(JSON.stringify(loginResponse));
+      const sep = redirectUri.indexOf("?") >= 0 ? "&" : "?";
+      const target = redirectUri + sep + "payload=" + payload;
+      // replace() so the auth page is not kept in browser history
+      window.location.replace(target);
+    }
+
+    // --- Friendly error mapping ---
+    function loginErrorMessage(status, errText) {
+      if (status === 404) return "账号或密码错误，请重试。";
+      if (status === 0) return "无法连接到服务器，请确认后端服务正在运行。";
+      return errText || "登录失败，请稍后重试。";
+    }
+    function registerErrorMessage(status, errText) {
+      if (status === 409) return "该邮箱已注册，请直接登录。";
+      if (status === 400) return errText || "输入信息有误，请检查后重试。";
+      if (status === 0) return "无法连接到服务器，请确认后端服务正在运行。";
+      return errText || "注册失败，请稍后重试。";
+    }
+
+    async function extractError(resp) {
+      try {
+        const data = await resp.json();
+        return (data && data.error) || "";
+      } catch {
+        return "";
+      }
+    }
+
+    // --- Login submit ---
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideError();
+      loginSubmit.disabled = true;
+      const original = loginSubmit.textContent;
+      loginSubmit.textContent = "登录中…";
+      try {
+        const resp = await fetch("/api/client/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: mode,
+            identifier: document.getElementById("loginEmail").value.trim(),
+            secret: document.getElementById("loginPassword").value,
+          }),
+        });
+        if (!resp.ok) {
+          showError(loginErrorMessage(resp.status, await extractError(resp)));
+          return;
+        }
+        const data = await resp.json();
+        finishWithPayload(data);
+      } catch (err) {
+        showError("网络错误：" + (err && err.message ? err.message : "未知错误"));
+      } finally {
+        loginSubmit.disabled = false;
+        loginSubmit.textContent = original;
+      }
+    });
+
+    // --- Register submit (personal only) ---
+    registerForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideError();
+      registerSubmit.disabled = true;
+      const original = registerSubmit.textContent;
+      registerSubmit.textContent = "创建中…";
+      try {
+        const resp = await fetch("/api/client/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("regEmail").value.trim(),
+            displayName: document.getElementById("regName").value.trim(),
+            password: document.getElementById("regPassword").value,
+          }),
+        });
+        if (!resp.ok) {
+          showError(registerErrorMessage(resp.status, await extractError(resp)));
+          return;
+        }
+        const data = await resp.json();
+        // Register response is also a ClientLoginResponse.
+        finishWithPayload(data);
+      } catch (err) {
+        showError("网络错误：" + (err && err.message ? err.message : "未知错误"));
+      } finally {
+        registerSubmit.disabled = false;
+        registerSubmit.textContent = original;
+      }
+    });
+  </script>
+</body>
+</html>
