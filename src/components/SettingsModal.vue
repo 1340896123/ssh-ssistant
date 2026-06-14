@@ -8,6 +8,7 @@ import { useTransferStore } from '../stores/transfers';
 import { useAiEndpointsStore } from '../stores/aiEndpoints';
 import type { AISubscriptionConfig, AiEndpointRecord, AIProviderType, Settings } from '../types';
 import { useI18n } from '../composables/useI18n';
+import { ACTIVE_VARIANT_META } from '../config/variant';
 import { X, Plus, Trash2, Key, ChevronDown, Pencil, Star, Check } from 'lucide-vue-next';
 
 const props = defineProps<{ show: boolean }>();
@@ -21,14 +22,18 @@ const aiEndpointsStore = useAiEndpointsStore();
 const { t } = useI18n();
 
 const activeTab = ref('general');
-const cloudSecret = ref('');
 const cloudStatusMessage = ref('');
-const isCloudLoggingIn = ref(false);
 const isCloudSyncing = ref(false);
 const isBillingSectionOpen = ref(false);
 const subscriptionSummary = ref(store.activeSubscriptionSummary());
 const isCloudManagedSubscription = computed(() => store.isCloudManagedSubscription());
 const subscriptionSnapshot = computed(() => store.ai.subscriptionSnapshot);
+const accountModeLabel = computed(() => {
+  const mode = ACTIVE_VARIANT_META.mode;
+  if (mode === 'enterpriseSubAccount') return t('settings.accountModes.enterpriseSubAccount');
+  if (mode === 'personal') return t('settings.accountModes.personal');
+  return t('settings.accountModes.local');
+});
 const isCreatingCheckout = ref<string | null>(null);
 const isRefreshingBilling = ref(false);
 const selectedCheckoutProvider = ref('manual');
@@ -331,75 +336,6 @@ async function save() {
   }
 
   emit('close');
-}
-
-async function loginToCloud() {
-  isCloudLoggingIn.value = true;
-  cloudStatusMessage.value = '';
-  const previousState = JSON.parse(JSON.stringify(store.$state)) as Settings;
-  try {
-    const previousMode = store.account.mode;
-    if (previousMode === 'local' && form.value.account.mode !== 'local') {
-      await store.saveCurrentLocalWorkspaceSnapshot().catch(() => undefined);
-    }
-    await store.saveSettings({
-      ...form.value,
-      account: {
-        ...form.value.account,
-        displayName:
-          form.value.account.mode === 'local'
-            ? t('settings.localWorkspace')
-            : form.value.account.mode === 'enterpriseSubAccount'
-              ? (
-                  form.value.account.displayName ||
-                  form.value.account.enterpriseName ||
-                  form.value.account.subAccountId ||
-                  t('settings.enterpriseSubAccountFallback')
-                )
-              : (form.value.account.displayName || form.value.account.email || form.value.account.userId || t('settings.personalAccountFallback')),
-        email:
-          form.value.account.mode === 'personal'
-            ? (form.value.account.email || form.value.account.userId || '').trim() || null
-            : null,
-        userId:
-          form.value.account.mode === 'personal'
-            ? (form.value.account.userId || form.value.account.email || '').trim() || null
-            : null,
-        enterpriseId:
-          form.value.account.mode === 'enterpriseSubAccount'
-            ? (form.value.account.enterpriseId || '').trim() || null
-            : null,
-        enterpriseName:
-          form.value.account.mode === 'enterpriseSubAccount'
-            ? (form.value.account.enterpriseName || '').trim() || null
-            : null,
-        subAccountId:
-          form.value.account.mode === 'enterpriseSubAccount'
-            ? (form.value.account.subAccountId || '').trim() || null
-            : null,
-        accessToken: null,
-        refreshToken: null,
-        expiresAt: null,
-        refreshExpiresAt: null,
-      },
-      ai: createClearedAiConfig(form.value.ai),
-    });
-    await store.loginToCloud(cloudSecret.value);
-    await transferStore.cancelAllAndReset().catch(() => undefined);
-    await sessionStore.disconnectAllSessions().catch(() => undefined);
-    sessionStore.cleanupEventListeners();
-    transferStore.clearLocalState();
-    await assetStore.clearWorkspace().catch(() => undefined);
-    store.clearLoginGatewayRequired();
-    emit('close');
-    window.location.reload();
-    return;
-  } catch (error) {
-    await store.saveSettings(previousState).catch(() => undefined);
-    cloudStatusMessage.value = error instanceof Error ? error.message : String(error);
-  } finally {
-    isCloudLoggingIn.value = false;
-  }
 }
 
 async function syncSettingsNow() {
@@ -925,47 +861,39 @@ const tabs = [
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountMode') }}</label>
-                  <select v-model="form.account.mode"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
-                    <option value="local">{{ t('settings.accountModes.local') }}</option>
-                    <option value="personal">{{ t('settings.accountModes.personal') }}</option>
-                    <option value="enterpriseSubAccount">{{ t('settings.accountModes.enterpriseSubAccount') }}</option>
-                  </select>
+                  <div class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary">
+                    {{ accountModeLabel }}
+                  </div>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.displayName') }}</label>
-                  <input v-model="form.account.displayName" type="text"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                  <input v-model="form.account.displayName" type="text" readonly
+                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
                 </div>
-                <div>
+                <div v-if="form.account.mode === 'personal'">
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountEmail') }}</label>
-                  <input v-model="form.account.email" type="email"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                  <input :value="form.account.email || ''" type="email" readonly
+                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
                 </div>
                 <div v-if="form.account.mode !== 'local'">
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountId') }}</label>
-                  <input v-model="form.account.userId" type="text"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                  <input :value="form.account.userId || form.account.subAccountId || ''" type="text" readonly
+                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
                 </div>
                 <div v-if="form.account.mode === 'enterpriseSubAccount'">
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.enterpriseId') }}</label>
-                  <input v-model="form.account.enterpriseId" type="text"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                  <input :value="form.account.enterpriseId || ''" type="text" readonly
+                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
                 </div>
                 <div v-if="form.account.mode === 'enterpriseSubAccount'">
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.enterpriseName') }}</label>
-                  <input v-model="form.account.enterpriseName" type="text"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
-                </div>
-                <div v-if="form.account.mode === 'enterpriseSubAccount'">
-                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.subAccountId') }}</label>
-                  <input v-model="form.account.subAccountId" type="text"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                  <input :value="form.account.enterpriseName || ''" type="text" readonly
+                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
                 </div>
                 <div v-if="form.account.mode !== 'local'">
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.cloudAccessToken') }}</label>
-                  <input v-model="form.account.accessToken" type="password"
-                    class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast" />
+                  <input :value="form.account.accessToken ? '••••••••' : ''" type="text" readonly
+                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
                 </div>
               </div>
             </section>
@@ -1002,20 +930,7 @@ const tabs = [
                   <span>{{ t('settings.syncSettingsLabel') }}</span>
                 </label>
                 <div v-if="form.account.mode !== 'local'" class="space-y-3 rounded border border-border-primary bg-bg-tertiary/50 p-4">
-                  <div>
-                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.cloudAccessToken') }}</label>
-                    <input v-model="cloudSecret" type="password"
-                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      :placeholder="t('settings.cloudAccessTokenPlaceholder')" />
-                  </div>
                   <div class="flex flex-wrap gap-3">
-                    <button
-                      class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded disabled:opacity-50"
-                      :disabled="isCloudLoggingIn"
-                      @click="loginToCloud"
-                    >
-                      {{ isCloudLoggingIn ? t('settings.cloudLoginConnecting') : t('settings.cloudLogin') }}
-                    </button>
                     <button
                       class="px-4 py-2 text-sm bg-success hover:bg-success/80 text-text-primary rounded disabled:opacity-50"
                       :disabled="isCloudSyncing"
