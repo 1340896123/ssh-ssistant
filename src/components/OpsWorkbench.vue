@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import {
   Bot,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   DatabaseZap,
   History,
@@ -14,6 +15,7 @@ import {
 import { useAssetStore } from "../stores/assets";
 import { useNotificationStore } from "../stores/notifications";
 import { useI18n } from "../composables/useI18n";
+import EmptyState from "./EmptyState.vue";
 import type {
   HostAsset,
   JobBatchRequest,
@@ -35,6 +37,16 @@ const activeTab = ref<OpsTab>("console");
 const consoleQuery = ref("");
 const selectedAssetId = ref<number | null>(null);
 const isRunningConsole = ref(false);
+const collapsedConsoleSections = ref<Record<string, boolean>>({
+  statusExplanation: true,
+  matchedAssets: false,
+  recommendedChecks: true,
+  reviewChecklist: true,
+});
+
+function toggleConsoleSection(key: string) {
+  collapsedConsoleSections.value[key] = !collapsedConsoleSections.value[key];
+}
 
 const auditQuery = ref("");
 const auditSeverity = ref("");
@@ -438,24 +450,32 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div v-if="consoleAnswer.statusExplanation" class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-            <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-              {{ t('opsWorkbench.console.statusExplanation') }}
-            </div>
-            <div class="mt-2 text-sm text-text-primary">
+          <div v-if="consoleAnswer.statusExplanation" class="rounded-lg border border-border-primary bg-bg-secondary">
+            <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left" @click="toggleConsoleSection('statusExplanation')">
+              <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                {{ t('opsWorkbench.console.statusExplanation') }}
+              </div>
+              <ChevronDown class="h-4 w-4 shrink-0 text-text-secondary transition-transform" :class="collapsedConsoleSections.statusExplanation ? '' : '-rotate-90'" />
+            </button>
+            <div v-show="!collapsedConsoleSections.statusExplanation" class="px-3 pb-3 text-sm text-text-primary">
               {{ consoleAnswer.statusExplanation }}
             </div>
           </div>
 
           <div class="grid gap-4">
-            <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-              <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                {{ t('opsWorkbench.console.matchedAssets') }}
-              </div>
-              <div v-if="consoleAnswer.matchedAssets.length === 0" class="mt-3 text-sm text-text-secondary">
+            <div class="rounded-lg border border-border-primary bg-bg-secondary">
+              <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left" @click="toggleConsoleSection('matchedAssets')">
+                <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                  {{ t('opsWorkbench.console.matchedAssets') }}
+                  <span v-if="consoleAnswer.matchedAssets.length" class="ml-1 text-text-muted">({{ consoleAnswer.matchedAssets.length }})</span>
+                </div>
+                <ChevronDown class="h-4 w-4 shrink-0 text-text-secondary transition-transform" :class="collapsedConsoleSections.matchedAssets ? '' : '-rotate-90'" />
+              </button>
+              <div v-show="!collapsedConsoleSections.matchedAssets" class="px-3 pb-3">
+              <div v-if="consoleAnswer.matchedAssets.length === 0" class="text-sm text-text-secondary">
                 {{ t('opsWorkbench.console.matchedAssetsEmpty') }}
               </div>
-              <div v-else class="mt-3 space-y-2">
+              <div v-else class="space-y-2">
                 <div
                   v-for="asset in consoleAnswer.matchedAssets"
                   :key="asset.assetId"
@@ -477,13 +497,17 @@ onMounted(async () => {
                   </div>
                 </div>
               </div>
+              </div>
             </div>
 
-            <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
-              <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                {{ t('opsWorkbench.console.recommendedChecks') }}
-              </div>
-              <div class="mt-3 space-y-2">
+            <div class="rounded-lg border border-border-primary bg-bg-secondary">
+              <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left" @click="toggleConsoleSection('recommendedChecks')">
+                <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                  {{ t('opsWorkbench.console.recommendedChecks') }}
+                </div>
+                <ChevronDown class="h-4 w-4 shrink-0 text-text-secondary transition-transform" :class="collapsedConsoleSections.recommendedChecks ? '' : '-rotate-90'" />
+              </button>
+              <div v-show="!collapsedConsoleSections.recommendedChecks" class="px-3 pb-3 space-y-2">
                 <div
                   v-for="item in consoleAnswer.recommendedChecks"
                   :key="item"
@@ -523,11 +547,14 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div class="rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
+          <div class="rounded-lg border border-border-primary bg-bg-secondary">
+            <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left" @click="toggleConsoleSection('reviewChecklist')">
               <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
                 {{ t('opsWorkbench.console.reviewChecklist') }}
               </div>
-            <div class="mt-3 flex flex-col gap-2">
+              <ChevronDown class="h-4 w-4 shrink-0 text-text-secondary transition-transform" :class="collapsedConsoleSections.reviewChecklist ? '' : '-rotate-90'" />
+            </button>
+            <div v-show="!collapsedConsoleSections.reviewChecklist" class="px-3 pb-3 flex flex-col gap-2">
               <div
                 v-for="item in consoleAnswer.reviewChecklist"
                 :key="item"
@@ -541,7 +568,7 @@ onMounted(async () => {
       </div>
 
       <div v-else-if="activeTab === 'jobs'" class="space-y-4" data-testid="ops-jobs-panel">
-        <div class="grid gap-4">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div class="space-y-4">
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
               <div class="flex items-center justify-between gap-3">
@@ -556,7 +583,10 @@ onMounted(async () => {
                 </span>
               </div>
 
-              <div class="mt-4 space-y-2">
+              <div v-if="assetStore.jobTemplates.length === 0" class="mt-4">
+                <EmptyState :title="t('opsWorkbench.jobs.templatesEmpty')" compact />
+              </div>
+              <div v-else class="mt-4 space-y-2">
                 <button
                   v-for="template in assetStore.jobTemplates"
                   :key="template.id"
@@ -580,7 +610,10 @@ onMounted(async () => {
 
             <div class="rounded-xl border border-border-primary bg-bg-primary p-4">
               <div class="text-sm font-semibold text-text-primary">{{ t('opsWorkbench.jobs.archiveTitle') }}</div>
-              <div class="mt-3 space-y-2">
+              <div v-if="assetStore.jobArchives.length === 0" class="mt-3">
+                <EmptyState :title="t('opsWorkbench.jobs.archiveEmpty')" compact />
+              </div>
+              <div v-else class="mt-3 space-y-2">
                 <div
                   v-for="archive in assetStore.jobArchives.slice(0, 8)"
                   :key="archive.id"
@@ -827,7 +860,13 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="space-y-2">
+        <EmptyState
+          v-if="assetStore.auditEvents.length === 0"
+          :title="t('opsWorkbench.audit.emptyTitle')"
+          :description="t('opsWorkbench.audit.emptyHint')"
+          compact
+        />
+        <div v-else class="space-y-2">
           <div
             v-for="event in assetStore.auditEvents"
             :key="event.id"
@@ -889,7 +928,7 @@ onMounted(async () => {
 
               <div class="mt-4 rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
                 <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                  Object Versions
+                  {{ t('opsWorkbench.sync.objectVersionsTitle') }}
                 </div>
                 <div class="mt-3 grid gap-2">
                   <div
@@ -899,7 +938,7 @@ onMounted(async () => {
                   >
                     <div class="text-sm text-text-primary">{{ item.objectType }}</div>
                     <div class="mt-1 text-[11px] text-text-secondary">
-                      {{ item.count }} object(s) · max version {{ item.maxVersion }}
+                      {{ t('opsWorkbench.sync.objectVersionsSummary', { count: item.count, maxVersion: item.maxVersion }) }}
                     </div>
                   </div>
                 </div>
@@ -908,7 +947,7 @@ onMounted(async () => {
               <div class="mt-4 rounded-lg border border-border-primary bg-bg-secondary px-3 py-3">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                    Recent Change Log
+                    {{ t('opsWorkbench.sync.recentChangeLogTitle') }}
                   </div>
                   <button
                     class="inline-flex h-8 items-center gap-1.5 rounded border border-border-primary bg-bg-primary px-3 text-xs text-text-primary hover:bg-bg-elevated"
@@ -916,7 +955,7 @@ onMounted(async () => {
                     @click="markPendingChangesSynced"
                   >
                     <CheckCircle2 class="h-3.5 w-3.5" />
-                    <span>{{ isMarkingSynced ? "Updating..." : "Mark Recent Pending as Synced" }}</span>
+                    <span>{{ isMarkingSynced ? t('opsWorkbench.sync.markRecentPendingUpdating') : t('opsWorkbench.sync.markRecentPending') }}</span>
                   </button>
                 </div>
 
@@ -1036,11 +1075,11 @@ onMounted(async () => {
                       <div class="mt-1 text-[11px] text-text-secondary">{{ service.serviceKey }}</div>
                     </div>
                     <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="service.enabled ? 'border-success/30 bg-success/10 text-success' : 'border-border-primary bg-bg-primary text-text-secondary'">
-                      {{ service.enabled ? "enabled" : "disabled" }}
+                      {{ service.enabled ? t('opsWorkbench.sync.serviceEnabled') : t('opsWorkbench.sync.serviceDisabled') }}
                     </span>
                   </div>
                   <div class="mt-2 text-[11px] text-text-secondary">
-                    {{ service.baseUrl || "No remote endpoint configured" }}
+                    {{ service.baseUrl || t('opsWorkbench.sync.serviceNoEndpoint') }}
                   </div>
                 </div>
               </div>
