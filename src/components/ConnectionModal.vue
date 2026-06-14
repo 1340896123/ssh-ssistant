@@ -6,7 +6,7 @@ import type {
   CredentialKind,
   HostAsset,
 } from "../types";
-import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from "lucide-vue-next";
+import { Eye, EyeOff, Loader2, CheckCircle, XCircle, ChevronDown } from "lucide-vue-next";
 import { useAssetStore } from "../stores/assets";
 import { useSshKeyStore } from "../stores/sshKeys";
 import { sessionService } from "../services";
@@ -83,7 +83,9 @@ const labelsInput = ref("");
 const showPassword = ref(false);
 const showJumpPassword = ref(false);
 const isTesting = ref(false);
-const testResult = ref<{ success: boolean; message: string } | null>(null);
+const testResult = ref<{ success: boolean; message: string; durationMs?: number } | null>(null);
+const isJumpHostExpanded = ref(false);
+const validationErrors = ref<Record<string, string>>({});
 
 function resetForms() {
   formAsset.value = {
@@ -160,6 +162,8 @@ function resetForms() {
   showJumpPassword.value = false;
   isTesting.value = false;
   testResult.value = null;
+  isJumpHostExpanded.value = Boolean(props.endpointToEdit?.jumpHost);
+  validationErrors.value = {};
 }
 
 watch(
@@ -293,6 +297,7 @@ async function testConnection() {
   isTesting.value = true;
   testResult.value = null;
 
+  const startedAt = Date.now();
   try {
     await sessionService.testConnection({
       id: payload.asset.id,
@@ -314,15 +319,39 @@ async function testConnection() {
       osType: payload.asset.platform ?? "Linux",
       platform: payload.asset.platform ?? "Linux",
     });
-    testResult.value = { success: true, message: t("connectionModal.testResult.success") };
+    const durationMs = Date.now() - startedAt;
+    testResult.value = { success: true, message: t("connectionModal.testResult.success"), durationMs };
   } catch (error: any) {
-    testResult.value = { success: false, message: error?.toString() ?? t("connectionModal.testResult.failed") };
+    const durationMs = Date.now() - startedAt;
+    testResult.value = { success: false, message: error?.toString() ?? t("connectionModal.testResult.failed"), durationMs };
   } finally {
     isTesting.value = false;
   }
 }
 
+function validateForm(): boolean {
+  const errors: Record<string, string> = {};
+  if (!formAsset.value.name.trim()) {
+    errors.name = t("connectionModal.errors.nameRequired");
+  }
+  if (!formAsset.value.host.trim()) {
+    errors.host = t("connectionModal.errors.hostRequired");
+  }
+  if (!formEndpoint.value.username.trim()) {
+    errors.username = t("connectionModal.errors.usernameRequired");
+  }
+  if (formEndpoint.value.authType === "password" && !formCredentialRef.value?.secret?.trim()) {
+    errors.password = t("connectionModal.testResult.passwordRequired");
+  }
+  if (formEndpoint.value.authType === "key" && !formCredentialRef.value?.sshKeyId) {
+    errors.sshKey = t("connectionModal.testResult.sshKeyRequired");
+  }
+  validationErrors.value = errors;
+  return Object.keys(errors).length === 0;
+}
+
 function save() {
+  if (!validateForm()) return;
   const payload = buildPayload();
   emit("save", payload);
 }
@@ -335,7 +364,7 @@ function save() {
     data-testid="connection-modal-overlay"
   >
     <div
-      class="max-h-[90vh] w-[680px] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary"
+      class="max-h-[90vh] w-[min(680px,92vw)] overflow-y-auto rounded border border-border-primary bg-bg-elevated p-6 text-text-primary"
       data-testid="connection-modal"
     >
       <h2 class="mb-4 text-xl font-bold text-text-primary">
@@ -353,9 +382,11 @@ function save() {
             <input
               v-model="formAsset.name"
               data-testid="connection-modal-name"
-              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              class="w-full rounded border bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              :class="validationErrors.name ? 'border-error' : 'border-border-primary'"
               :placeholder="t('connectionModal.placeholders.name')"
             />
+            <p v-if="validationErrors.name" class="mt-1 text-xs text-error">{{ validationErrors.name }}</p>
           </div>
 
           <div class="grid grid-cols-4 gap-4">
@@ -364,9 +395,11 @@ function save() {
               <input
                 v-model="formAsset.host"
                 data-testid="connection-modal-host"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                class="w-full rounded border bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                :class="validationErrors.host ? 'border-error' : 'border-border-primary'"
                 :placeholder="t('connectionModal.placeholders.host')"
               />
+              <p v-if="validationErrors.host" class="mt-1 text-xs text-error">{{ validationErrors.host }}</p>
             </div>
             <div>
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.port') }}</label>
@@ -493,9 +526,11 @@ function save() {
             <input
               v-model="formEndpoint.username"
               data-testid="connection-modal-username"
-              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              class="w-full rounded border bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+              :class="validationErrors.username ? 'border-error' : 'border-border-primary'"
               :placeholder="t('connectionModal.placeholders.endpointUsername')"
             />
+            <p v-if="validationErrors.username" class="mt-1 text-xs text-error">{{ validationErrors.username }}</p>
           </div>
 
           <div>
@@ -529,7 +564,8 @@ function save() {
                 v-model="formCredentialRef!.secret"
                 :type="showPassword ? 'text' : 'password'"
                 data-testid="connection-modal-password"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
+                class="w-full rounded border bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
+                :class="validationErrors.password ? 'border-error' : 'border-border-primary'"
                 :placeholder="t('connectionModal.placeholders.password')"
               />
               <button
@@ -540,6 +576,7 @@ function save() {
                 <EyeOff v-else class="h-5 w-5" />
               </button>
             </div>
+            <p v-if="validationErrors.password" class="mt-1 text-xs text-error">{{ validationErrors.password }}</p>
           </div>
 
           <div v-else>
@@ -555,51 +592,63 @@ function save() {
             </select>
           </div>
 
-          <div class="grid grid-cols-4 gap-4">
-            <div class="col-span-3">
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpHost') }}</label>
-              <input
-                v-model="formEndpoint.jumpHost"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                :placeholder="t('connectionModal.placeholders.jumpHost')"
-              />
-            </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpPort') }}</label>
-              <input
-                v-model.number="formEndpoint.jumpPort"
-                type="number"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                :placeholder="t('connectionModal.placeholders.port')"
-              />
-            </div>
-          </div>
+          <div class="rounded border border-border-primary bg-bg-tertiary/40">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-text-secondary"
+              @click="isJumpHostExpanded = !isJumpHostExpanded"
+            >
+              <span>{{ t('connectionModal.labels.jumpHostAdvanced') }}</span>
+              <ChevronDown class="h-4 w-4 shrink-0 transition-transform" :class="isJumpHostExpanded ? '' : '-rotate-90'" />
+            </button>
+            <div v-show="isJumpHostExpanded" class="space-y-4 border-t border-border-primary p-3">
+              <div class="grid grid-cols-4 gap-4">
+                <div class="col-span-3">
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpHost') }}</label>
+                  <input
+                    v-model="formEndpoint.jumpHost"
+                    class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                    :placeholder="t('connectionModal.placeholders.jumpHost')"
+                  />
+                </div>
+                <div>
+                  <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpPort') }}</label>
+                  <input
+                    v-model.number="formEndpoint.jumpPort"
+                    type="number"
+                    class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                    :placeholder="t('connectionModal.placeholders.port')"
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpUsername') }}</label>
-            <input
-              v-model="formEndpoint.jumpUsername"
-              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              :placeholder="t('connectionModal.placeholders.jumpUsername')"
-            />
-          </div>
+              <div>
+                <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpUsername') }}</label>
+                <input
+                  v-model="formEndpoint.jumpUsername"
+                  class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
+                  :placeholder="t('connectionModal.placeholders.jumpUsername')"
+                />
+              </div>
 
-          <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpPassword') }}</label>
-            <div class="relative">
-              <input
-                v-model="formEndpoint.jumpPassword"
-                :type="showJumpPassword ? 'text' : 'password'"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
-                :placeholder="t('connectionModal.placeholders.jumpPassword')"
-              />
-              <button
-                class="absolute right-2 top-2 text-text-secondary hover:text-text-primary"
-                @click="showJumpPassword = !showJumpPassword"
-              >
-                <Eye v-if="!showJumpPassword" class="h-5 w-5" />
-                <EyeOff v-else class="h-5 w-5" />
-              </button>
+              <div>
+                <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.jumpPassword') }}</label>
+                <div class="relative">
+                  <input
+                    v-model="formEndpoint.jumpPassword"
+                    :type="showJumpPassword ? 'text' : 'password'"
+                    class="w-full rounded border border-border-primary bg-bg-tertiary p-2 pr-10 text-text-primary outline-none focus:border-accent"
+                    :placeholder="t('connectionModal.placeholders.jumpPassword')"
+                  />
+                  <button
+                    class="absolute right-2 top-2 text-text-secondary hover:text-text-primary"
+                    @click="showJumpPassword = !showJumpPassword"
+                  >
+                    <Eye v-if="!showJumpPassword" class="h-5 w-5" />
+                    <EyeOff v-else class="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -613,6 +662,7 @@ function save() {
         <CheckCircle v-if="testResult.success" class="h-4 w-4" />
         <XCircle v-else class="h-4 w-4" />
         <span>{{ testResult.message }}</span>
+        <span v-if="testResult.durationMs !== undefined" class="ml-auto text-xs opacity-70">· {{ testResult.durationMs }}ms</span>
       </div>
 
       <div class="mt-6 flex items-center justify-between">
