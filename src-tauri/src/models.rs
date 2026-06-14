@@ -745,6 +745,22 @@ impl Default for AIConfig {
     }
 }
 
+/// 独立表 ai_endpoints 的一行记录。
+/// 支持多条自定义 AI 端点，通过 `is_default` 标记当前选用哪一条。
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEndpointRecord {
+    pub id: Option<i64>,
+    pub name: String,
+    pub api_url: String,
+    pub api_key: String,
+    pub model_name: String,
+    pub provider_type: String,
+    pub is_default: bool,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingCheckoutSession {

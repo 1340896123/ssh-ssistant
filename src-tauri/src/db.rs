@@ -1,6 +1,6 @@
 use crate::models::{
-    AccountProfile, AIConfig, AIEndpointConfig, AISubscriptionConfig, AppSettings,
-    Connection as SshConnection, ConnectionGroup, ConnectionTimeoutSettings,
+    AccountProfile, AIConfig, AIEndpointConfig, AISubscriptionConfig, AiEndpointRecord,
+    AppSettings, Connection as SshConnection, ConnectionGroup, ConnectionTimeoutSettings,
     FileManagerSettings, HeartbeatSettings, LocalWorkspaceSnapshot, NetworkAdaptiveSettings,
     PoolHealthSettings, PendingCheckoutSession, ReconnectSettings, SshKey, SshPoolSettings,
     SyncPreferences, TerminalAppearanceSettings, Tunnel,
@@ -509,6 +509,90 @@ pub fn init_db(app_handle: &AppHandle) -> Result<()> {
         [],
     );
 
+    // --- AI Endpoints (独立的自定义端点列表) ---
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ai_endpoints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            api_url TEXT NOT NULL DEFAULT '',
+            api_key TEXT NOT NULL DEFAULT '',
+            model_name TEXT NOT NULL DEFAULT '',
+            provider_type TEXT NOT NULL DEFAULT 'openai',
+            is_default INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER,
+            updated_at INTEGER
+        )",
+        [],
+    )?;
+
+    // One-time migration: 把旧 settings.ai_custom_endpoint_* 迁移成一条默认记录
+    let ai_endpoints_empty: bool = conn
+        .query_row("SELECT COUNT(*) = 0 FROM ai_endpoints", [], |row| row.get(0))
+        .unwrap_or(true);
+    if ai_endpoints_empty {
+        // 读取旧的 settings 自定义端点列（若存在）
+        let settings_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(settings)")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| row.get::<_, String>(1))
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .unwrap_or_default();
+        let has_legacy_endpoint = settings_columns
+            .iter()
+            .any(|column| column == "ai_custom_endpoint_url");
+
+        if has_legacy_endpoint {
+            let legacy: Option<(String, String, String, String, String, i64)> = conn
+                .query_row(
+                    "SELECT
+                        COALESCE(ai_custom_endpoint_name, 'Default'),
+                        COALESCE(ai_custom_endpoint_url, ''),
+                        COALESCE(ai_custom_endpoint_key, ''),
+                        COALESCE(ai_custom_endpoint_model_name, ''),
+                        COALESCE(ai_custom_endpoint_provider_type, 'openai'),
+                        COALESCE(ai_subscription_use_custom_endpoint, 1)
+                    FROM settings WHERE id = 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .ok();
+
+            if let Some((name, url, key, model, provider, use_custom)) = legacy {
+                // 仅当旧端点有实际内容时才迁移
+                if !url.is_empty() || !key.is_empty() || !model.is_empty() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64;
+                    let _ = conn.execute(
+                        "INSERT INTO ai_endpoints
+                            (name, api_url, api_key, model_name, provider_type, is_default, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                        params![name, url, key, model, provider, use_custom, now],
+                    );
+                }
+            }
+        }
+    }
+
+    // 确保 ai_endpoints 中至少有一条默认（若存在记录但无默认，则提升最新一条）
+    let _ = conn.execute(
+        "UPDATE ai_endpoints SET is_default = 1
+         WHERE id = (SELECT id FROM ai_endpoints ORDER BY created_at DESC LIMIT 1)
+           AND NOT EXISTS (SELECT 1 FROM ai_endpoints WHERE is_default = 1)",
+        [],
+    );
+
     Ok(())
 }
 
@@ -869,6 +953,207 @@ pub fn get_tunnel_by_id(app_handle: &AppHandle, id: i64) -> Result<Option<Tunnel
     } else {
         Ok(None)
     }
+}
+
+// ===================== AI Endpoints (自定义端点列表) =====================
+
+fn map_ai_endpoint_row(row: &Row) -> rusqlite::Result<AiEndpointRecord> {
+    Ok(AiEndpointRecord {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        api_url: row.get(2)?,
+        api_key: row.get(3)?,
+        model_name: row.get(4)?,
+        provider_type: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "openai".to_string()),
+        is_default: row.get::<_, Option<i64>>(6)?.unwrap_or(0) != 0,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+#[tauri::command]
+pub fn get_ai_endpoints(app_handle: AppHandle) -> Result<Vec<AiEndpointRecord>, String> {
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, api_url, api_key, model_name, provider_type, is_default, created_at, updated_at
+             FROM ai_endpoints ORDER BY is_default DESC, created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], map_ai_endpoint_row)
+        .map_err(|e| e.to_string())?;
+
+    let mut endpoints = Vec::new();
+    for row in rows {
+        endpoints.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(endpoints)
+}
+
+#[tauri::command]
+pub fn create_ai_endpoint(
+    app_handle: AppHandle,
+    endpoint: AiEndpointRecord,
+) -> Result<i64, String> {
+    let db_path = get_db_path(&app_handle);
+    let mut conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let now = now_secs();
+    let provider = if endpoint.provider_type.trim().is_empty() {
+        "openai".to_string()
+    } else {
+        endpoint.provider_type.clone()
+    };
+
+    tx.execute(
+        "INSERT INTO ai_endpoints (name, api_url, api_key, model_name, provider_type, is_default, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        params![
+            endpoint.name,
+            endpoint.api_url,
+            endpoint.api_key,
+            endpoint.model_name,
+            provider,
+            0,
+            now
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    let new_id = tx.last_insert_rowid();
+
+    // 若当前没有任何默认端点，则把新建这条设为默认
+    let has_default: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM ai_endpoints WHERE is_default = 1)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !has_default {
+        tx.execute(
+            "UPDATE ai_endpoints SET is_default = 1 WHERE id = ?1",
+            params![new_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(new_id)
+}
+
+#[tauri::command]
+pub fn update_ai_endpoint(
+    app_handle: AppHandle,
+    endpoint: AiEndpointRecord,
+) -> Result<(), String> {
+    let id = endpoint
+        .id
+        .ok_or_else(|| "AI endpoint ID is required for update".to_string())?;
+
+    let db_path = get_db_path(&app_handle);
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let now = now_secs();
+    let provider = if endpoint.provider_type.trim().is_empty() {
+        "openai".to_string()
+    } else {
+        endpoint.provider_type.clone()
+    };
+
+    conn.execute(
+        "UPDATE ai_endpoints SET name=?1, api_url=?2, api_key=?3, model_name=?4, provider_type=?5, updated_at=?6 WHERE id=?7",
+        params![
+            endpoint.name,
+            endpoint.api_url,
+            endpoint.api_key,
+            endpoint.model_name,
+            provider,
+            now,
+            id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_ai_endpoint(app_handle: AppHandle, id: i64) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let mut conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let was_default: bool = tx
+        .query_row(
+            "SELECT is_default != 0 FROM ai_endpoints WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    tx.execute("DELETE FROM ai_endpoints WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+
+    // 删除的恰好是默认端点 → 把最新一条剩余端点提升为默认
+    if was_default {
+        let has_default: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM ai_endpoints WHERE is_default = 1)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !has_default {
+            tx.execute(
+                "UPDATE ai_endpoints SET is_default = 1
+                 WHERE id = (SELECT id FROM ai_endpoints ORDER BY created_at DESC LIMIT 1)",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_default_ai_endpoint(app_handle: AppHandle, id: i64) -> Result<(), String> {
+    let db_path = get_db_path(&app_handle);
+    let mut conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let exists: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM ai_endpoints WHERE id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !exists {
+        return Err("AI endpoint not found".to_string());
+    }
+
+    tx.execute("UPDATE ai_endpoints SET is_default = 0", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE ai_endpoints SET is_default = 1 WHERE id = ?1",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
