@@ -5,9 +5,10 @@ import { useSshKeyStore } from '../stores/sshKeys';
 import { useAssetStore } from '../stores/assets';
 import { useSessionStore } from '../stores/sessions';
 import { useTransferStore } from '../stores/transfers';
-import type { AISubscriptionConfig, Settings } from '../types';
+import { useAiEndpointsStore } from '../stores/aiEndpoints';
+import type { AISubscriptionConfig, AiEndpointRecord, AIProviderType, Settings } from '../types';
 import { useI18n } from '../composables/useI18n';
-import { X, Plus, Trash2, Key, ChevronDown } from 'lucide-vue-next';
+import { X, Plus, Trash2, Key, ChevronDown, Pencil, Star, Check } from 'lucide-vue-next';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits(['close']);
@@ -16,6 +17,7 @@ const assetStore = useAssetStore();
 const sessionStore = useSessionStore();
 const transferStore = useTransferStore();
 const sshKeyStore = useSshKeyStore();
+const aiEndpointsStore = useAiEndpointsStore();
 const { t } = useI18n();
 
 const activeTab = ref('general');
@@ -145,6 +147,97 @@ const genKey = ref({
   passphrase: ''
 });
 
+// --- AI Endpoints (自定义端点列表) ---
+const showAiEndpointForm = ref(false);
+const editingAiEndpointId = ref<number | null>(null);
+const aiEndpointForm = ref(createEmptyAiEndpointForm());
+
+function createEmptyAiEndpointForm() {
+  return {
+    name: '',
+    apiUrl: '',
+    apiKey: '',
+    modelName: '',
+    providerType: 'openai' as AIProviderType,
+  };
+}
+
+function maskApiKey(key: string): string {
+  if (!key) return '';
+  if (key.length <= 8) return '••••';
+  return `${key.slice(0, 4)}••••${key.slice(-4)}`;
+}
+
+function openCreateAiEndpoint() {
+  editingAiEndpointId.value = null;
+  aiEndpointForm.value = createEmptyAiEndpointForm();
+  showAiEndpointForm.value = true;
+}
+
+function openEditAiEndpoint(endpoint: AiEndpointRecord) {
+  if (endpoint.id == null) return;
+  editingAiEndpointId.value = endpoint.id;
+  aiEndpointForm.value = {
+    name: endpoint.name,
+    apiUrl: endpoint.apiUrl,
+    apiKey: endpoint.apiKey,
+    modelName: endpoint.modelName,
+    providerType: endpoint.providerType,
+  };
+  showAiEndpointForm.value = true;
+}
+
+function cancelAiEndpointForm() {
+  showAiEndpointForm.value = false;
+  editingAiEndpointId.value = null;
+  aiEndpointForm.value = createEmptyAiEndpointForm();
+}
+
+async function saveAiEndpoint() {
+  const formVal = aiEndpointForm.value;
+  if (!formVal.name.trim()) {
+    return;
+  }
+  const payload: AiEndpointRecord = {
+    id: editingAiEndpointId.value,
+    name: formVal.name.trim(),
+    apiUrl: formVal.apiUrl.trim(),
+    apiKey: formVal.apiKey.trim(),
+    modelName: formVal.modelName.trim(),
+    providerType: formVal.providerType,
+    isDefault: false,
+  };
+  try {
+    if (editingAiEndpointId.value == null) {
+      await aiEndpointsStore.createEndpoint(payload);
+    } else {
+      await aiEndpointsStore.updateEndpoint(payload);
+    }
+    cancelAiEndpointForm();
+  } catch (e) {
+    console.error('Failed to save AI endpoint:', e);
+  }
+}
+
+async function deleteAiEndpoint(endpoint: AiEndpointRecord) {
+  if (endpoint.id == null) return;
+  if (!window.confirm(t('settings.confirmDeleteAiEndpoint'))) return;
+  try {
+    await aiEndpointsStore.deleteEndpoint(endpoint.id);
+  } catch (e) {
+    console.error('Failed to delete AI endpoint:', e);
+  }
+}
+
+async function setDefaultAiEndpoint(endpoint: AiEndpointRecord) {
+  if (endpoint.id == null || endpoint.isDefault) return;
+  try {
+    await aiEndpointsStore.setDefault(endpoint.id);
+  } catch (e) {
+    console.error('Failed to set default AI endpoint:', e);
+  }
+}
+
 function buildFormFromStore() {
   return {
     theme: store.theme,
@@ -180,9 +273,13 @@ watch(() => props.show, (val) => {
     subscriptionSummary.value = store.activeSubscriptionSummary();
     selectedCheckoutProvider.value = store.ai.subscriptionSnapshot?.paymentProviders?.[0]?.providerKey || 'manual';
     sshKeyStore.loadKeys();
+    aiEndpointsStore.loadEndpoints(true);
     showAddKeyForm.value = false;
     newKey.value = { name: '', content: '', passphrase: '' };
     isBillingSectionOpen.value = false;
+    showAiEndpointForm.value = false;
+    editingAiEndpointId.value = null;
+    aiEndpointForm.value = createEmptyAiEndpointForm();
   }
 });
 
@@ -700,45 +797,118 @@ const tabs = [
                   </div>
                 </div>
                 <div class="rounded border border-border-primary bg-bg-tertiary/50 p-4 space-y-4">
-                  <div>
-                    <h4 class="text-sm font-semibold text-text-primary">{{ t('settings.customEndpointTitle') }}</h4>
-                    <p class="mt-1 text-xs text-text-secondary">{{ t('settings.customEndpointDesc') }}</p>
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 class="text-sm font-semibold text-text-primary">{{ t('settings.aiEndpointsTitle') }}</h4>
+                      <p class="mt-1 text-xs text-text-secondary">{{ t('settings.aiEndpointsDesc') }}</p>
+                    </div>
+                    <button type="button" @click="openCreateAiEndpoint"
+                      class="shrink-0 inline-flex items-center gap-1 rounded border border-border-primary bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-all-fast hover:border-accent hover:bg-bg-elevated">
+                      <Plus class="h-4 w-4" />
+                      {{ t('settings.addAiEndpoint') }}
+                    </button>
                   </div>
-                  <div v-if="!form.ai.customEndpoint.useCustomEndpoint" class="rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-text-secondary">
-                    {{ t('settings.customEndpointLocked') }}
+
+                  <!-- 新增/编辑表单 -->
+                  <div v-if="showAiEndpointForm" class="rounded border border-accent/40 bg-bg-secondary p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm font-semibold text-text-primary">
+                        {{ editingAiEndpointId == null ? t('settings.addAiEndpoint') : t('settings.editAiEndpoint') }}
+                      </span>
+                      <button type="button" @click="cancelAiEndpointForm"
+                        class="p-1 text-text-secondary hover:text-text-primary rounded transition-colors-fast">
+                        <X class="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.endpointName') }}</label>
+                      <input v-model="aiEndpointForm.name" type="text"
+                        class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                        :placeholder="t('settings.endpointNamePlaceholder')" />
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiUrl') }}</label>
+                        <input v-model="aiEndpointForm.apiUrl" type="text"
+                          class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                          placeholder="https://api.openai.com/v1" />
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiKey') }}</label>
+                        <input v-model="aiEndpointForm.apiKey" type="password"
+                          class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                          placeholder="sk-..." />
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customModelName') }}</label>
+                        <input v-model="aiEndpointForm.modelName" type="text"
+                          class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
+                          :placeholder="t('settings.customModelNamePlaceholder')" />
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customProviderType') }}</label>
+                        <select v-model="aiEndpointForm.providerType"
+                          class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast">
+                          <option value="openai">{{ t('aiProviders.openai') }}</option>
+                          <option value="anthropic">{{ t('aiProviders.anthropic') }}</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="flex justify-end gap-2">
+                      <button type="button" @click="cancelAiEndpointForm"
+                        class="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded transition-colors-fast">
+                        {{ t('settings.cancel') }}
+                      </button>
+                      <button type="button" @click="saveAiEndpoint"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-accent hover:bg-accent/80 text-text-primary rounded transition-colors-fast">
+                        <Check class="h-4 w-4" />
+                        {{ t('settings.saveChanges') }}
+                      </button>
+                    </div>
                   </div>
-                  <div>
-                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.endpointName') }}</label>
-                    <input v-model="form.ai.customEndpoint.endpointName" type="text"
-                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      :placeholder="t('settings.endpointNamePlaceholder')" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiUrl') }}</label>
-                    <input v-model="form.ai.customEndpoint.apiUrl" type="text"
-                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      placeholder="https://api.openai.com/v1" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customApiKey') }}</label>
-                    <input v-model="form.ai.customEndpoint.apiKey" type="password"
-                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      placeholder="sk-..." :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customModelName') }}</label>
-                    <input v-model="form.ai.customEndpoint.modelName" type="text"
-                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      :placeholder="t('settings.customModelNamePlaceholder')" :disabled="!form.ai.customEndpoint.useCustomEndpoint" />
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.customProviderType') }}</label>
-                    <select v-model="form.ai.customEndpoint.providerType"
-                      class="w-full bg-bg-secondary border border-border-primary rounded px-3 py-2 text-text-primary focus:border-accent outline-none transition-all-fast"
-                      :disabled="!form.ai.customEndpoint.useCustomEndpoint">
-                      <option value="openai">{{ t('aiProviders.openai') }}</option>
-                      <option value="anthropic">{{ t('aiProviders.anthropic') }}</option>
-                    </select>
+
+                  <!-- 端点列表 -->
+                  <div class="space-y-2">
+                    <div v-if="aiEndpointsStore.endpoints.length === 0" class="text-text-secondary text-center py-6 text-sm">
+                      {{ t('settings.noAiEndpoints') }}
+                    </div>
+                    <div v-else v-for="endpoint in aiEndpointsStore.endpoints" :key="endpoint.id ?? 'new'"
+                      class="flex items-center justify-between gap-3 p-3 bg-bg-elevated/50 rounded border border-border-primary hover:border-accent transition-all-fast">
+                      <div class="min-w-0 flex items-center gap-3">
+                        <div class="w-8 h-8 shrink-0 rounded bg-bg-tertiary flex items-center justify-center border border-border-primary"
+                          :class="endpoint.isDefault ? 'text-accent' : 'text-text-secondary'">
+                          <Star v-if="endpoint.isDefault" class="h-4 w-4 fill-accent" />
+                          <Star v-else class="h-4 w-4" />
+                        </div>
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="font-medium text-text-primary truncate">{{ endpoint.name }}</span>
+                            <span v-if="endpoint.isDefault"
+                              class="shrink-0 rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs text-accent">
+                              {{ t('settings.defaultBadge') }}
+                            </span>
+                          </div>
+                          <div class="text-xs text-text-secondary truncate">
+                            {{ endpoint.providerType }} · {{ endpoint.modelName || '—' }} · {{ endpoint.apiUrl || '—' }} · {{ maskApiKey(endpoint.apiKey) }}
+                          </div>
+                        </div>
+                      </div>
+                      <div class="shrink-0 flex items-center gap-1">
+                        <button type="button" @click="setDefaultAiEndpoint(endpoint)"
+                          :disabled="endpoint.isDefault"
+                          class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-text-secondary transition-colors-fast hover:text-accent hover:bg-bg-tertiary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary">
+                          {{ t('settings.setAsDefault') }}
+                        </button>
+                        <button type="button" @click="openEditAiEndpoint(endpoint)"
+                          class="p-2 text-text-secondary hover:text-accent hover:bg-bg-tertiary rounded transition-colors-fast">
+                          <Pencil class="h-4 w-4" />
+                        </button>
+                        <button type="button" @click="deleteAiEndpoint(endpoint)"
+                          class="p-2 text-text-secondary hover:text-error hover:bg-bg-tertiary rounded transition-colors-fast">
+                          <Trash2 class="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

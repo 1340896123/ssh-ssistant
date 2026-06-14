@@ -4,6 +4,7 @@ import { useSettingsStore } from "../stores/settings";
 import { useSessionStore } from "../stores/sessions";
 import { useAssetStore } from "../stores/assets";
 import { useNotificationStore } from "../stores/notifications";
+import { useAiEndpointsStore } from "../stores/aiEndpoints";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -82,6 +83,7 @@ const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
 const assetStore = useAssetStore();
 const notificationStore = useNotificationStore();
+const aiEndpointsStore = useAiEndpointsStore();
 
 const userInitial = computed(() => {
   const name =
@@ -791,7 +793,8 @@ ${activeWorkspace.value.context}
 
   try {
     const { cloudService, resolveAiRuntimeConfig } = await getServicesModule();
-    const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
+    await aiEndpointsStore.loadEndpoints();
+    const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state, aiEndpointsStore.endpoints);
     if (!runtimeConfig.enabled) {
       const reasonMessage = aiRuntimeReasonMessage(runtimeConfig.reason);
       notificationStore.warning(reasonMessage);

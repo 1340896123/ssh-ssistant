@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import 'xterm/css/xterm.css';
 import { Send, Sparkles, Terminal as TerminalIcon, Search, X, ArrowUp, ArrowDown, RotateCw, Unplug, Eraser } from 'lucide-vue-next';
 import { useSettingsStore } from '../stores/settings';
+import { useAiEndpointsStore } from '../stores/aiEndpoints';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
 
@@ -53,6 +54,7 @@ defineExpose({
 
 const terminalContainer = ref<HTMLElement | null>(null);
 const settingsStore = useSettingsStore();
+const aiEndpointsStore = useAiEndpointsStore();
 const sessionStore = useSessionStore();
 
 const currentSession = computed(() => sessionStore.sessions.find(s => s.id === props.sessionId));
@@ -789,7 +791,8 @@ async function triggerAiCompletion() {
 
   try {
     const { cloudService, resolveAiRuntimeConfig } = await getServicesModule();
-    const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state);
+    await aiEndpointsStore.loadEndpoints();
+    const runtimeConfig = resolveAiRuntimeConfig(settingsStore.$state, aiEndpointsStore.endpoints);
     if (!runtimeConfig.enabled) {
       console.warn('AI completion unavailable:', runtimeConfig.reason, aiRuntimeReasonMessage(runtimeConfig.reason));
       return;

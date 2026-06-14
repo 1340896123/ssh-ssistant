@@ -462,6 +462,19 @@ export interface AIEndpointConfig {
   providerType: AIProviderType;
 }
 
+/** 独立表 ai_endpoints 的一行记录，支持多条自定义 AI 端点。 */
+export interface AiEndpointRecord {
+  id?: number | null;
+  name: string;
+  apiUrl: string;
+  apiKey: string;
+  modelName: string;
+  providerType: AIProviderType;
+  isDefault: boolean;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+}
+
 export interface AISubscriptionConfig {
   plan: AISubscriptionPlan;
   status: AISubscriptionStatus;
