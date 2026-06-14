@@ -15,6 +15,12 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // single-instance must be registered first; with its `deep-link`
+        // feature it forwards the callback URL from a second launch into the
+        // running instance so the JS `onOpenUrl` handler receives it.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            let _ = app;
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
