@@ -138,6 +138,37 @@
       border-color: var(--primary);
     }
     .field input::placeholder { color: var(--muted); }
+    .pwd-field {
+      position: relative;
+    }
+    .pwd-field input {
+      /* leave room for the toggle button on the right */
+      padding-right: 40px;
+    }
+    .pwd-toggle {
+      position: absolute;
+      top: 50%;
+      right: 6px;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+    }
+    .pwd-toggle:hover { color: var(--text); background: var(--bg); }
+    .pwd-toggle:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 1px;
+    }
+    .pwd-toggle svg { width: 18px; height: 18px; display: block; }
     .submit {
       width: 100%;
       padding: 11px 16px;
@@ -206,8 +237,12 @@
           </div>
           <div class="field">
             <label for="loginPassword">密码</label>
-            <input type="password" id="loginPassword" name="password" autocomplete="current-password"
-                   placeholder="请输入密码" required />
+            <div class="pwd-field">
+              <input type="password" id="loginPassword" name="password" autocomplete="current-password"
+                     placeholder="请输入密码" required />
+              <button type="button" class="pwd-toggle" data-target="loginPassword"
+                      aria-label="显示密码" aria-pressed="false" title="显示密码"></button>
+            </div>
           </div>
           <button type="submit" class="submit" id="loginSubmit">登录</button>
         </form>
@@ -226,8 +261,12 @@
           </div>
           <div class="field">
             <label for="regPassword">密码</label>
-            <input type="password" id="regPassword" name="new-password" autocomplete="new-password"
-                   placeholder="至少 6 位" minlength="6" required />
+            <div class="pwd-field">
+              <input type="password" id="regPassword" name="new-password" autocomplete="new-password"
+                     placeholder="至少 6 位" minlength="6" required />
+              <button type="button" class="pwd-toggle" data-target="regPassword"
+                      aria-label="显示密码" aria-pressed="false" title="显示密码"></button>
+            </div>
           </div>
           <button type="submit" class="submit" id="registerSubmit">创建账号</button>
         </form>
@@ -269,6 +308,28 @@
     const registerSubmit = document.getElementById("registerSubmit");
 
     const isEnterprise = mode === "enterpriseSubAccount";
+
+    // --- Password show/hide toggle ---
+    // Eye / eye-off SVGs (inline, no external dependency).
+    const EYE_SHOW =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const EYE_HIDE =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
+
+    document.querySelectorAll(".pwd-toggle").forEach((btn) => {
+      const target = document.getElementById(btn.dataset.target);
+      if (!target) return;
+      // Initial state: password hidden, show the "reveal" eye.
+      btn.innerHTML = EYE_SHOW;
+      btn.addEventListener("click", () => {
+        const show = target.type === "password";
+        target.type = show ? "text" : "password";
+        btn.innerHTML = show ? EYE_HIDE : EYE_SHOW;
+        btn.setAttribute("aria-pressed", show ? "true" : "false");
+        btn.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
+        btn.title = show ? "隐藏密码" : "显示密码";
+      });
+    });
 
     // --- Apply branding / mode-specific UI ---
     logoMark.textContent = (client || "SshStar").charAt(0).toUpperCase();
