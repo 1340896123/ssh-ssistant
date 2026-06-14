@@ -77,25 +77,6 @@ const modeDescription = computed(() => {
   return t("loginGateway.modeDescriptions.local");
 });
 
-const subscriptionSummary = computed(() => {
-  if (settingsStore.account.mode === "local" && !settingsStore.account.accessToken) {
-    return {
-      label: t("settings.subscriptionPlans.free"),
-      scope: t("loginGateway.globalScope"),
-      billing: t("loginGateway.freeBilling"),
-      renewal: null,
-    };
-  }
-  return settingsStore.activeSubscriptionSummary();
-});
-
-const currentInvoice = computed(() => {
-  if (settingsStore.account.mode === "local" && !settingsStore.account.accessToken) {
-    return null;
-  }
-  return settingsStore.ai.subscriptionSnapshot?.currentInvoice ?? null;
-});
-
 function mapGatewayErrorMessage(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error);
   const normalized = raw.toLowerCase();
@@ -224,67 +205,45 @@ async function enterLocalMode() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_#d7eadf,_#f7f3eb_40%,_#eadfd0_100%)] px-6 py-10">
+  <div class="flex min-h-screen items-center justify-center bg-bg-primary px-6 py-10">
     <div class="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-      <section class="rounded-[32px] border border-white/70 bg-white/80 p-8 shadow-[0_28px_80px_rgba(67,52,30,0.14)] backdrop-blur">
-        <p class="text-sm font-semibold uppercase tracking-[0.32em] text-emerald-700">{{ t("app.title") }}</p>
-        <h1 class="mt-4 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
+      <section class="rounded-[32px] border border-border-primary bg-bg-secondary p-8 shadow-[0_28px_80px_rgba(0,0,0,0.18)]">
+        <p class="text-sm font-semibold uppercase tracking-[0.32em] text-accent">{{ t("app.title") }}</p>
+        <h1 class="mt-4 text-4xl font-black tracking-tight text-text-primary sm:text-5xl">
           {{ t("loginGateway.heroTitle") }}
         </h1>
-        <p class="mt-5 max-w-2xl text-base leading-8 text-slate-600">
+        <p class="mt-5 max-w-2xl text-base leading-8 text-text-secondary">
           {{ t("loginGateway.heroDescription") }}
         </p>
 
         <div class="mt-8 grid gap-4 md:grid-cols-3">
-          <article class="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-            <p class="text-sm font-semibold text-slate-500">{{ t("settings.accountModes.personal") }}</p>
-            <p class="mt-3 text-sm leading-7 text-slate-700">{{ t("loginGateway.modeCards.personal") }}</p>
+          <article class="rounded-3xl border border-border-primary bg-bg-tertiary p-5">
+            <p class="text-sm font-semibold text-text-secondary">{{ t("settings.accountModes.personal") }}</p>
+            <p class="mt-3 text-sm leading-7 text-text-primary">{{ t("loginGateway.modeCards.personal") }}</p>
           </article>
-          <article class="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-            <p class="text-sm font-semibold text-slate-500">{{ t("settings.accountModes.enterpriseSubAccount") }}</p>
-            <p class="mt-3 text-sm leading-7 text-slate-700">{{ t("loginGateway.modeCards.enterpriseSubAccount") }}</p>
+          <article class="rounded-3xl border border-border-primary bg-bg-tertiary p-5">
+            <p class="text-sm font-semibold text-text-secondary">{{ t("settings.accountModes.enterpriseSubAccount") }}</p>
+            <p class="mt-3 text-sm leading-7 text-text-primary">{{ t("loginGateway.modeCards.enterpriseSubAccount") }}</p>
           </article>
-          <article class="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-            <p class="text-sm font-semibold text-slate-500">{{ t("settings.accountModes.local") }}</p>
-            <p class="mt-3 text-sm leading-7 text-slate-700">{{ t("loginGateway.modeCards.local") }}</p>
+          <article class="rounded-3xl border border-border-primary bg-bg-tertiary p-5">
+            <p class="text-sm font-semibold text-text-secondary">{{ t("settings.accountModes.local") }}</p>
+            <p class="mt-3 text-sm leading-7 text-text-primary">{{ t("loginGateway.modeCards.local") }}</p>
           </article>
-        </div>
-
-        <div class="mt-8 rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-          <p class="text-sm font-semibold text-slate-500">{{ t("loginGateway.subscriptionStatusTitle") }}</p>
-          <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-            <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ subscriptionSummary.label }}</span>
-            <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ subscriptionSummary.scope }}</span>
-            <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">{{ subscriptionSummary.billing }}</span>
-            <span v-if="subscriptionSummary.renewal" class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
-              {{ t("loginGateway.subscriptionRenewal", { date: subscriptionSummary.renewal }) }}
-            </span>
-          </div>
-          <p v-if="currentInvoice" class="mt-3 text-xs text-slate-500">
-            {{
-              t("loginGateway.currentInvoiceSummary", {
-                billingMonth: currentInvoice.billingMonth,
-                status: currentInvoice.status,
-                remainingAmount: currentInvoice.remainingAmount,
-                currency: currentInvoice.currency,
-              })
-            }}
-          </p>
         </div>
       </section>
 
-      <section class="rounded-[32px] border border-white/70 bg-white/85 p-8 shadow-[0_28px_80px_rgba(67,52,30,0.14)] backdrop-blur">
+      <section class="rounded-[32px] border border-border-primary bg-bg-secondary p-8 shadow-[0_28px_80px_rgba(0,0,0,0.18)]">
         <div>
-          <h2 class="text-2xl font-black text-slate-900">{{ t("loginGateway.title") }}</h2>
-          <p class="mt-2 text-sm text-slate-500">{{ modeDescription }}</p>
+          <h2 class="text-2xl font-black text-text-primary">{{ t("loginGateway.title") }}</h2>
+          <p class="mt-2 text-sm text-text-secondary">{{ modeDescription }}</p>
         </div>
 
         <form class="mt-6 space-y-5" @submit.prevent="submit">
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.accountMode") }}</label>
+            <label class="mb-2 block text-sm font-medium text-text-primary">{{ t("settings.accountMode") }}</label>
             <select
               v-model="form.mode"
-              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+              class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
             >
               <option value="personal">{{ t("settings.accountModes.personal") }}</option>
               <option value="enterpriseSubAccount">{{ t("settings.accountModes.enterpriseSubAccount") }}</option>
@@ -294,13 +253,13 @@ async function enterLocalMode() {
 
           <div
             v-if="isPersonalMode"
-            class="inline-flex rounded-2xl bg-slate-100 p-1 text-sm font-semibold text-slate-600"
+            class="inline-flex rounded-2xl bg-bg-tertiary p-1 text-sm font-semibold text-text-secondary"
           >
             <button
               data-testid="login-gateway-tab-login"
               type="button"
               class="rounded-xl px-4 py-2 transition"
-              :class="personalAuthView === 'login' ? 'bg-white text-slate-900 shadow-sm' : ''"
+              :class="personalAuthView === 'login' ? 'bg-bg-elevated text-text-primary shadow-sm' : ''"
               @click="personalAuthView = 'login'"
             >
               {{ t("loginGateway.tabs.login") }}
@@ -309,7 +268,7 @@ async function enterLocalMode() {
               data-testid="login-gateway-tab-register"
               type="button"
               class="rounded-xl px-4 py-2 transition"
-              :class="personalAuthView === 'register' ? 'bg-white text-slate-900 shadow-sm' : ''"
+              :class="personalAuthView === 'register' ? 'bg-bg-elevated text-text-primary shadow-sm' : ''"
               @click="personalAuthView = 'register'"
             >
               {{ t("loginGateway.tabs.register") }}
@@ -317,7 +276,7 @@ async function enterLocalMode() {
           </div>
 
           <div v-if="!isLocalMode">
-            <label class="mb-2 block text-sm font-medium text-slate-700">
+            <label class="mb-2 block text-sm font-medium text-text-primary">
               {{
                 form.mode === "personal"
                   ? isRegistering
@@ -328,50 +287,50 @@ async function enterLocalMode() {
             </label>
             <input
               v-model="form.identifier"
-              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+              class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
               :placeholder="t('loginGateway.placeholders.identifier')"
             />
           </div>
 
           <div v-if="isRegistering">
-            <label class="mb-2 block text-sm font-medium text-slate-700">
+            <label class="mb-2 block text-sm font-medium text-text-primary">
               {{ t("loginGateway.fields.displayName") }}
             </label>
             <input
               v-model="form.displayName"
-              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+              class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
               :placeholder="t('loginGateway.placeholders.displayName')"
             />
           </div>
 
           <template v-if="form.mode === 'enterpriseSubAccount'">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.enterpriseId") }}</label>
+              <label class="mb-2 block text-sm font-medium text-text-primary">{{ t("settings.enterpriseId") }}</label>
               <input
                 v-model="form.enterpriseId"
-                class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+                class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
                 :placeholder="t('loginGateway.placeholders.enterpriseId')"
               />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.enterpriseName") }}</label>
+              <label class="mb-2 block text-sm font-medium text-text-primary">{{ t("settings.enterpriseName") }}</label>
               <input
                 v-model="form.enterpriseName"
-                class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+                class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
                 :placeholder="t('loginGateway.placeholders.enterpriseName')"
               />
             </div>
           </template>
 
           <div v-if="!isLocalMode">
-            <label class="mb-2 block text-sm font-medium text-slate-700">
+            <label class="mb-2 block text-sm font-medium text-text-primary">
               {{ isRegistering ? t("loginGateway.fields.password") : t("loginGateway.fields.secret") }}
             </label>
             <input
               v-model="form.secret"
               type="password"
-              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+              class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
               :placeholder="
                 isRegistering
                   ? t('loginGateway.placeholders.password')
@@ -381,26 +340,26 @@ async function enterLocalMode() {
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.cloudSyncEndpoint") }}</label>
+            <label class="mb-2 block text-sm font-medium text-text-primary">{{ t("settings.cloudSyncEndpoint") }}</label>
             <input
               v-model="form.endpointUrl"
-              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+              class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
               placeholder="http://localhost:5047"
             />
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">{{ t("settings.organizationScope") }}</label>
+            <label class="mb-2 block text-sm font-medium text-text-primary">{{ t("settings.organizationScope") }}</label>
             <input
               v-model="form.organizationScope"
-              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+              class="w-full rounded-2xl border border-border-primary bg-bg-tertiary px-4 py-3 text-sm text-text-primary outline-none focus:border-accent"
               :placeholder="t('settings.organizationScopePlaceholder')"
             />
           </div>
 
           <button
             type="submit"
-            class="w-full rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60"
+            class="w-full rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent/80 disabled:opacity-60"
             :disabled="isSubmitting"
           >
             {{
@@ -414,26 +373,27 @@ async function enterLocalMode() {
             }}
           </button>
 
-          <button
-            v-if="!isLocalMode"
-            type="button"
-            class="w-full rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            @click="enterLocalMode"
-          >
-            {{ t("loginGateway.switchToLocalMode") }}
-          </button>
-
           <p
             v-if="registrationNotice"
-            class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+            class="rounded-2xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success"
           >
             {{ registrationNotice }}
           </p>
 
-          <p v-if="errorMessage" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <p v-if="errorMessage" class="rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
             {{ errorMessage }}
           </p>
         </form>
+
+        <div v-if="!isLocalMode" class="mt-4 border-t border-border-primary pt-4 text-center">
+          <button
+            type="button"
+            class="text-xs text-text-secondary transition-colors hover:text-accent"
+            @click="enterLocalMode"
+          >
+            {{ t("loginGateway.switchToLocalMode") }}
+          </button>
+        </div>
       </section>
     </div>
   </div>
