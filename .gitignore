@@ -50,6 +50,7 @@ tmp/
 .DS_Store
 
 # IDE / AI tools
+.tooling/
 .omc/
 .omx/
 .trae/
