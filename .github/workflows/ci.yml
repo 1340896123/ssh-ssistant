@@ -20,7 +20,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Ubuntu system dependencies
         if: matrix.platform == 'ubuntu-24.04'
@@ -37,7 +37,7 @@ jobs:
             rpm
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
