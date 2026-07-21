@@ -13,8 +13,6 @@
   "workbench": {
     "connectionsSubtitle": "管理连接目录、收藏与最近连接历史",
     "tunnelsSubtitle": "统一管理端口转发和隧道状态",
-    "opsTitle": "运维工作台",
-    "opsSubtitle": "全局 Ops Console、作业执行、审计检索与同步就绪状态",
     "sessionsTitle": "会话",
     "sessionsSubtitle": "查看当前工作中的 SSH 会话",
     "collapseResourcePane": "收起资源区",
@@ -33,11 +31,8 @@
     "contextEmptyTitle": "等待连接",
     "contextEmptyDescription": "连接会话后，这里会显示 AI 和文件上下文。",
     "sessionTabsLabel": "会话",
-    "welcomeTitle": "SSH Assistant 运维工作台",
-    "welcomeDescription": "选择一个资产，即可打开终端、文件、隧道和 AI 运维上下文。",
-    "openAssetCenter": "打开资产中心",
-    "newAsset": "新建资产",
-    "openOpsWorkbench": "打开运维工作台",
+    "welcomeTitle": "SSH Assistant 连接工作台",
+    "welcomeDescription": "选择一个连接，即可打开终端、文件、隧道和 AI 上下文。",
     "switchAccount": "切换"
   },
   "sessionsPane": {
@@ -168,7 +163,7 @@
     "new": "新建隧道",
     "createTitle": "创建隧道",
     "createHint": "先选择场景，再填写最少必填项，保存后回到列表启动。",
-    "createEntryTitle": "为当前资产创建新的端口映射",
+    "createEntryTitle": "为当前连接创建新的端口映射",
     "createEntryDescription": "从这里创建本地转发、远程转发或 SOCKS 代理，保存后再单独启动。",
     "backToList": "返回列表",
     "name": "名称",
@@ -189,12 +184,12 @@
     "save": "保存",
     "cancel": "取消",
     "refresh": "刷新",
-    "asset": "资产",
-    "allAssets": "全部资产",
-    "manageSelectedAsset": "管理所选资产",
-    "selectAsset": "请先选择资产",
-    "assetMissing": "资产不存在",
-    "assetUnknown": "未知资产",
+    "asset": "连接",
+    "allAssets": "全部连接",
+    "manageSelectedAsset": "管理所选连接",
+    "selectAsset": "请先选择连接",
+    "assetMissing": "连接不存在",
+    "assetUnknown": "未知连接",
     "accessEndpoint": "访问端点",
     "selectEndpoint": "请选择访问端点",
     "endpointUnknown": "未知端点",
@@ -242,7 +237,7 @@
     "aiAssistantDesc": "配置模型提供商、接口地址和模型名称，统一管理 AI 对话能力。",
     "accountAndSync": "账号与同步",
     "accountModeTitle": "账号模式",
-    "accountModeDesc": "支持个人账号、企业子账号和本地模式。云同步会按当前账号模式保存资产中心与设置。",
+    "accountModeDesc": "支持个人账号、企业子账号和本地模式。云同步会按当前账号模式保存连接与设置。",
     "accountTabHint": "账号身份与云端登录由登录页统一管理。可在侧边栏点击「切换账号」切换模式或重新认证。",
     "unsavedChanges": "有未保存的更改",
     "resetChanges": "重置",
@@ -260,12 +255,12 @@
     "subAccountId": "子账号 ID",
     "cloudAccessToken": "云端访问令牌",
     "cloudSyncTitle": "云同步",
-    "cloudSyncDesc": "控制是否将资产中心和设置同步到云端后台。",
+    "cloudSyncDesc": "控制是否将连接和设置同步到云端后台。",
     "cloudSyncEnabled": "启用云同步",
     "cloudSyncEndpoint": "同步服务地址",
     "organizationScope": "组织范围",
     "organizationScopePlaceholder": "例如：default-org / enterprise-a",
-    "syncAssets": "同步资产中心",
+    "syncAssets": "同步连接",
     "syncSettingsLabel": "同步设置",
     "aiModelConfigTitle": "AI 模型配置",
     "aiModelConfigDesc": "配置 AI 助手使用的服务商、端点和模型。",
@@ -532,12 +527,12 @@
     },
     "heroDescription": {
       "personal": "使用个人账号登录，即可跨设备同步连接、AI 订阅与端点设置。登录在浏览器中完成，本应用内无需输入任何密码。",
-      "enterprise": "使用企业子账号登录，继承管理员分配的资产范围与 AI 策略。登录在浏览器中完成，本应用内无需输入任何密码。"
+      "enterprise": "使用企业子账号登录，继承管理员分配的连接范围与 AI 策略。登录在浏览器中完成，本应用内无需输入任何密码。"
     },
     "modeCards": {
-      "personal": "同步个人资产、AI 订阅状态与个人自定义端点。",
-      "enterpriseSubAccount": "只拉取企业后台分配的资产范围，并继承企业订阅策略。",
-      "local": "无需云登录即可进入桌面工作台，保留离线资产体验。"
+      "personal": "同步个人连接、AI 订阅状态与个人自定义端点。",
+      "enterpriseSubAccount": "只拉取企业后台分配的连接范围，并继承企业订阅策略。",
+      "local": "无需云登录即可进入桌面工作台，保留离线连接体验。"
     },
     "subscriptionStatusTitle": "当前订阅状态",
     "subscriptionRenewal": "续期 {date}",
@@ -545,9 +540,9 @@
     "globalScope": "全局",
     "freeBilling": "USD 0/席位",
     "modeDescriptions": {
-      "personalLogin": "使用个人账号登录后，会同步个人资产与个人 AI 订阅设置。",
-      "enterpriseSubAccount": "使用企业子账号登录后，仅同步被授权的资产范围。",
-      "local": "本地模式不会强制云登录，但仍可进入工作台使用离线资产。"
+      "personalLogin": "使用个人账号登录后，会同步个人连接与个人 AI 订阅设置。",
+      "enterpriseSubAccount": "使用企业子账号登录后，仅同步被授权的连接范围。",
+      "local": "本地模式不会强制云登录，但仍可进入工作台使用离线连接。"
     },
     "browserLogin": {
       "button": {

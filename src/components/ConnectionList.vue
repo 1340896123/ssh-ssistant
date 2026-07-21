@@ -551,6 +551,7 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
             <FolderPlus class="h-4 w-4" />
           </button>
           <button
+            data-testid="connection-list-new"
             class="flex h-9 items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-all hover:bg-bg-elevated"
             @click.stop="openNewConnection"
           >

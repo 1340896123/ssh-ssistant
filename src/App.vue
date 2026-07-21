@@ -26,7 +26,6 @@ import type { AccessEndpoint, CredentialRef, HostAsset } from "./types";
 import {
   Bot,
   Cable,
-  ClipboardCheck,
   Focus,
   FolderOpen,
   Monitor,
@@ -40,7 +39,7 @@ import {
   Settings,
 } from "lucide-vue-next";
 
-type ActivityId = "connections" | "tunnels" | "ops" | "sessions";
+type ActivityId = "connections" | "tunnels" | "sessions";
 type ContextTab = "ai" | "files";
 type ResizeTarget = "resource" | "context";
 
@@ -96,8 +95,8 @@ interface SessionStats {
   memory: MemoryInfo | null;
 }
 
-const AssetCenter = defineAsyncComponent(
-  () => import("./components/AssetCenter.vue"),
+const ConnectionList = defineAsyncComponent(
+  () => import("./components/ConnectionList.vue"),
 );
 const ConnectionModal = defineAsyncComponent(
   () => import("./components/ConnectionModal.vue"),
@@ -107,9 +106,6 @@ const TunnelModal = defineAsyncComponent(
 );
 const TunnelPanel = defineAsyncComponent(
   () => import("./components/TunnelPanel.vue"),
-);
-const OpsWorkbench = defineAsyncComponent(
-  () => import("./components/OpsWorkbench.vue"),
 );
 const SessionsWorkbenchPanel = defineAsyncComponent(
   () => import("./components/SessionsWorkbenchPanel.vue"),
@@ -357,13 +353,6 @@ const activeResourcePaneMeta = computed(() => {
     return {
       title: t("app.tunnels"),
       subtitle: t("workbench.tunnelsSubtitle"),
-    };
-  }
-
-  if (activeActivity.value === "ops") {
-    return {
-      title: t("workbench.opsTitle"),
-      subtitle: t("workbench.opsSubtitle"),
     };
   }
 
@@ -1339,18 +1328,6 @@ onUnmounted(() => {
           <button
             class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
             :class="
-              activeActivity === 'ops'
-                ? 'bg-accent/15 text-accent'
-                : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
-            "
-            :title="t('workbench.opsTitle')"
-            @click="activateActivity('ops')"
-          >
-            <ClipboardCheck class="h-[18px] w-[18px]" />
-          </button>
-          <button
-            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
-            :class="
               activeActivity === 'sessions'
                 ? 'bg-accent/15 text-accent'
                 : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
@@ -1410,7 +1387,7 @@ onUnmounted(() => {
           </div>
 
           <div class="min-h-0 flex-1">
-            <AssetCenter
+            <ConnectionList
               v-if="activeActivity === 'connections'"
               @edit="openEditConnectionModal"
               @tunnels="openTunnelModal"
@@ -1421,10 +1398,6 @@ onUnmounted(() => {
             >
               <TunnelPanel @manage="openTunnelModal" />
             </div>
-            <OpsWorkbench
-              v-else-if="activeActivity === 'ops'"
-              :active-asset="activeAsset"
-            />
             <SessionsWorkbenchPanel
               v-else
               @new-connection="openNewConnectionModal"
@@ -1508,14 +1481,14 @@ onUnmounted(() => {
                 @click="openConnectionsWorkbench"
               >
                 <Monitor class="h-3.5 w-3.5" />
-                <span>{{ t("workbench.openAssetCenter") }}</span>
+                <span>{{ t("workbench.openConnections") }}</span>
               </button>
               <button
                 class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-90"
                 @click="openNewConnectionModal"
               >
                 <Plus class="h-3.5 w-3.5" />
-                <span>{{ t("workbench.newAsset") }}</span>
+                <span>{{ t("app.newConnection") }}</span>
               </button>
             </div>
           </div>
@@ -1559,7 +1532,7 @@ onUnmounted(() => {
                 </div>
                 <div class="mt-8 flex items-center justify-center">
                   <button class="btn btn-primary" @click="openNewConnectionModal">
-                    {{ t("workbench.newAsset") }}
+                    {{ t("app.newConnection") }}
                   </button>
                 </div>
               </div>
@@ -1875,7 +1848,7 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="min-h-0 flex-1">
-            <AssetCenter
+            <ConnectionList
               v-if="activeActivity === 'connections'"
               @edit="openEditConnectionModal"
               @tunnels="openTunnelModal"
@@ -1886,10 +1859,6 @@ onUnmounted(() => {
             >
               <TunnelPanel @manage="openTunnelModal" />
             </div>
-            <OpsWorkbench
-              v-else-if="activeActivity === 'ops'"
-              :active-asset="activeAsset"
-            />
             <SessionsWorkbenchPanel
               v-else
               @new-connection="openNewConnectionModal"

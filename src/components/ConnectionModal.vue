@@ -79,7 +79,6 @@ const formCredentialRef = ref<CredentialRef | null>({
   updatedAt: 0,
 });
 
-const labelsInput = ref("");
 const showPassword = ref(false);
 const showJumpPassword = ref(false);
 const isTesting = ref(false);
@@ -113,7 +112,7 @@ function resetForms() {
       props.endpointToEdit?.name ??
       (props.assetToEdit?.name
         ? `${props.assetToEdit.name} default endpoint`
-        : t("assetCenter.fields.defaultEndpoint")),
+        : t("connectionModal.defaultEndpoint")),
     host: props.endpointToEdit?.host ?? props.assetToEdit?.host ?? "",
     port: props.endpointToEdit?.port ?? props.assetToEdit?.port ?? 22,
     username:
@@ -157,7 +156,6 @@ function resetForms() {
     updatedAt: props.credentialRefToEdit?.updatedAt ?? 0,
   };
 
-  labelsInput.value = (formAsset.value.labels ?? []).join(", ");
   showPassword.value = false;
   showJumpPassword.value = false;
   isTesting.value = false;
@@ -195,10 +193,7 @@ function buildPayload() {
     ...formAsset.value,
     folderId: formAsset.value.folderId ?? null,
     groupId: formAsset.value.folderId ?? null,
-    labels: labelsInput.value
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
+    labels: formAsset.value.labels ?? [],
     criticality: formAsset.value.criticality ?? "medium",
     platform: formAsset.value.platform ?? "Linux",
     owner: formAsset.value.owner?.trim() || "",
@@ -215,7 +210,7 @@ function buildPayload() {
     username: formEndpoint.value.username.trim(),
     name:
       formEndpoint.value.name.trim() ||
-      `${asset.name || t("connectionModal.newTitle")} ${t("assetCenter.fields.defaultEndpoint")}`,
+      `${asset.name || t("connectionModal.newTitle")} ${t("connectionModal.defaultEndpoint")}`,
     authType: formEndpoint.value.authType ?? "password",
     jumpHost: formEndpoint.value.jumpHost?.trim() || null,
     jumpPort: formEndpoint.value.jumpHost ? Number(formEndpoint.value.jumpPort || 22) : null,
@@ -415,32 +410,6 @@ function save() {
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.platform') }}</label>
-              <select
-                v-model="formAsset.platform"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              >
-                <option value="Linux">{{ t('connectionModal.platformOptions.linux') }}</option>
-                <option value="Windows">{{ t('connectionModal.platformOptions.windows') }}</option>
-                <option value="macOS">{{ t('connectionModal.platformOptions.macos') }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.criticality') }}</label>
-              <select
-                v-model="formAsset.criticality"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              >
-                <option value="low">{{ t('connectionModal.criticalityOptions.low') }}</option>
-                <option value="medium">{{ t('connectionModal.criticalityOptions.medium') }}</option>
-                <option value="high">{{ t('connectionModal.criticalityOptions.high') }}</option>
-                <option value="critical">{{ t('connectionModal.criticalityOptions.critical') }}</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
               <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.folder') }}</label>
               <select
                 v-model="formAsset.folderId"
@@ -452,67 +421,9 @@ function save() {
                 </option>
               </select>
             </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.environment') }}</label>
-              <select
-                v-model="formAsset.envId"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              >
-                <option :value="null">{{ t('connectionModal.noneOption') }}</option>
-                <option v-for="env in assetStore.environments" :key="env.id" :value="env.id">
-                  {{ env.name }}
-                </option>
-              </select>
+            <div class="text-xs leading-5 text-text-secondary">
+              {{ t('connectionModal.connectionFieldsHint') }}
             </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.owner') }}</label>
-              <input
-                v-model="formAsset.owner"
-                data-testid="connection-modal-owner"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                :placeholder="t('connectionModal.placeholders.owner')"
-              />
-            </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.labels') }}</label>
-              <input
-                v-model="labelsInput"
-                data-testid="connection-modal-labels"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                :placeholder="t('connectionModal.placeholders.labels')"
-              />
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.defaultWorkspace') }}</label>
-              <input
-                v-model="formAsset.defaultWorkspacePath"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                :placeholder="t('connectionModal.placeholders.defaultWorkspace')"
-              />
-            </div>
-            <div>
-              <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.bastionChainId') }}</label>
-              <input
-                v-model="formAsset.bastionChainId"
-                class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-                :placeholder="t('connectionModal.placeholders.bastionChainId')"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label class="mb-1 block text-xs uppercase text-text-secondary">{{ t('connectionModal.labels.healthSummary') }}</label>
-            <input
-              v-model="formAsset.healthSummary"
-              class="w-full rounded border border-border-primary bg-bg-tertiary p-2 text-text-primary outline-none focus:border-accent"
-              :placeholder="t('connectionModal.placeholders.healthSummary')"
-            />
           </div>
         </section>
 

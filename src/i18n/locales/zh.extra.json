@@ -31,7 +31,7 @@
     "unknownError": "未知错误"
   },
   "app": {
-    "assetSaveFailed": "保存资产失败，请检查日志。"
+    "assetSaveFailed": "保存连接失败，请检查日志。"
   },
   "workbench": {
     "assetsCount": "资产 {count}",
@@ -255,12 +255,14 @@
     }
   },
   "connectionModal": {
-    "newTitle": "新建资产",
-    "editTitle": "编辑资产",
+    "defaultEndpoint": "默认端点",
+    "newTitle": "新建连接",
+    "editTitle": "编辑连接",
     "sections": {
-      "assetInfo": "资产信息",
+      "assetInfo": "连接信息",
       "defaultAccessEndpoint": "默认访问端点"
     },
+    "connectionFieldsHint": "仅保留连接地址、认证方式和跳板机等必要配置。",
     "labels": {
       "name": "名称",
       "host": "主机",
@@ -285,7 +287,7 @@
       "jumpHostAdvanced": "高级：通过跳板机连接"
     },
     "errors": {
-      "nameRequired": "资产名称为必填项",
+      "nameRequired": "连接名称为必填项",
       "hostRequired": "主机为必填项",
       "usernameRequired": "用户名为必填项"
     },

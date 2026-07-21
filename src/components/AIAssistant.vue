@@ -2,7 +2,6 @@
 import { ref, nextTick, computed, onMounted, onUnmounted, watch } from "vue";
 import { useSettingsStore } from "../stores/settings";
 import { useSessionStore } from "../stores/sessions";
-import { useAssetStore } from "../stores/assets";
 import { useNotificationStore } from "../stores/notifications";
 import { useAiEndpointsStore } from "../stores/aiEndpoints";
 import { invoke } from "@tauri-apps/api/core";
@@ -81,7 +80,6 @@ const emit = defineEmits(["refresh-context", "context-meta-change"]);
 
 const settingsStore = useSettingsStore();
 const sessionStore = useSessionStore();
-const assetStore = useAssetStore();
 const notificationStore = useNotificationStore();
 const aiEndpointsStore = useAiEndpointsStore();
 
@@ -107,12 +105,6 @@ const activeWorkspace = computed(() => {
   const session = sessionStore.sessions.find((s) => s.id === props.sessionId);
   return session?.activeWorkspace;
 });
-const activeAsset = computed(() => {
-  const session = sessionStore.sessions.find((s) => s.id === props.sessionId);
-  if (!session?.assetId) return null;
-  return assetStore.assets.find((asset) => asset.id === session.assetId) ?? null;
-});
-
 function escapeHtml(content: string) {
   return content
     .replace(/&/g, "&amp;")
@@ -1018,20 +1010,12 @@ ${activeWorkspace.value.context}
               throw new DOMException("Aborted", "AbortError");
             }
 
-            const jobRun = await assetStore.executeJob(
-              props.sessionId,
-              cmd,
-              activeAsset.value?.id,
-              activeAsset.value?.criticality ?? "medium",
-              "ai-tool",
-            );
-            result = jobRun.output || t("aiAssistant.messages.noOutput");
-            const activeSession = sessionStore.sessions.find(
-              (session) => session.id === props.sessionId,
-            );
-            if (activeSession && jobRun.id) {
-              activeSession.lastJobRunId = jobRun.id;
-            }
+            result = await invoke<string>("exec_command", {
+              id: props.sessionId,
+              command: cmd,
+              toolCallId: toolCall.id,
+            });
+            result ||= t("aiAssistant.messages.noOutput");
             setToolRunStatus(toolCall.id, "done");
 
             // Check if aborted after command completed
@@ -1109,17 +1093,6 @@ ${activeWorkspace.value.context}
               t("aiAssistant.messages.writeFileConfirm", { path: args.path }),
             );
             if (!confirmed) {
-              await assetStore.appendAuditEvent({
-                eventType: "ai.writeFileCancelled",
-                assetId: activeAsset.value?.id ?? null,
-                sessionId: props.sessionId,
-                jobRunId: null,
-                title: t("aiAssistant.messages.writeFileCancelledAuditTitle"),
-                detail: args.path,
-                severity: "warning",
-                metadataJson: JSON.stringify({ mode: args.mode ?? "overwrite" }),
-                createdAt: Date.now(),
-              });
               messages.value.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
@@ -1209,9 +1182,6 @@ ${activeWorkspace.value.context}
     if (abortController.value === currentController) {
       isLoading.value = false;
       abortController.value = null;
-    }
-    if (activeAsset.value?.id) {
-      void assetStore.refreshOpsData(activeAsset.value.id);
     }
     scrollToBottom();
   }

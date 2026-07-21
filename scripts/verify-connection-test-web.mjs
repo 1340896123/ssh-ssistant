@@ -59,20 +59,20 @@ async function setupPages(browser, webAppUrl) {
   });
   await bootstrap(successPage, "success");
   await successPage.goto(webAppUrl, { waitUntil: "domcontentloaded" });
-  await successPage.getByTestId("asset-center-root").waitFor({ timeout: 15000 });
+  await successPage.getByTestId("connection-list-root").waitFor({ timeout: 15000 });
 
   const failurePage = await browser.newPage({
     viewport: { width: 1440, height: 960 },
   });
   await bootstrap(failurePage, "failure");
   await failurePage.goto(webAppUrl, { waitUntil: "domcontentloaded" });
-  await failurePage.getByTestId("asset-center-root").waitFor({ timeout: 15000 });
+  await failurePage.getByTestId("connection-list-root").waitFor({ timeout: 15000 });
 
   return { successPage, failurePage };
 }
 
 async function runSuccessAndValidationFlow(page) {
-  await page.getByTestId("asset-center-new-asset").click();
+  await page.getByTestId("connection-list-new").click();
   await page.getByTestId("connection-modal").waitFor({ timeout: 10000 });
 
   await page.getByTestId("connection-modal-name").fill("QA Node");
@@ -120,7 +120,7 @@ async function runSuccessAndValidationFlow(page) {
 }
 
 async function runFailureFlow(page) {
-  await page.getByTestId("asset-center-new-asset").click();
+  await page.getByTestId("connection-list-new").click();
   await page.getByTestId("connection-modal").waitFor({ timeout: 10000 });
 
   await page.getByTestId("connection-modal-name").fill("Failure Node");

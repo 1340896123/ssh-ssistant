@@ -13,8 +13,6 @@
   "workbench": {
     "connectionsSubtitle": "Manage connection directories, favorites, and recent history",
     "tunnelsSubtitle": "Port forwards and tunnel activity in one place",
-    "opsTitle": "Ops Workbench",
-    "opsSubtitle": "Global console, job execution, audit search, and sync readiness",
     "sessionsTitle": "Sessions",
     "sessionsSubtitle": "Track the SSH sessions you are actively working in",
     "collapseResourcePane": "Collapse resource pane",
@@ -33,11 +31,8 @@
     "contextEmptyTitle": "Waiting for a connection",
     "contextEmptyDescription": "Once a session is connected, AI and file context will appear here.",
     "sessionTabsLabel": "sessions",
-    "welcomeTitle": "SSH Assistant Ops",
-    "welcomeDescription": "Select an asset to open terminal, files, tunnels, and AI ops context.",
-    "openAssetCenter": "Open Asset Center",
-    "newAsset": "New Asset",
-    "openOpsWorkbench": "Open Ops Workbench",
+    "welcomeTitle": "SSH Assistant Connection Workspace",
+    "welcomeDescription": "Select a connection to open terminal, files, tunnels, and AI context.",
     "switchAccount": "Switch"
   },
   "sessionsPane": {
@@ -168,7 +163,7 @@
     "new": "New Tunnel",
     "createTitle": "Create Tunnel",
     "createHint": "Pick a scenario first, fill the minimum required fields, then save and start it from the list.",
-    "createEntryTitle": "Create a new port mapping for this asset",
+    "createEntryTitle": "Create a new port mapping for this connection",
     "createEntryDescription": "Create a local forward, remote forward, or SOCKS proxy here, then start it separately after saving.",
     "backToList": "Back to list",
     "name": "Name",
@@ -189,12 +184,12 @@
     "save": "Save",
     "cancel": "Cancel",
     "refresh": "Refresh",
-    "asset": "Asset",
-    "allAssets": "All Assets",
-    "manageSelectedAsset": "Manage Selected Asset",
-    "selectAsset": "Please select an asset first",
-    "assetMissing": "Asset not found",
-    "assetUnknown": "Unknown asset",
+    "asset": "Connection",
+    "allAssets": "All Connections",
+    "manageSelectedAsset": "Manage Selected Connection",
+    "selectAsset": "Please select a connection first",
+    "assetMissing": "Connection not found",
+    "assetUnknown": "Unknown connection",
     "accessEndpoint": "Access Endpoint",
     "selectEndpoint": "Select an access endpoint",
     "endpointUnknown": "Unknown endpoint",
@@ -242,7 +237,7 @@
     "aiAssistantDesc": "Configure providers, endpoints, and model names for a clearer AI setup experience.",
     "accountAndSync": "Account & Sync",
     "accountModeTitle": "Account Mode",
-    "accountModeDesc": "Support personal accounts, enterprise sub-accounts, and local mode. Cloud sync follows the active account mode for assets and settings.",
+    "accountModeDesc": "Support personal accounts, enterprise sub-accounts, and local mode. Cloud sync follows the active account mode for connections and settings.",
     "accountTabHint": "Account identity and cloud login are managed on the sign-in page. Use \"Switch account\" in the sidebar to switch modes or re-authenticate.",
     "unsavedChanges": "You have unsaved changes",
     "resetChanges": "Reset",
@@ -260,12 +255,12 @@
     "subAccountId": "Sub-Account ID",
     "cloudAccessToken": "Cloud Access Token",
     "cloudSyncTitle": "Cloud Sync",
-    "cloudSyncDesc": "Control whether the asset center and settings are synchronized to the cloud backend.",
+    "cloudSyncDesc": "Control whether connections and settings are synchronized to the cloud backend.",
     "cloudSyncEnabled": "Enable Cloud Sync",
     "cloudSyncEndpoint": "Sync Service URL",
     "organizationScope": "Organization Scope",
     "organizationScopePlaceholder": "For example: default-org / enterprise-a",
-    "syncAssets": "Sync Asset Center",
+    "syncAssets": "Sync Connections",
     "syncSettingsLabel": "Sync Settings",
     "aiModelConfigTitle": "AI Model Configuration",
     "aiModelConfigDesc": "Configure the provider, endpoint, and model used by the AI assistant.",
@@ -532,12 +527,12 @@
     },
     "heroDescription": {
       "personal": "Sign in with your personal account to sync connections, AI subscriptions, and endpoint settings across devices. Authentication happens in your browser — no password is ever typed inside this app.",
-      "enterprise": "Sign in with your enterprise sub-account to inherit the asset scope and AI policy assigned by your administrator. Authentication happens in your browser — no password is ever typed inside this app."
+      "enterprise": "Sign in with your enterprise sub-account to inherit the connection scope and AI policy assigned by your administrator. Authentication happens in your browser — no password is ever typed inside this app."
     },
     "modeCards": {
-      "personal": "Sync personal assets, AI subscription status, and your personal custom endpoint.",
-      "enterpriseSubAccount": "Only pull the asset scope assigned by the enterprise backend and inherit enterprise subscription policy.",
-      "local": "Enter the desktop workspace without cloud sign-in and keep the offline asset experience."
+      "personal": "Sync personal connections, AI subscription status, and your personal custom endpoint.",
+      "enterpriseSubAccount": "Only pull the connection scope assigned by the enterprise backend and inherit enterprise subscription policy.",
+      "local": "Enter the desktop workspace without cloud sign-in and keep the offline connection experience."
     },
     "subscriptionStatusTitle": "Current Subscription Status",
     "subscriptionRenewal": "renews {date}",
@@ -545,9 +540,9 @@
     "globalScope": "Global",
     "freeBilling": "USD 0/seat",
     "modeDescriptions": {
-      "personalLogin": "Sign in with a personal account to sync personal assets and personal AI subscription settings.",
-      "enterpriseSubAccount": "Sign in with an enterprise sub-account to sync only the asset scope assigned by your admin.",
-      "local": "Local mode does not require cloud sign-in and still lets you enter the workspace with offline assets."
+      "personalLogin": "Sign in with a personal account to sync personal connections and personal AI subscription settings.",
+      "enterpriseSubAccount": "Sign in with an enterprise sub-account to sync only the connection scope assigned by your admin.",
+      "local": "Local mode does not require cloud sign-in and still lets you enter the workspace with offline connections."
     },
     "browserLogin": {
       "button": {

@@ -160,17 +160,6 @@ export const useSessionStore = defineStore('sessions', {
         console.error('Failed to connect', e);
         if (asset.id !== undefined) {
           assetStore.addFailedConnection(asset.id, String(e), source);
-          void assetStore.appendAuditEvent({
-            eventType: 'session.connectFailed',
-            assetId: asset.id,
-            sessionId: null,
-            jobRunId: null,
-            title: 'Session connection failed',
-            detail: String(e),
-            severity: 'warning',
-            metadataJson: JSON.stringify({ source }),
-            createdAt: Date.now(),
-          });
         }
         useNotificationStore().error('Failed to connect: ' + e);
       }

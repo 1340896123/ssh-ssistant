@@ -7,12 +7,9 @@ export {
   evaluateSettingsModeTransition,
   evaluateLoginGatewayModeTransition,
 } from "./accountModeTransition";
-export { aiService } from "./aiService";
 export { resolveAiRuntimeConfig } from "./aiRuntime";
 export { assetService } from "./assetService";
-export { auditService } from "./auditService";
 export { cloudService } from "./cloudService";
-export { opsService } from "./opsService";
 export { sessionService } from "./sessionService";
 export { syncService } from "./syncService";
 export { workspaceSnapshotService } from "./workspaceSnapshotService";

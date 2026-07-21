@@ -2,9 +2,7 @@ import { defineStore } from "pinia";
 import {
   accessService,
   assetService,
-  auditService,
   cloudService,
-  opsService,
   syncService,
 } from "../services";
 import { useSettingsStore } from "./settings";
@@ -14,21 +12,13 @@ import type {
   AssetFolder,
   AssetTag,
   AssetUpsertPayload,
-  AuditEvent,
   CloudAssetRecord,
   ConnectionHistoryEntry,
   ConnectionHistorySource,
   CredentialRef,
   Environment,
   HostAsset,
-  JobBatchPreview,
-  JobBatchRequest,
-  JobBatchResult,
-  JobRun,
-  JobRunArchive,
-  JobTemplate,
   LocalWorkspaceSnapshot,
-  OpsConsoleAnswer,
   SavedAssetView,
   SyncChangeLogEntry,
   SyncOverview,
@@ -225,18 +215,11 @@ export const useAssetStore = defineStore("assets", {
     savedViews: [] as SavedAssetView[],
     accessEndpoints: [] as AccessEndpoint[],
     credentialRefs: [] as CredentialRef[],
-    jobTemplates: [] as JobTemplate[],
-    jobRuns: [] as JobRun[],
-    jobArchives: [] as JobRunArchive[],
-    auditEvents: [] as AuditEvent[],
     syncState: null as SyncState | null,
     syncOverview: null as SyncOverview | null,
     syncChanges: [] as SyncChangeLogEntry[],
     syncServices: [] as SyncServiceConfig[],
     accessHistory: [] as AssetAccessHistoryEntry[],
-    lastOpsConsoleAnswer: null as OpsConsoleAnswer | null,
-    lastJobBatchPreview: null as JobBatchPreview | null,
-    lastJobBatchResult: null as JobBatchResult | null,
     hasImportedLegacyClientState: false,
   }),
   getters: {
@@ -355,18 +338,11 @@ export const useAssetStore = defineStore("assets", {
       this.savedViews = [];
       this.accessEndpoints = [];
       this.credentialRefs = [];
-      this.jobTemplates = [];
-      this.jobRuns = [];
-      this.jobArchives = [];
-      this.auditEvents = [];
       this.syncState = null;
       this.syncOverview = null;
       this.syncChanges = [];
       this.syncServices = [];
       this.accessHistory = [];
-      this.lastOpsConsoleAnswer = null;
-      this.lastJobBatchPreview = null;
-      this.lastJobBatchResult = null;
     },
     async exportLocalWorkspaceSnapshot() {
       return assetService.exportLocalWorkspaceSnapshot();
@@ -442,29 +418,6 @@ export const useAssetStore = defineStore("assets", {
         defaultAccessEndpoint: nextEndpoint,
         defaultCredentialRef: nextCredentialRef,
       };
-    },
-    async refreshOpsData(assetId?: number) {
-      const [jobTemplates, jobRuns, jobArchives, auditEvents, accessHistory] =
-        await Promise.all([
-        opsService.listJobTemplates(),
-        opsService.listJobRuns(assetId),
-        opsService.listJobArchives(assetId, assetId ? 40 : 120),
-        auditService.list(assetId),
-        assetService.listAccessHistory(assetId, assetId ? 40 : 200),
-        ]);
-      this.jobTemplates = jobTemplates;
-      this.jobRuns = jobRuns;
-      this.jobArchives = jobArchives;
-      this.auditEvents = auditEvents;
-      if (assetId === undefined) {
-        this.accessHistory = accessHistory.map((entry) => ({
-          assetId: entry.assetId,
-          connectedAt: entry.connectedAt,
-          status: mapHistoryStatus(entry.status),
-          reason: entry.reason,
-          source: mapHistorySource(entry.source),
-        }));
-      }
     },
     async loadSyncOverview() {
       const [overview, services, changes] = await Promise.all([
@@ -613,53 +566,6 @@ export const useAssetStore = defineStore("assets", {
       await assetService.touch(id);
       await this.loadAssets();
     },
-    async executeJob(
-      sessionId: string,
-      commandText: string,
-      assetId?: number,
-      riskLevel?: string,
-      source?: string,
-    ) {
-      const run = await opsService.executeJob(
-        sessionId,
-        commandText,
-        assetId,
-        riskLevel,
-        source,
-      );
-      await this.refreshOpsData(assetId);
-      return run;
-    },
-    async previewJobBatch(request: JobBatchRequest) {
-      this.lastJobBatchPreview = await opsService.previewJobBatch(request);
-      return this.lastJobBatchPreview;
-    },
-    async executeJobBatch(request: JobBatchRequest) {
-      this.lastJobBatchResult = await opsService.executeJobBatch(request);
-      await Promise.all([this.refreshOpsData(), this.loadSyncOverview()]);
-      return this.lastJobBatchResult;
-    },
-    async runOpsConsoleQuery(query: string, selectedAssetId?: number | null) {
-      this.lastOpsConsoleAnswer = await opsService.opsConsoleQuery(
-        query,
-        selectedAssetId ?? null,
-      );
-      return this.lastOpsConsoleAnswer;
-    },
-    async createJobTemplate(template: JobTemplate) {
-      const created = await opsService.createJobTemplate(template);
-      await Promise.all([this.refreshOpsData(), this.loadSyncOverview()]);
-      return created;
-    },
-    async deleteJobTemplate(id: number) {
-      await opsService.removeJobTemplate(id);
-      await Promise.all([this.refreshOpsData(), this.loadSyncOverview()]);
-    },
-    async appendAuditEvent(event: AuditEvent) {
-      const created = await auditService.create(event);
-      await this.refreshOpsData(event.assetId ?? undefined);
-      return created;
-    },
     async saveSyncState(state: SyncState) {
       this.syncState = await syncService.saveState(state);
       await this.loadSyncOverview();
@@ -674,15 +580,6 @@ export const useAssetStore = defineStore("assets", {
       const saved = await syncService.upsertService(service);
       await this.loadSyncOverview();
       return saved;
-    },
-    async searchAuditEvents(
-      query?: string,
-      severity?: string,
-      assetId?: number,
-      limit?: number,
-    ) {
-      this.auditEvents = await auditService.search(query, severity, assetId, limit);
-      return this.auditEvents;
     },
     buildCloudAssetRecords(): CloudAssetRecord[] {
       return this.assets.map((asset) => ({

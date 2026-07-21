@@ -31,7 +31,7 @@
     "unknownError": "Unknown error"
   },
   "app": {
-    "assetSaveFailed": "Failed to save asset. Please check the logs."
+    "assetSaveFailed": "Failed to save connection. Please check the logs."
   },
   "workbench": {
     "assetsCount": "Assets {count}",
@@ -255,12 +255,14 @@
     }
   },
   "connectionModal": {
-    "newTitle": "New Asset",
-    "editTitle": "Edit Asset",
+    "defaultEndpoint": "Default Endpoint",
+    "newTitle": "New Connection",
+    "editTitle": "Edit Connection",
     "sections": {
-      "assetInfo": "Asset Info",
+      "assetInfo": "Connection Info",
       "defaultAccessEndpoint": "Default Access Endpoint"
     },
+    "connectionFieldsHint": "Only the connection address, authentication, and jump host settings are managed here.",
     "labels": {
       "name": "Name",
       "host": "Host",
@@ -285,7 +287,7 @@
       "jumpHostAdvanced": "Advanced: connect via jump host"
     },
     "errors": {
-      "nameRequired": "Asset name is required",
+      "nameRequired": "Connection name is required",
       "hostRequired": "Host is required",
       "usernameRequired": "Username is required"
     },
