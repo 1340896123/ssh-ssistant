@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "backend/SshAssistant.AppHost/SshAssistant.AppHost.csproj"
+  }
+}

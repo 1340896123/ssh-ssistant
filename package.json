@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:admin": "dotnet run --project backend/SshAssistant.AppHost/SshAssistant.AppHost.csproj",
     "build": "vue-tsc --noEmit && vite build",
+    "build:admin": "dotnet build SshAssistantAdmin.slnx --configuration Release",
     "dev:local": "cross-env VITE_APP_VARIANT=local vite",
     "dev:personal": "cross-env VITE_APP_VARIANT=personal vite",
     "dev:enterprise": "cross-env VITE_APP_VARIANT=enterprise vite",

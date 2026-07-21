@@ -25,7 +25,11 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": []
+        "schemes": [
+          "sshstar-personal",
+          "sshstar-local",
+          "sshstar-enterprise"
+        ]
       }
     }
   },

@@ -925,6 +925,7 @@ async function handleAuthDeepLink(url: string): Promise<boolean> {
 
   try {
     await settingsStore.applyBrowserAuthCallback(url);
+    settingsStore.clearLoginGatewayRequired();
     browserAuthError.value = "";
     isAwaitingBrowserAuth.value = false;
     notificationStore.success(t("loginGateway.browserLogin.success"));
@@ -1155,19 +1156,19 @@ onMounted(async () => {
   });
   // Register the runtime deep-link listener for browser-auth + billing callbacks.
   await setupAuthDeepLinkListener();
+  await getCurrent()
+    .then(async (urls: string[] | null) => {
+      for (const url of urls ?? []) {
+        await dispatchDeepLink(url);
+      }
+    })
+    .catch((error: unknown) => {
+      console.warn("Deep link current URL fetch skipped:", error);
+    });
   initializeShellUiRuntime();
 
   // Local variant: fully offline, skip all cloud/login checks, boot straight in.
   if (isLocalVariant()) {
-    await getCurrent()
-      .then(async (urls: string[] | null) => {
-        for (const url of urls ?? []) {
-          await dispatchDeepLink(url);
-        }
-      })
-      .catch((error: unknown) => {
-        console.warn("Deep link current URL fetch skipped:", error);
-      });
     await bootstrapAuthenticatedSession({
       restoreLocalSnapshot: false,
     }).catch((error) => {
@@ -1222,15 +1223,6 @@ onMounted(async () => {
     appReady.value = true;
     return;
   }
-  await getCurrent()
-    .then(async (urls: string[] | null) => {
-      for (const url of urls ?? []) {
-        await dispatchDeepLink(url);
-      }
-    })
-    .catch((error: unknown) => {
-      console.warn("Deep link current URL fetch skipped:", error);
-    });
   await bootstrapAuthenticatedSession({
     restoreLocalSnapshot: false,
   }).catch((error) => {

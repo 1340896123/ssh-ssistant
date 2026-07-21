@@ -20,7 +20,8 @@ async function main() {
   });
 
   const suffix = nowSuffix();
-  const email = `register-${suffix}@example.com`;
+  const email = `Register-${suffix}@Example.COM`;
+  const normalizedEmail = email.toLowerCase();
   const displayName = `Register ${suffix}`;
   const password = "secret123";
   const duplicateAdminId = `usr-admin-dup-${suffix}`;
@@ -41,7 +42,7 @@ async function main() {
     });
 
     assert.equal(registerResponse.mode, "personal");
-    assert.equal(registerResponse.email, email);
+    assert.equal(registerResponse.email, normalizedEmail);
     assert.equal(registerResponse.displayName, displayName);
     assert.equal(registerResponse.aiSubscription.planName, "free");
     assert(
@@ -54,7 +55,7 @@ async function main() {
       "personal",
     );
     record("register-success", "passed", "Public personal registration returned personal login state.", {
-      email,
+      email: normalizedEmail,
       displayName,
       planName: registerResponse.aiSubscription.planName,
       subscriptionStatus: registerResponse.aiSubscription.status,
@@ -80,12 +81,12 @@ async function main() {
       method: "POST",
       body: JSON.stringify({
         mode: "personal",
-        identifier: email,
+        identifier: email.toUpperCase(),
         secret: password,
       }),
     });
     assert.equal(loginResponse.mode, "personal");
-    assert.equal(loginResponse.email, email);
+    assert.equal(loginResponse.email, normalizedEmail);
     assert.equal(loginResponse.displayName, displayName);
     record("register-login", "passed", "Newly registered personal account can log in again with email and password.");
 
@@ -221,7 +222,7 @@ async function main() {
       baseUrl: server.baseUrl,
       findings,
       evidence: {
-        registeredEmail: email,
+        registeredEmail: normalizedEmail,
         concurrentEmail,
       },
     };

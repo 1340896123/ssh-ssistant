@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/backend/">
     <Project Path="backend/SshAssistant.AdminApi/SshAssistant.AdminApi.csproj" />
+    <Project Path="backend/SshAssistant.AppHost/SshAssistant.AppHost.csproj" />
+    <Project Path="backend/SshAssistant.ServiceDefaults/SshAssistant.ServiceDefaults.csproj" />
   </Folder>
 </Solution>

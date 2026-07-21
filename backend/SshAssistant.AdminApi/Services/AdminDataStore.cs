@@ -1581,7 +1581,8 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         var normalizedDisplayName = NormalizeRequiredValue(request.DisplayName, "Display name");
         ValidatePersonalAccountSecret(request.Secret, allowEmpty: true);
 
-        var emailOwner = await dbContext.PersonalAccounts.AsNoTracking().FirstOrDefaultAsync(item => item.Email == normalizedEmail);
+        var emailOwner = await dbContext.PersonalAccounts.AsNoTracking().FirstOrDefaultAsync(
+            item => EF.Functions.Collate(item.Email, "NOCASE") == normalizedEmail);
         if (emailOwner is not null && !string.Equals(emailOwner.Id, accountId, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("This email is already registered. Please sign in instead.");
@@ -1624,7 +1625,8 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
         var password = NormalizeRequiredValue(request.Password, "Password");
         ValidatePersonalAccountSecret(password, allowEmpty: false);
 
-        var existing = await dbContext.PersonalAccounts.AsNoTracking().FirstOrDefaultAsync(item => item.Email == normalizedEmail);
+        var existing = await dbContext.PersonalAccounts.AsNoTracking().FirstOrDefaultAsync(
+            item => EF.Functions.Collate(item.Email, "NOCASE") == normalizedEmail);
         if (existing is not null)
         {
             throw new InvalidOperationException("This email is already registered. Please sign in instead.");
@@ -1731,8 +1733,10 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
     {
         if (request.Mode.Equals("personal", StringComparison.OrdinalIgnoreCase))
         {
+            var normalizedIdentifier = request.Identifier?.Trim() ?? string.Empty;
             var personal = await dbContext.PersonalAccounts.AsNoTracking().FirstOrDefaultAsync(
-                item => item.Email == request.Identifier || item.Id == request.Identifier);
+                item => item.Id == normalizedIdentifier ||
+                    EF.Functions.Collate(item.Email, "NOCASE") == normalizedIdentifier);
 
             if (personal is null || !VerifySecret(personal.Secret, request.Secret))
             {
@@ -3193,7 +3197,7 @@ public sealed class AdminDataStore(AdminDbContext dbContext, IHttpClientFactory 
             throw new ArgumentException("Email format is invalid.");
         }
 
-        return normalized;
+        return normalized.ToLowerInvariant();
     }
 
     private static void ValidatePersonalAccountSecret(string? secret, bool allowEmpty)

@@ -1,4 +1,4 @@
-export const DEFAULT_ADMIN_API_BASE = 'http://localhost:5047/api/admin'
+export const DEFAULT_ADMIN_API_BASE = '/api/admin'
 export const DEFAULT_CHECKOUT_RETURN_URL = 'sshstar://billing/success'
 export const DEFAULT_CHECKOUT_CANCEL_URL = 'sshstar://billing/cancel'
 
