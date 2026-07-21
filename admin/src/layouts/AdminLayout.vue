@@ -61,7 +61,7 @@ onMounted(() => {
           <div class="admin-brand-mark">SA</div>
           <div>
             <p class="admin-sidebar-title">SSH Assistant</p>
-            <p class="admin-sidebar-subtitle">Enterprise Console</p>
+            <p class="admin-sidebar-subtitle">Admin Console</p>
           </div>
         </div>
 
@@ -93,7 +93,7 @@ onMounted(() => {
       <main class="admin-main">
         <header class="admin-topbar">
           <div>
-            <div class="admin-eyebrow">Enterprise Admin Workspace</div>
+            <div class="admin-eyebrow">SSH Assistant Admin</div>
             <h1 class="admin-page-title">{{ pageMeta.title }}</h1>
             <p class="admin-page-subtitle">{{ pageMeta.description }}</p>
           </div>

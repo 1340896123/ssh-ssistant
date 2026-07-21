@@ -43,9 +43,6 @@ export function buildAccountFingerprint(account: Settings["account"]) {
     account.mode,
     account.email?.trim() ?? "",
     account.userId?.trim() ?? "",
-    account.enterpriseId?.trim() ?? "",
-    account.enterpriseName?.trim() ?? "",
-    account.subAccountId?.trim() ?? "",
   ].join("|");
 }
 
@@ -63,7 +60,6 @@ export function normalizeAccountForSave(
       : nextAccountDraft.displayName ||
         nextAccountDraft.email ||
         nextAccountDraft.userId ||
-        nextAccountDraft.subAccountId ||
         "Personal Account";
 
   return {
@@ -77,18 +73,6 @@ export function normalizeAccountForSave(
       userId:
         nextAccountDraft.mode === "personal"
           ? (nextAccountDraft.userId || nextAccountDraft.email || "").trim() || null
-          : null,
-      enterpriseId:
-        nextAccountDraft.mode === "enterpriseSubAccount"
-          ? (nextAccountDraft.enterpriseId || "").trim() || null
-          : null,
-      enterpriseName:
-        nextAccountDraft.mode === "enterpriseSubAccount"
-          ? (nextAccountDraft.enterpriseName || "").trim() || null
-          : null,
-      subAccountId:
-        nextAccountDraft.mode === "enterpriseSubAccount"
-          ? (nextAccountDraft.subAccountId || "").trim() || null
           : null,
       accessToken: shouldClearCloudState ? null : nextAccountDraft.accessToken ?? null,
       refreshToken: shouldClearCloudState ? null : nextAccountDraft.refreshToken ?? null,

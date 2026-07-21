@@ -8,7 +8,7 @@ interface CloudSubscriptionPayload {
   seats: number;
   pricePerSeat?: number;
   currency?: string;
-  billingScope?: "global" | "enterprise" | "personal";
+  billingScope?: string;
   allowCustomEndpoint: boolean;
   syncCustomEndpoint: boolean;
   renewAt?: string;
@@ -40,9 +40,6 @@ interface ClientLoginResponsePayload {
   accountKey: string;
   displayName: string;
   email: string;
-  enterpriseId: string;
-  enterpriseName: string;
-  subAccountId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
@@ -177,9 +174,6 @@ export interface ClientLoginResponse {
   accountKey: string;
   displayName: string;
   email: string;
-  enterpriseId: string;
-  enterpriseName: string;
-  subAccountId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
@@ -383,7 +377,7 @@ export function mapCloudSubscription(
     seats: payload.seats,
     pricePerSeat: payload.pricePerSeat ?? 0,
     currency: payload.currency ?? "USD",
-    billingScope: payload.billingScope ?? "global",
+    billingScope: payload.billingScope === "personal" ? "personal" : "global",
     startedAt: null,
     renewalAt: payload.renewAt ? Date.parse(payload.renewAt) : null,
     allowCustomEndpoint: payload.allowCustomEndpoint,
@@ -627,7 +621,7 @@ export const cloudService = {
    */
   buildAuthStartUrl(
     baseUrl: string | null | undefined,
-    options: { variant: string; scheme: string; cloudMode: "personal" | "enterpriseSubAccount" },
+    options: { variant: string; scheme: string; cloudMode: "personal" },
   ) {
     const redirectUri = `${options.scheme}://auth/callback`;
     const params = new URLSearchParams({
@@ -680,9 +674,6 @@ export const cloudService = {
       accountKey: parsed.searchParams.get("accountKey") || "",
       displayName: parsed.searchParams.get("displayName") || "",
       email: parsed.searchParams.get("email") || "",
-      enterpriseId: parsed.searchParams.get("enterpriseId") || "",
-      enterpriseName: parsed.searchParams.get("enterpriseName") || "",
-      subAccountId: parsed.searchParams.get("subAccountId") || "",
       accessToken,
       refreshToken: parsed.searchParams.get("refreshToken") || "",
       expiresAt: parsed.searchParams.get("expiresAt") || "",

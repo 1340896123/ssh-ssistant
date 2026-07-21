@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Build/dev the Tauri app for a specific variant (local | personal | enterprise).
+ * Build/dev the Tauri app for a specific variant (local | personal).
  *
  * Sets the `VITE_APP_VARIANT` environment variable so the frontend can read it
  * via `import.meta.env`, then invokes the Tauri CLI with the matching config
@@ -9,11 +9,11 @@
  *
  * Usage:
  *   node scripts/build-variant.mjs dev local
- *   node scripts/build-variant.mjs build enterprise
+ *   node scripts/build-variant.mjs build personal
  */
 import { spawn } from "node:child_process";
 
-const VALID_VARIANTS = new Set(["local", "personal", "enterprise"]);
+const VALID_VARIANTS = new Set(["local", "personal"]);
 const VALID_COMMANDS = new Set(["dev", "build"]);
 
 function parseArgs(argv) {

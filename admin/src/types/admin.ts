@@ -5,26 +5,6 @@ export const DEFAULT_CHECKOUT_CANCEL_URL = 'sshstar://billing/cancel'
 export type SubscriptionStatus = 'inactive' | 'trialing' | 'active' | 'pastDue' | 'cancelled'
 export type BillingInvoiceStatus = 'open' | 'paid' | 'overdue' | 'voided'
 
-export interface EnterpriseSummary {
-  id: string
-  name: string
-  seatCount: number
-  activeSubAccounts: number
-  subscriptionPlan: string
-  subscriptionStatus: SubscriptionStatus
-  renewAt: string
-}
-
-export interface EnterpriseSubAccountSummary {
-  id: string
-  enterpriseId: string
-  displayName: string
-  email: string
-  enabled: boolean
-  assetIds: string[]
-  updatedAt: string
-}
-
 export interface PersonalAccountSummary {
   id: string
   displayName: string
@@ -53,20 +33,6 @@ export interface AiSubscriptionPlanSummary {
   allowCustomEndpoint: boolean
   isActive: boolean
   description: string
-  updatedAt: string
-}
-
-export interface EnterpriseSubscriptionSummary {
-  enterpriseId: string
-  planCode: string
-  planDisplayName: string
-  status: SubscriptionStatus
-  seatsPurchased: number
-  seatsAssigned: number
-  pricePerSeat: number
-  currency: string
-  allowCustomEndpoint: boolean
-  renewAt: string
   updatedAt: string
 }
 
@@ -224,12 +190,9 @@ export interface GenerateBillingCycleResponse {
 }
 
 export interface DashboardSnapshot {
-  enterprises: EnterpriseSummary[]
-  subAccounts: EnterpriseSubAccountSummary[]
   personalAccounts: PersonalAccountSummary[]
   assets: ManagedAssetSummary[]
   subscriptionPlans: AiSubscriptionPlanSummary[]
-  enterpriseSubscriptions: EnterpriseSubscriptionSummary[]
   personalSubscriptions: PersonalSubscriptionSummary[]
   aiUsagePricing: AiUsagePricingSummary[]
   paymentProviders: PaymentProviderConfigSummary[]
@@ -253,23 +216,6 @@ export interface LoginFormState {
   password: string
 }
 
-export interface EnterpriseFormState {
-  id: string
-  name: string
-  seatCount: number
-  subscriptionPlan: string
-  subscriptionStatus: SubscriptionStatus
-}
-
-export interface SubAccountFormState {
-  id: string
-  enterpriseId: string
-  displayName: string
-  email: string
-  secret: string
-  enabled: boolean
-}
-
 export interface PersonalFormState {
   id: string
   displayName: string
@@ -289,13 +235,6 @@ export interface PlanFormState {
   allowCustomEndpoint: boolean
   isActive: boolean
   description: string
-}
-
-export interface EnterpriseSubscriptionFormState {
-  enterpriseId: string
-  planCode: string
-  status: SubscriptionStatus
-  seatsPurchased: number
 }
 
 export interface PersonalSubscriptionFormState {
@@ -345,8 +284,6 @@ export interface PaymentProviderFormState {
 export type AdminRouteName =
   | 'login'
   | 'overview'
-  | 'enterprises'
-  | 'subaccounts'
   | 'ai-subscriptions'
   | 'billing'
   | 'ai-usage'

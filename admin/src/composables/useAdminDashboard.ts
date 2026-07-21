@@ -8,10 +8,6 @@ import {
   type AiUsagePricingFormState,
   type BillingInvoiceStatus,
   type DashboardSnapshot,
-  type EnterpriseFormState,
-  type EnterpriseSubAccountSummary,
-  type EnterpriseSubscriptionFormState,
-  type EnterpriseSummary,
   type GenerateBillingCycleResponse,
   type PaymentFormState,
   type PaymentProviderFormState,
@@ -19,7 +15,6 @@ import {
   type PersonalFormState,
   type PersonalSubscriptionFormState,
   type PlanFormState,
-  type SubAccountFormState,
   type SubscriptionStatus,
 } from '../types/admin'
 import {
@@ -34,26 +29,6 @@ const dashboard = ref<DashboardSnapshot | null>(null)
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
-const selectedSubAccountId = ref('')
-const selectedAssetIds = ref<string[]>([])
-
-const enterpriseForm = reactive<EnterpriseFormState>({
-  id: '',
-  name: '',
-  seatCount: 10,
-  subscriptionPlan: 'enterprise',
-  subscriptionStatus: 'active',
-})
-
-const subAccountForm = reactive<SubAccountFormState>({
-  id: '',
-  enterpriseId: 'ent-acme',
-  displayName: '',
-  email: '',
-  secret: '',
-  enabled: true,
-})
-
 const personalForm = reactive<PersonalFormState>({
   id: '',
   displayName: '',
@@ -66,8 +41,8 @@ const personalForm = reactive<PersonalFormState>({
 
 const subscriptionForm = ref<AiSubscriptionOverview>({
   serviceMode: 'subscription',
-  planName: 'enterprise',
-  planDisplayName: 'Enterprise Managed',
+  planName: 'personal',
+  planDisplayName: 'Personal Managed',
   status: 'active',
   seats: 1,
   pricePerSeat: 49,
@@ -81,19 +56,12 @@ const subscriptionForm = ref<AiSubscriptionOverview>({
 const planForm = reactive<PlanFormState>({
   code: 'business',
   displayName: 'Business Monthly',
-  scope: 'enterprise',
+  scope: 'personal',
   pricePerSeat: 39,
   currency: 'USD',
   allowCustomEndpoint: true,
   isActive: true,
   description: '',
-})
-
-const enterpriseSubscriptionForm = reactive<EnterpriseSubscriptionFormState>({
-  enterpriseId: 'ent-acme',
-  planCode: 'enterprise',
-  status: 'active',
-  seatsPurchased: 40,
 })
 
 const personalSubscriptionForm = reactive<PersonalSubscriptionFormState>({
@@ -156,30 +124,9 @@ export const statusOptions: SubscriptionStatus[] = ['inactive', 'trialing', 'act
 export const invoiceStatusOptions: BillingInvoiceStatus[] = ['open', 'paid', 'overdue', 'voided']
 export const paymentStatusOptions = ['pending', 'completed', 'failed', 'refunded']
 
-const selectedSubAccount = computed(
-  () => dashboard.value?.subAccounts.find((item) => item.id === selectedSubAccountId.value) ?? null,
-)
-
 function clearFeedback() {
   error.value = ''
   notice.value = ''
-}
-
-function resetEnterpriseForm() {
-  enterpriseForm.id = ''
-  enterpriseForm.name = ''
-  enterpriseForm.seatCount = 10
-  enterpriseForm.subscriptionPlan = 'enterprise'
-  enterpriseForm.subscriptionStatus = 'active'
-}
-
-function resetSubAccountForm() {
-  subAccountForm.id = ''
-  subAccountForm.enterpriseId = dashboard.value?.enterprises[0]?.id ?? 'ent-acme'
-  subAccountForm.displayName = ''
-  subAccountForm.email = ''
-  subAccountForm.secret = ''
-  subAccountForm.enabled = true
 }
 
 function resetPersonalForm() {
@@ -217,14 +164,6 @@ function syncDashboardForms(payload: DashboardSnapshot) {
     planForm.allowCustomEndpoint = recommendedPlan.allowCustomEndpoint
     planForm.isActive = recommendedPlan.isActive
     planForm.description = recommendedPlan.description
-  }
-
-  if (payload.enterpriseSubscriptions.length > 0) {
-    const enterpriseSubscription = payload.enterpriseSubscriptions[0]
-    enterpriseSubscriptionForm.enterpriseId = enterpriseSubscription.enterpriseId
-    enterpriseSubscriptionForm.planCode = enterpriseSubscription.planCode
-    enterpriseSubscriptionForm.status = enterpriseSubscription.status
-    enterpriseSubscriptionForm.seatsPurchased = enterpriseSubscription.seatsPurchased
   }
 
   if (payload.personalSubscriptions.length > 0) {
@@ -271,15 +210,6 @@ function syncDashboardForms(payload: DashboardSnapshot) {
     invoiceStatusForm[invoice.id] = invoice.status
   })
 
-  if (!selectedSubAccountId.value && payload.subAccounts.length > 0) {
-    selectedSubAccountId.value = payload.subAccounts[0].id
-    selectedAssetIds.value = [...payload.subAccounts[0].assetIds]
-  }
-
-  if (selectedSubAccountId.value) {
-    const selected = payload.subAccounts.find((item) => item.id === selectedSubAccountId.value)
-    selectedAssetIds.value = selected ? [...selected.assetIds] : []
-  }
 }
 
 async function runDashboardAction(task: () => Promise<void>) {
@@ -313,108 +243,6 @@ export function useAdminDashboard() {
     } finally {
       loading.value = false
     }
-  }
-
-  async function saveEnterprise(apiBase: string, token: string) {
-    await runDashboardAction(async () => {
-      await adminRequest(apiBase, token, '/enterprises', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...enterpriseForm,
-          subscriptionStatus: serializeSubscriptionStatus(enterpriseForm.subscriptionStatus),
-          renewAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
-        }),
-      })
-      resetEnterpriseForm()
-      await loadDashboard(apiBase, token)
-      notice.value = '企业账号已保存'
-    })
-  }
-
-  function editEnterprise(enterprise: EnterpriseSummary) {
-    enterpriseForm.id = enterprise.id
-    enterpriseForm.name = enterprise.name
-    enterpriseForm.seatCount = enterprise.seatCount
-    enterpriseForm.subscriptionPlan = enterprise.subscriptionPlan
-    enterpriseForm.subscriptionStatus = enterprise.subscriptionStatus
-  }
-
-  async function deleteEnterprise(apiBase: string, token: string, id: string) {
-    await runDashboardAction(async () => {
-      await adminRequest(apiBase, token, `/enterprises/${id}`, { method: 'DELETE' })
-      if (enterpriseForm.id === id) resetEnterpriseForm()
-      if (subAccountForm.enterpriseId === id) resetSubAccountForm()
-      if (selectedSubAccount.value?.enterpriseId === id) {
-        selectedSubAccountId.value = ''
-        selectedAssetIds.value = []
-      }
-      await loadDashboard(apiBase, token)
-      notice.value = '企业账号已删除'
-    })
-  }
-
-  async function saveSubAccount(apiBase: string, token: string) {
-    await runDashboardAction(async () => {
-      const assetIds =
-        selectedSubAccountId.value === subAccountForm.id
-          ? selectedAssetIds.value
-          : dashboard.value?.subAccounts.find((item) => item.id === subAccountForm.id)?.assetIds ?? []
-
-      await adminRequest(apiBase, token, '/sub-accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...subAccountForm,
-          assetIds,
-        }),
-      })
-      resetSubAccountForm()
-      await loadDashboard(apiBase, token)
-      notice.value = subAccountForm.enabled ? '企业子账号已保存' : '企业子账号已禁用'
-    })
-  }
-
-  function selectSubAccount(id: string, assetIds: string[]) {
-    selectedSubAccountId.value = id
-    selectedAssetIds.value = [...assetIds]
-  }
-
-  function editSubAccount(subAccount: EnterpriseSubAccountSummary) {
-    subAccountForm.id = subAccount.id
-    subAccountForm.enterpriseId = subAccount.enterpriseId
-    subAccountForm.displayName = subAccount.displayName
-    subAccountForm.email = subAccount.email
-    subAccountForm.enabled = subAccount.enabled
-    subAccountForm.secret = ''
-    selectSubAccount(subAccount.id, subAccount.assetIds)
-  }
-
-  async function deleteSubAccount(apiBase: string, token: string, id: string) {
-    await runDashboardAction(async () => {
-      await adminRequest(apiBase, token, `/sub-accounts/${id}`, { method: 'DELETE' })
-      if (selectedSubAccountId.value === id) {
-        selectedSubAccountId.value = ''
-        selectedAssetIds.value = []
-      }
-      if (subAccountForm.id === id) resetSubAccountForm()
-      await loadDashboard(apiBase, token)
-      notice.value = '企业子账号已删除'
-    })
-  }
-
-  async function saveSubAccountAssets(apiBase: string, token: string) {
-    if (!selectedSubAccountId.value) return
-
-    await runDashboardAction(async () => {
-      await adminRequest(apiBase, token, `/sub-accounts/${selectedSubAccountId.value}/assets`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetIds: selectedAssetIds.value }),
-      })
-      await loadDashboard(apiBase, token)
-      notice.value = '子账号资产授权已更新，并会在客户端下次同步时立即生效'
-    })
   }
 
   async function savePersonalAccount(apiBase: string, token: string) {
@@ -476,22 +304,6 @@ export function useAdminDashboard() {
       })
       await loadDashboard(apiBase, token)
       notice.value = 'AI 订阅方案已保存'
-    })
-  }
-
-  async function saveEnterpriseSubscription(apiBase: string, token: string) {
-    await runDashboardAction(async () => {
-      await adminRequest(apiBase, token, '/ai/enterprise-subscriptions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...enterpriseSubscriptionForm,
-          status: serializeSubscriptionStatus(enterpriseSubscriptionForm.status),
-          renewAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
-        }),
-      })
-      await loadDashboard(apiBase, token)
-      notice.value = '企业订阅与席位已更新'
     })
   }
 
@@ -638,15 +450,9 @@ export function useAdminDashboard() {
     clearFeedback,
     createCheckout,
     dashboard: readonly(dashboard),
-    deleteEnterprise,
     deletePersonalAccount,
-    deleteSubAccount,
-    editEnterprise,
     editPersonalAccount,
-    editSubAccount,
     endpointForm,
-    enterpriseForm,
-    enterpriseSubscriptionForm,
     error,
     generateCurrentBillingCycle,
     invoiceStatusForm,
@@ -658,48 +464,23 @@ export function useAdminDashboard() {
     personalForm,
     personalSubscriptionForm,
     planForm,
-    resetEnterpriseForm,
     resetPaymentForm,
     resetPersonalForm,
-    resetSubAccountForm,
     saveAiUsagePricing,
     saveEndpoint,
-    saveEnterprise,
-    saveEnterpriseSubscription,
     saveInvoiceStatus,
     savePayment,
     savePaymentProvider,
     savePersonalAccount,
     savePersonalSubscription,
     savePlan,
-    saveSubAccount,
-    saveSubAccountAssets,
     saveSubscription,
-    selectedAssetIds,
-    selectedSubAccount,
-    selectedSubAccountId,
-    selectSubAccount,
     statusOptions,
     subscriptionForm,
-    subAccountForm,
     invoiceStatusOptions,
     paymentStatusOptions,
     summaryCards: computed(() => {
-      const selected = dashboard.value?.subAccounts.find((item) => item.id === selectedSubAccountId.value)
-      const totalSeats = dashboard.value?.enterprises.reduce((sum, item) => sum + item.seatCount, 0) ?? 0
-      const totalAssignedEnterpriseSeats =
-        dashboard.value?.enterprises.reduce((sum, item) => sum + item.activeSubAccounts, 0) ?? 0
       return [
-        {
-          label: '企业账号',
-          value: String(dashboard.value?.enterprises.length ?? 0),
-          note: `${totalAssignedEnterpriseSeats}/${totalSeats} 已分配席位`,
-        },
-        {
-          label: '企业子账号',
-          value: String(dashboard.value?.subAccounts.length ?? 0),
-          note: `当前选中授权 ${selected?.assetIds.length ?? 0} 台资产`,
-        },
         {
           label: '个人账号',
           value: String(dashboard.value?.personalAccounts.length ?? 0),

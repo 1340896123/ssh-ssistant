@@ -7,7 +7,7 @@ declare module "*.vue" {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_APP_VARIANT?: "local" | "personal" | "enterprise";
+  readonly VITE_APP_VARIANT?: "local" | "personal";
 }
 
 interface ImportMeta {

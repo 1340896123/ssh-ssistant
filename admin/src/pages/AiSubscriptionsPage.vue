@@ -2,7 +2,7 @@
 import AdminPageIntro from '../components/AdminPageIntro.vue'
 import { useAdminDashboard } from '../composables/useAdminDashboard'
 import { useAdminSession } from '../composables/useAdminSession'
-import { formatDate, money, statusClass } from '../utils/adminFormat'
+import { money } from '../utils/adminFormat'
 
 const session = useAdminSession()
 const dashboardState = useAdminDashboard()
@@ -11,14 +11,11 @@ async function savePlan() {
   await dashboardState.savePlan(session.apiBase.value, session.authToken.value)
 }
 
-async function saveEnterpriseSubscription() {
-  await dashboardState.saveEnterpriseSubscription(session.apiBase.value, session.authToken.value)
-}
 </script>
 
 <template>
   <section class="admin-section">
-    <AdminPageIntro title="AI 订阅与席位配置" description="维护平台方案目录，并将方案映射到企业席位。">
+    <AdminPageIntro title="AI 订阅与方案" description="维护个人与全局 AI 订阅方案及端点权限策略。">
       <div class="admin-pill-row">
         <span class="admin-pill">
           当前全局策略 {{ dashboardState.subscriptionForm.value.planDisplayName }} ·
@@ -47,7 +44,7 @@ async function saveEnterpriseSubscription() {
           <div class="admin-form-grid admin-form-grid-3">
             <label class="admin-field">
               <span class="admin-label">作用域</span>
-              <input v-model="dashboardState.planForm.scope" placeholder="enterprise / personal" class="admin-input" />
+              <input v-model="dashboardState.planForm.scope" placeholder="personal / global" class="admin-input" />
             </label>
             <label class="admin-field">
               <span class="admin-label">单席位价格</span>
@@ -73,54 +70,6 @@ async function saveEnterpriseSubscription() {
         </div>
       </article>
 
-      <article class="admin-card">
-        <div class="admin-card-head">
-          <div>
-            <h3 class="admin-subtitle">企业席位绑定</h3>
-            <p class="admin-muted">将企业与方案绑定，并维护购买席位数量。</p>
-          </div>
-        </div>
-        <div class="admin-form-grid">
-          <label class="admin-field">
-            <span class="admin-label">企业</span>
-            <select v-model="dashboardState.enterpriseSubscriptionForm.enterpriseId" class="admin-input">
-              <option
-                v-for="enterprise in dashboardState.dashboard.value?.enterprises ?? []"
-                :key="enterprise.id"
-                :value="enterprise.id"
-              >
-                {{ enterprise.name }}
-              </option>
-            </select>
-          </label>
-          <label class="admin-field">
-            <span class="admin-label">订阅方案</span>
-            <select v-model="dashboardState.enterpriseSubscriptionForm.planCode" class="admin-input">
-              <option v-for="plan in dashboardState.dashboard.value?.subscriptionPlans ?? []" :key="plan.code" :value="plan.code">
-                {{ plan.displayName }}
-              </option>
-            </select>
-          </label>
-          <div class="admin-form-grid admin-form-grid-2">
-            <label class="admin-field">
-              <span class="admin-label">状态</span>
-              <select v-model="dashboardState.enterpriseSubscriptionForm.status" class="admin-input">
-                <option v-for="status in dashboardState.statusOptions" :key="status" :value="status">{{ status }}</option>
-              </select>
-            </label>
-            <label class="admin-field">
-              <span class="admin-label">购买席位</span>
-              <input
-                v-model.number="dashboardState.enterpriseSubscriptionForm.seatsPurchased"
-                type="number"
-                min="1"
-                class="admin-input"
-              />
-            </label>
-          </div>
-          <button class="admin-button-primary w-full" @click="saveEnterpriseSubscription">保存企业席位</button>
-        </div>
-      </article>
     </div>
 
     <div class="admin-two-column">
@@ -152,35 +101,6 @@ async function saveEnterpriseSubscription() {
         <div v-else-if="!dashboardState.loading.value" class="admin-empty-state">当前还没有 AI 订阅方案，请先创建方案。</div>
       </article>
 
-      <article class="admin-card">
-        <div class="admin-card-head">
-          <div>
-            <h3 class="admin-subtitle">企业订阅列表</h3>
-            <p class="admin-muted">查看企业当前方案、席位使用与续期信息。</p>
-          </div>
-        </div>
-        <div v-if="dashboardState.dashboard.value?.enterpriseSubscriptions.length" class="admin-list-stack">
-          <article
-            v-for="item in dashboardState.dashboard.value?.enterpriseSubscriptions ?? []"
-            :key="item.enterpriseId"
-            class="admin-entity-card"
-          >
-            <div class="admin-entity-head">
-              <div>
-                <h4 class="admin-entity-title">{{ item.enterpriseId }}</h4>
-                <p class="admin-entity-meta">{{ item.planDisplayName }}</p>
-              </div>
-              <span :class="statusClass(item.status)">{{ item.status }}</span>
-            </div>
-            <div class="admin-chip-row">
-              <span class="admin-chip">{{ item.seatsAssigned }}/{{ item.seatsPurchased }} seats</span>
-              <span class="admin-chip">{{ money(item.pricePerSeat, item.currency) }}/seat</span>
-              <span class="admin-chip">续期 {{ formatDate(item.renewAt) }}</span>
-            </div>
-          </article>
-        </div>
-        <div v-else-if="!dashboardState.loading.value" class="admin-empty-state">当前还没有企业订阅绑定记录。</div>
-      </article>
     </div>
   </section>
 </template>

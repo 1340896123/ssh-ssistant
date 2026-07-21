@@ -27,8 +27,7 @@
       "desktop": {
         "schemes": [
           "sshstar-personal",
-          "sshstar-local",
-          "sshstar-enterprise"
+          "sshstar-local"
         ]
       }
     }

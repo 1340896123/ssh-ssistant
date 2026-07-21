@@ -2,8 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AdminLayout from '../layouts/AdminLayout.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import OverviewPage from '../pages/OverviewPage.vue'
-import EnterprisesPage from '../pages/EnterprisesPage.vue'
-import SubaccountsPage from '../pages/SubaccountsPage.vue'
 import AiSubscriptionsPage from '../pages/AiSubscriptionsPage.vue'
 import BillingPage from '../pages/BillingPage.vue'
 import AiUsagePage from '../pages/AiUsagePage.vue'
@@ -48,8 +46,6 @@ const router = createRouter({
       component: AdminLayout,
       children: [
         { path: 'overview', name: 'overview', component: OverviewPage },
-        { path: 'enterprises', name: 'enterprises', component: EnterprisesPage },
-        { path: 'subaccounts', name: 'subaccounts', component: SubaccountsPage },
         { path: 'ai-subscriptions', name: 'ai-subscriptions', component: AiSubscriptionsPage },
         { path: 'billing', name: 'billing', component: BillingPage },
         { path: 'ai-usage', name: 'ai-usage', component: AiUsagePage },

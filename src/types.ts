@@ -414,12 +414,11 @@ export interface FilePageResponse {
 }
 
 export type ColumnKey = "name" | "size" | "date" | "owner";
-export type AccountMode = "personal" | "enterpriseSubAccount" | "local";
+export type AccountMode = "personal" | "local";
 export type AISubscriptionPlan =
   | "free"
   | "personal"
   | "team"
-  | "enterprise"
   | "custom";
 export type AISubscriptionStatus =
   | "inactive"
@@ -435,9 +434,6 @@ export interface AccountProfile {
   userId?: string | null;
   displayName?: string | null;
   email?: string | null;
-  enterpriseId?: string | null;
-  enterpriseName?: string | null;
-  subAccountId?: string | null;
   accessToken?: string | null;
   refreshToken?: string | null;
   expiresAt?: number | null;
@@ -479,7 +475,7 @@ export interface AISubscriptionConfig {
   plan: AISubscriptionPlan;
   status: AISubscriptionStatus;
   seats: number;
-  billingScope?: "global" | "enterprise" | "personal";
+  billingScope?: "global" | "personal";
   pricePerSeat?: number;
   currency?: string;
   planDisplayName?: string;

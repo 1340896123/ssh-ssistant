@@ -40,9 +40,6 @@ function createDefaultAccount(): Settings['account'] {
     userId: null,
     displayName: 'Local Workspace',
     email: null,
-    enterpriseId: null,
-    enterpriseName: null,
-    subAccountId: null,
     accessToken: null,
     refreshToken: null,
     expiresAt: null,
@@ -62,22 +59,6 @@ function createSignedOutAccount(
 
   if (nextMode === 'local') {
     return createDefaultAccount();
-  }
-
-  if (nextMode === 'enterpriseSubAccount') {
-    return {
-      ...createDefaultAccount(),
-      mode: 'enterpriseSubAccount',
-      displayName: preserveIdentity
-        ? currentAccount.displayName ||
-          currentAccount.subAccountId ||
-          currentAccount.enterpriseName ||
-          'Enterprise Sub-Account'
-        : 'Enterprise Sub-Account',
-      enterpriseId: preserveIdentity ? currentAccount.enterpriseId || null : null,
-      enterpriseName: preserveIdentity ? currentAccount.enterpriseName || null : null,
-      subAccountId: preserveIdentity ? currentAccount.subAccountId || null : null,
-    };
   }
 
   return {
@@ -385,19 +366,13 @@ export const useSettingsStore = defineStore('settings', {
       accountKey: string;
       displayName: string;
       email: string;
-      enterpriseId: string;
-      enterpriseName: string;
-      subAccountId: string;
       accessToken: string;
       refreshToken: string;
       expiresAt: string;
       refreshExpiresAt: string;
       syncEndpointUrl: string;
     }) {
-      const identityFallback =
-        response.mode === 'enterpriseSubAccount'
-          ? response.enterpriseName || response.subAccountId || response.accountKey
-          : response.email || response.accountKey;
+      const identityFallback = response.email || response.accountKey;
       const nextDisplayName =
         response.displayName?.trim() ||
         identityFallback?.trim() ||
@@ -406,20 +381,10 @@ export const useSettingsStore = defineStore('settings', {
 
       this.account = {
         ...this.account,
-        mode: response.mode as Settings['account']['mode'],
-        userId:
-          response.mode === 'personal'
-            ? response.accountKey || response.email || this.account.userId
-            : null,
+        mode: response.mode === 'personal' ? 'personal' : 'local',
+        userId: response.mode === 'personal' ? response.accountKey || response.email || this.account.userId : null,
         displayName: nextDisplayName,
         email: response.mode === 'personal' ? response.email || response.accountKey || null : null,
-        enterpriseId: response.mode === 'enterpriseSubAccount' ? response.enterpriseId || null : null,
-        enterpriseName:
-          response.mode === 'enterpriseSubAccount' ? response.enterpriseName || null : null,
-        subAccountId:
-          response.mode === 'enterpriseSubAccount'
-            ? response.subAccountId || response.accountKey || this.account.subAccountId
-            : null,
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         expiresAt: response.expiresAt ? Date.parse(response.expiresAt) : null,
@@ -444,9 +409,6 @@ export const useSettingsStore = defineStore('settings', {
       accountKey: string;
       displayName: string;
       email: string;
-      enterpriseId: string;
-      enterpriseName: string;
-      subAccountId: string;
       accessToken: string;
       refreshToken: string;
       expiresAt: string;
@@ -469,6 +431,9 @@ export const useSettingsStore = defineStore('settings', {
       };
       subscriptionSnapshot?: ClientSubscriptionSnapshot | null;
     }) {
+      if (response.mode !== 'personal') {
+        throw new Error(`Unsupported cloud account mode: ${response.mode}.`);
+      }
       this.applyCloudIdentity(response);
 
       this.ai = {
@@ -571,12 +536,11 @@ export const useSettingsStore = defineStore('settings', {
     },
     async loginToCloud(secret = '') {
       if (this.account.mode === 'local') {
-        throw new Error('Cloud login requires a personal account or enterprise sub account.');
+        throw new Error('Cloud login requires a personal account.');
       }
       const identifier =
         this.account.email?.trim() ||
         this.account.userId?.trim() ||
-        this.account.subAccountId?.trim() ||
         'local-workspace';
 
       const response = await cloudService.login(this.sync.endpointUrl, {
@@ -593,12 +557,9 @@ export const useSettingsStore = defineStore('settings', {
       const response = await this.withCloudSession(() =>
         cloudService.syncSettings(this.sync.endpointUrl, {
           mode: this.account.mode,
-          accountKey: this.account.userId || this.account.subAccountId || 'local-workspace',
+          accountKey: this.account.userId || 'local-workspace',
           displayName: this.account.displayName || '',
           email: this.account.email || '',
-          enterpriseId: this.account.enterpriseId || '',
-          enterpriseName: this.account.enterpriseName || '',
-          subAccountId: this.account.subAccountId || '',
           accessToken: this.account.accessToken || '',
           syncEndpointUrl: this.sync.endpointUrl || '',
           organizationScope: this.sync.organizationScope || '',
@@ -637,7 +598,6 @@ export const useSettingsStore = defineStore('settings', {
       if (!this.sync.enabled) return null;
       const accountKey =
         this.account.userId ||
-        this.account.subAccountId ||
         'local-workspace';
 
       const response = await this.withCloudSession(() =>

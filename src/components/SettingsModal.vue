@@ -30,7 +30,6 @@ const isCloudManagedSubscription = computed(() => store.isCloudManagedSubscripti
 const subscriptionSnapshot = computed(() => store.ai.subscriptionSnapshot);
 const accountModeLabel = computed(() => {
   const mode = ACTIVE_VARIANT_META.mode;
-  if (mode === 'enterpriseSubAccount') return t('settings.accountModes.enterpriseSubAccount');
   if (mode === 'personal') return t('settings.accountModes.personal');
   return t('settings.accountModes.local');
 });
@@ -81,9 +80,6 @@ function buildAccountFingerprint(account: Settings['account']) {
     account.mode,
     account.email?.trim() ?? '',
     account.userId?.trim() ?? '',
-    account.enterpriseId?.trim() ?? '',
-    account.enterpriseName?.trim() ?? '',
-    account.subAccountId?.trim() ?? '',
   ].join('|');
 }
 
@@ -94,17 +90,13 @@ function normalizeAccountForSave(account: Settings['account']) {
   const nextDisplayName =
     account.mode === 'local'
       ? t('settings.localWorkspace')
-      : (account.displayName || account.email || account.userId || account.subAccountId || t('settings.personalAccountFallback'));
+      : (account.displayName || account.email || account.userId || t('settings.personalAccountFallback'));
 
   return {
     ...account,
     displayName: nextDisplayName,
     email: account.mode === 'personal' ? (account.email || account.userId || '').trim() || null : null,
     userId: account.mode === 'personal' ? (account.userId || account.email || '').trim() || null : null,
-    enterpriseId: account.mode === 'enterpriseSubAccount' ? (account.enterpriseId || '').trim() || null : null,
-    enterpriseName:
-      account.mode === 'enterpriseSubAccount' ? (account.enterpriseName || '').trim() || null : null,
-    subAccountId: account.mode === 'enterpriseSubAccount' ? (account.subAccountId || '').trim() || null : null,
     accessToken: shouldClearCloudState ? null : account.accessToken ?? null,
     refreshToken: shouldClearCloudState ? null : account.refreshToken ?? null,
     expiresAt: shouldClearCloudState ? null : account.expiresAt ?? null,
@@ -349,7 +341,7 @@ async function syncSettingsNow() {
       await assetStore.syncAssetsToCloud(
         store.sync.endpointUrl || 'http://localhost:5047',
         store.account.mode,
-        store.account.userId || store.account.subAccountId || 'local-workspace',
+        store.account.userId || 'local-workspace',
         store.account.accessToken || '',
         () =>
           store.logoutFromCloud({
@@ -359,7 +351,7 @@ async function syncSettingsNow() {
       await assetStore.pullAssetsFromCloud(
         store.sync.endpointUrl || 'http://localhost:5047',
         store.account.mode,
-        store.account.userId || store.account.subAccountId || 'local-workspace',
+        store.account.userId || 'local-workspace',
         store.account.accessToken || '',
       );
     }
@@ -619,7 +611,6 @@ const tabs = [
                       <option value="free">{{ t('settings.subscriptionPlans.free') }}</option>
                       <option value="personal">{{ t('settings.subscriptionPlans.personal') }}</option>
                       <option value="team">{{ t('settings.subscriptionPlans.team') }}</option>
-                      <option value="enterprise">{{ t('settings.subscriptionPlans.enterprise') }}</option>
                       <option value="custom">{{ t('settings.subscriptionPlans.custom') }}</option>
                     </select>
                   </div>
@@ -877,17 +868,7 @@ const tabs = [
                 </div>
                 <div v-if="form.account.mode !== 'local'">
                   <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.accountId') }}</label>
-                  <input :value="form.account.userId || form.account.subAccountId || ''" type="text" readonly
-                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
-                </div>
-                <div v-if="form.account.mode === 'enterpriseSubAccount'">
-                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.enterpriseId') }}</label>
-                  <input :value="form.account.enterpriseId || ''" type="text" readonly
-                    class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
-                </div>
-                <div v-if="form.account.mode === 'enterpriseSubAccount'">
-                  <label class="block text-sm font-medium text-secondary mb-1">{{ t('settings.enterpriseName') }}</label>
-                  <input :value="form.account.enterpriseName || ''" type="text" readonly
+                  <input :value="form.account.userId || ''" type="text" readonly
                     class="w-full bg-bg-tertiary border border-border-primary rounded px-3 py-2 text-sm text-text-secondary outline-none cursor-not-allowed" />
                 </div>
                 <div v-if="form.account.mode !== 'local'">

@@ -3,8 +3,6 @@ import type {
   BillingInvoiceSummary,
   BillingOverview,
   DashboardSnapshot,
-  EnterpriseSubscriptionSummary,
-  EnterpriseSummary,
   GenerateBillingCycleResponse,
   PersonalAccountSummary,
   PersonalSubscriptionSummary,
@@ -13,7 +11,6 @@ import type {
   AiSubscriptionPlanSummary,
   AiUsagePricingSummary,
   AiUsageSummary,
-  EnterpriseSubAccountSummary,
 } from '../types/admin'
 import {
   normalizeBillingInvoiceStatus,
@@ -48,20 +45,6 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
-function normalizeEnterprise(entity: EnterpriseSummary): EnterpriseSummary {
-  return {
-    ...entity,
-    subscriptionStatus: normalizeSubscriptionStatus(entity.subscriptionStatus),
-  }
-}
-
-function normalizeSubAccount(entity: EnterpriseSubAccountSummary): EnterpriseSubAccountSummary {
-  return {
-    ...entity,
-    assetIds: [...entity.assetIds],
-  }
-}
-
 function normalizePersonalAccount(entity: PersonalAccountSummary): PersonalAccountSummary {
   return {
     ...entity,
@@ -71,13 +54,6 @@ function normalizePersonalAccount(entity: PersonalAccountSummary): PersonalAccou
 
 function normalizePlan(entity: AiSubscriptionPlanSummary): AiSubscriptionPlanSummary {
   return { ...entity }
-}
-
-function normalizeEnterpriseSubscription(entity: EnterpriseSubscriptionSummary): EnterpriseSubscriptionSummary {
-  return {
-    ...entity,
-    status: normalizeSubscriptionStatus(entity.status),
-  }
 }
 
 function normalizePersonalSubscription(entity: PersonalSubscriptionSummary): PersonalSubscriptionSummary {
@@ -120,12 +96,9 @@ function normalizeAiUsage(entity: AiUsageSummary): AiUsageSummary {
 function normalizeDashboard(snapshot: DashboardSnapshot): DashboardSnapshot {
   return {
     ...snapshot,
-    enterprises: snapshot.enterprises.map(normalizeEnterprise),
-    subAccounts: snapshot.subAccounts.map(normalizeSubAccount),
     personalAccounts: snapshot.personalAccounts.map(normalizePersonalAccount),
     assets: snapshot.assets.map((item) => ({ ...item })),
     subscriptionPlans: snapshot.subscriptionPlans.map(normalizePlan),
-    enterpriseSubscriptions: snapshot.enterpriseSubscriptions.map(normalizeEnterpriseSubscription),
     personalSubscriptions: snapshot.personalSubscriptions.map(normalizePersonalSubscription),
     aiUsagePricing: snapshot.aiUsagePricing.map((item: AiUsagePricingSummary) => ({ ...item })),
     paymentProviders: snapshot.paymentProviders.map((item) => ({ ...item })),

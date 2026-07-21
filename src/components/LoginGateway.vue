@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import { Loader2, LogIn } from "lucide-vue-next";
 import { useI18n } from "../composables/useI18n";
-import { APP_VARIANT, isLocalVariant } from "../config/variant";
 
 const props = defineProps<{
   isAwaitingBrowserAuth?: boolean;
@@ -16,47 +15,12 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const heroTitleKey = computed(() => {
-  if (APP_VARIANT === "enterprise") {
-    return "loginGateway.heroTitle.enterprise";
-  }
-  return "loginGateway.heroTitle.personal";
-});
-
-const heroDescriptionKey = computed(() => {
-  if (APP_VARIANT === "enterprise") {
-    return "loginGateway.heroDescription.enterprise";
-  }
-  return "loginGateway.heroDescription.personal";
-});
-
-const variantModeCardKey = computed(() => {
-  if (APP_VARIANT === "enterprise") {
-    return "loginGateway.modeCards.enterpriseSubAccount";
-  }
-  return "loginGateway.modeCards.personal";
-});
-
-const variantModeLabelKey = computed(() => {
-  if (APP_VARIANT === "enterprise") {
-    return "settings.accountModes.enterpriseSubAccount";
-  }
-  return "settings.accountModes.personal";
-});
-
-const variantSubtitleKey = computed(() => {
-  if (APP_VARIANT === "enterprise") {
-    return "loginGateway.modeDescriptions.enterpriseSubAccount";
-  }
-  return "loginGateway.modeDescriptions.personalLogin";
-});
-
-const browserButtonLabel = computed(() => {
-  if (APP_VARIANT === "enterprise") {
-    return t("loginGateway.browserLogin.button.enterprise");
-  }
-  return t("loginGateway.browserLogin.button.personal");
-});
+const heroTitleKey = computed(() => "loginGateway.heroTitle.personal");
+const heroDescriptionKey = computed(() => "loginGateway.heroDescription.personal");
+const variantModeCardKey = computed(() => "loginGateway.modeCards.personal");
+const variantModeLabelKey = computed(() => "settings.accountModes.personal");
+const variantSubtitleKey = computed(() => "loginGateway.modeDescriptions.personalLogin");
+const browserButtonLabel = computed(() => t("loginGateway.browserLogin.button.personal"));
 
 function requestBrowserLogin() {
   if (props.isAwaitingBrowserAuth) {
@@ -65,8 +29,6 @@ function requestBrowserLogin() {
   emit("requestBrowserLogin");
 }
 
-// Local variant should never render this component, but guard defensively.
-void isLocalVariant;
 </script>
 
 <template>

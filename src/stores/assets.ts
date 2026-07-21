@@ -191,7 +191,7 @@ async function autoSyncAssetsIfNeeded() {
     const assetStore = useAssetStore();
     const response = await cloudService.syncAssets(settingsStore.sync.endpointUrl, {
       mode: settingsStore.account.mode,
-      accountKey: settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
+      accountKey: settingsStore.account.userId || "local-workspace",
       accessToken: settingsStore.account.accessToken || "",
       assetsJson: JSON.stringify(assetStore.buildCloudAssetRecords()),
     });
@@ -200,7 +200,7 @@ async function autoSyncAssetsIfNeeded() {
     await assetStore.pullAssetsFromCloud(
       settingsStore.sync.endpointUrl || "http://localhost:5047",
       settingsStore.account.mode,
-      settingsStore.account.userId || settingsStore.account.subAccountId || "local-workspace",
+      settingsStore.account.userId || "local-workspace",
       settingsStore.account.accessToken || "",
     );
   });

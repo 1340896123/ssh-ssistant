@@ -4,7 +4,6 @@ import path from "node:path";
 
 const steps = [
   ["build", "构建"],
-  ["verify:enterprise", "企业链路"],
   ["verify:g3", "账单与 AI 计量"],
   ["verify:g4", "多模式主回归"],
   ["verify:web", "Web UI 回归套件"],

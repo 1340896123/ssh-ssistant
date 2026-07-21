@@ -36,9 +36,9 @@ async function handleLogin() {
         <div class="space-y-6">
           <div class="admin-eyebrow">SSH Assistant Admin</div>
           <div>
-            <h1 class="admin-login-title">企业后台登录</h1>
+            <h1 class="admin-login-title">后台登录</h1>
             <p class="admin-login-subtitle">
-              统一管理企业账号、个人账号、订阅策略、账单与 AI 资源分配。
+              统一管理个人账号、订阅策略、账单与 AI 资源。
             </p>
           </div>
         </div>
@@ -89,17 +89,13 @@ async function handleLogin() {
             <div class="admin-card-head">
               <div>
                 <h2 class="admin-subtitle">本页能力</h2>
-                <p class="admin-muted">一站式完成资产、订阅、账单与 AI 策略管理。</p>
+                <p class="admin-muted">一站式完成订阅、账单与 AI 策略管理。</p>
               </div>
             </div>
             <div class="grid gap-3 md:grid-cols-2">
               <div class="admin-stat-tile">
-                <p class="admin-stat-label">企业账号</p>
-                <p class="admin-stat-note">席位、状态与子账号总览</p>
-              </div>
-              <div class="admin-stat-tile">
-                <p class="admin-stat-label">资产授权</p>
-                <p class="admin-stat-note">子账号与资产范围同步</p>
+                <p class="admin-stat-label">个人账号</p>
+                <p class="admin-stat-note">账号、订阅与端点设置</p>
               </div>
               <div class="admin-stat-tile">
                 <p class="admin-stat-label">账单回款</p>

@@ -15,20 +15,6 @@ export const adminNavigationItems: AdminNavigationItem[] = [
     icon: 'grid',
   },
   {
-    routeName: 'enterprises',
-    path: '/enterprises',
-    title: '企业账号',
-    description: '企业信息与席位概况',
-    icon: 'building',
-  },
-  {
-    routeName: 'subaccounts',
-    path: '/subaccounts',
-    title: '子账号与授权',
-    description: '资产范围与成员权限',
-    icon: 'users',
-  },
-  {
     routeName: 'ai-subscriptions',
     path: '/ai-subscriptions',
     title: 'AI 订阅',

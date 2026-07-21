@@ -134,7 +134,7 @@ const transferStore = useTransferStore();
 const { t } = useI18n();
 const appReady = ref(false);
 const requiresLogin = ref(false);
-// Browser-login flow state (personal/enterprise variants only).
+// Browser-login flow state for the personal cloud variant.
 const isAwaitingBrowserAuth = ref(false);
 const browserAuthError = ref("");
 let deepLinkUnlisten: (() => void) | null = null;
@@ -389,7 +389,6 @@ const activeAccountSummary = computed(() => {
   const identity =
     account.email ||
     account.userId ||
-    account.subAccountId ||
     account.displayName ||
     "Local Workspace";
 
@@ -397,10 +396,6 @@ const activeAccountSummary = computed(() => {
     displayName: account.displayName || identity,
     identity,
     mode: account.mode,
-    enterprise:
-      account.mode === "enterpriseSubAccount"
-        ? account.enterpriseName || account.enterpriseId || null
-        : null,
     scope: settingsStore.sync.organizationScope || "global",
     endpoint:
       account.mode === "local" && !account.accessToken
@@ -830,7 +825,6 @@ async function refreshCloudManagedState(showNotification = false) {
 
   const accountKey =
     settingsStore.account.userId ||
-    settingsStore.account.subAccountId ||
     "local-workspace";
 
   try {
@@ -892,7 +886,7 @@ async function handlePaymentDeepLink(url: string) {
 }
 
 /**
- * Handle a browser-login auth deep-link callback (personal/enterprise variants).
+ * Handle a browser-login auth deep-link callback for the personal variant.
  * Returns true if the URL was consumed as an auth callback.
  */
 async function handleAuthDeepLink(url: string): Promise<boolean> {
@@ -1101,9 +1095,7 @@ async function bootstrapAuthenticatedSession(options?: { restoreLocalSnapshot?: 
       await assetStore.pullAssetsFromCloud(
         settingsStore.sync.endpointUrl || "http://localhost:5047",
         settingsStore.account.mode,
-        settingsStore.account.userId ||
-          settingsStore.account.subAccountId ||
-          "local-workspace",
+        settingsStore.account.userId || "local-workspace",
         settingsStore.account.accessToken || "",
       ).catch((error) => {
         notificationStore.error(
@@ -1177,7 +1169,6 @@ onMounted(async () => {
     Boolean(
       settingsStore.account.accessToken &&
         (settingsStore.account.userId ||
-          settingsStore.account.subAccountId ||
           settingsStore.account.email),
     );
 
@@ -1548,12 +1539,6 @@ onUnmounted(() => {
                 </span>
                 <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
                   {{ activeAccountSummary.identity }} · {{ activeAccountSummary.scope }}
-                </span>
-                <span
-                  v-if="activeAccountSummary.enterprise"
-                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
-                >
-                  {{ activeAccountSummary.enterprise }}
                 </span>
                 <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
                   {{ activeAccountSummary.subscription }} · {{ activeAccountSummary.endpoint }}
