@@ -2567,17 +2567,25 @@ pub fn asset_create_host_asset(
 ) -> Result<HostAsset, String> {
     let db_path = get_db_path(&app_handle);
     let conn = SqliteConnection::open(db_path).map_err(|e| e.to_string())?;
+    create_host_asset_with_conn(&conn, payload)
+}
+
+fn create_host_asset_with_conn(
+    conn: &SqliteConnection,
+    payload: AssetUpsertPayload,
+) -> Result<HostAsset, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute(
         "INSERT INTO host_assets (
-            cloud_id, name, host, port, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
+            cloud_id, name, host, port, username, platform, folder_id, env_id, labels_csv, owner, criticality, default_workspace_path,
             access_endpoint_id, bastion_chain_id, health_summary, last_accessed_at, is_favorite, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?8, ?8)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', NULL, 'medium', NULL, NULL, NULL, NULL, NULL, 0, ?9, ?9)",
         params![
             normalize_optional_string(payload.asset.cloud_id.clone()),
             payload.asset.name,
             payload.asset.host,
             payload.asset.port,
+            payload.default_access_endpoint.username,
             payload.asset.platform,
             payload.asset.folder_id.or(payload.asset.group_id),
             payload.asset.env_id,
@@ -4798,6 +4806,28 @@ mod tests {
             },
             default_credential_ref: None,
         }
+    }
+
+    #[test]
+    fn create_host_asset_persists_required_username() {
+        let conn = SqliteConnection::open_in_memory().unwrap();
+        init_test_db(&conn);
+        let mut payload = local_asset_payload();
+        payload.asset.folder_id = None;
+        payload.asset.group_id = None;
+        payload.asset.env_id = None;
+
+        let created = create_host_asset_with_conn(&conn, payload).unwrap();
+        let (username, access_endpoint_id) = conn
+            .query_row(
+                "SELECT username, access_endpoint_id FROM host_assets WHERE id = ?1",
+                params![created.id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(username, "root");
+        assert_eq!(access_endpoint_id, created.access_endpoint_id);
     }
 
     #[test]

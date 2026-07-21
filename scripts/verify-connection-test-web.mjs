@@ -34,6 +34,7 @@ async function main() {
       verified: {
         localValidationShown: successResult.localValidationShown,
         successBranch: successResult.successBranch,
+        savedConnectionVisible: successResult.savedConnectionVisible,
         failureBranch: failureResult.failureBranch,
       },
       successResult,
@@ -98,6 +99,14 @@ async function runSuccessAndValidationFlow(page) {
     { timeout: 10000 },
   );
 
+  const testSuccessBody = await page.locator("body").innerText();
+  await page.getByTestId("connection-modal-save").click();
+  await page.getByTestId("connection-modal").waitFor({ state: "hidden", timeout: 10000 });
+  const savedConnection = page
+    .getByTestId("connection-list-root")
+    .getByText("QA Node", { exact: true });
+  await savedConnection.waitFor({ state: "visible", timeout: 10000 });
+
   const successBody = await page.locator("body").innerText();
   const successState = await page.evaluate(() => window.__CONNECTION_TEST_STATE__);
   const successScreenshotPath = path.resolve(
@@ -109,10 +118,14 @@ async function runSuccessAndValidationFlow(page) {
   return {
     localValidationShown,
     successBranch:
-      successBody.includes("连接成功！") &&
+      testSuccessBody.includes("连接成功！") &&
       successState.testCalls.length === 1 &&
       successState.testCalls[0]?.host === "10.10.10.10" &&
       successState.testCalls[0]?.username === "root",
+    savedConnectionVisible:
+      successBody.includes("QA Node") &&
+      successState.createCalls.length === 1 &&
+      successState.assets[0]?.name === "QA Node",
     successBodySnippet: successBody.slice(0, 2400),
     successState,
     successScreenshotPath,
@@ -275,6 +288,7 @@ async function bootstrap(page, mode) {
       sshKeys: [],
       transfers: [],
       testCalls: [],
+      createCalls: [],
     };
 
     window.localStorage.setItem("preferred-locale", "zh");
@@ -292,17 +306,56 @@ async function bootstrap(page, mode) {
             };
             return null;
           case "asset_get_host_assets":
+            return clone(state.assets);
           case "asset_get_asset_folders":
+            return clone(state.folders);
           case "asset_get_environments":
+            return clone(state.environments);
           case "asset_get_asset_tags":
+            return clone(state.tags);
           case "asset_get_saved_views":
+            return clone(state.savedViews);
           case "asset_get_access_history":
+            return clone(state.accessHistory);
           case "access_get_access_endpoints":
+            return clone(state.endpoints);
           case "access_get_credential_refs":
+            return clone(state.credentialRefs);
           case "session_get_ops_sessions":
+            return clone(state.sessions);
           case "get_transfers":
+            return clone(state.transfers);
           case "get_ssh_keys":
-            return [];
+            return clone(state.sshKeys);
+          case "asset_create_host_asset": {
+            const payload = clone(args?.payload || {});
+            const assetId = state.assets.length + 1;
+            const credentialRef = payload.defaultCredentialRef
+              ? {
+                  ...payload.defaultCredentialRef,
+                  id: state.credentialRefs.length + 1,
+                  assetId,
+                }
+              : null;
+            if (credentialRef) state.credentialRefs.push(credentialRef);
+
+            const endpoint = {
+              ...payload.defaultAccessEndpoint,
+              id: state.endpoints.length + 1,
+              assetId,
+              credentialRefId: credentialRef?.id ?? null,
+            };
+            state.endpoints.push(endpoint);
+
+            const asset = {
+              ...payload.asset,
+              id: assetId,
+              accessEndpointId: endpoint.id,
+            };
+            state.assets.push(asset);
+            state.createCalls.push(payload);
+            return clone(asset);
+          }
           case "sync_get_state":
           case "get_local_workspace_snapshot":
           case "save_local_workspace_snapshot":

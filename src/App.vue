@@ -16,6 +16,7 @@ import LoginGateway from "./components/LoginGateway.vue";
 import SessionTabs from "./components/SessionTabs.vue";
 import { useSessionStore } from "./stores/sessions";
 import { useAssetStore } from "./stores/assets";
+import { useConnectionStore } from "./stores/connections";
 import { useSettingsStore } from "./stores/settings";
 import { useNotificationStore } from "./stores/notifications";
 import { useTransferStore } from "./stores/transfers";
@@ -128,6 +129,7 @@ const NotificationModal = defineAsyncComponent(
 
 const sessionStore = useSessionStore();
 const assetStore = useAssetStore();
+const connectionStore = useConnectionStore();
 const settingsStore = useSettingsStore();
 const notificationStore = useNotificationStore();
 const transferStore = useTransferStore();
@@ -537,6 +539,7 @@ async function handleSaveConnection(payload: {
         payload.credentialRef ?? null,
       );
     }
+    await connectionStore.loadConnections();
     showConnectionModal.value = false;
     editingAsset.value = null;
     editingAccessEndpoint.value = null;
