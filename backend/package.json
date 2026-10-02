@@ -1,0 +1,16 @@
+{
+  "name": "ssh-assistant-backend",
+  "version": "1.0.0",
+  "description": "SSH Assistant Backend - .NET Aspire 启动脚本",
+  "scripts": {
+    "start": "node start.js",
+    "start:api": "node start.js --api",
+    "start:build": "node start.js --build",
+    "start:watch": "node start.js --watch",
+    "start:prod": "node start.js --prod",
+    "dev": "node start.js"
+  },
+  "keywords": ["ssh", "assistant", "aspire", "dotnet", "apphost"],
+  "author": "",
+  "license": "MIT"
+}

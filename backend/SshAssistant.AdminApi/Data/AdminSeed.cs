@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using BCrypt.Net;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,22 @@ namespace SshAssistant.AdminApi.Data;
 
 public static class AdminSeed
 {
+    private static readonly (string TableName, string ColumnName, string Sql)[] ColumnUpgrades =
+    {
+        ("AiEndpoints", "ApiKey", "ALTER TABLE AiEndpoints ADD COLUMN ApiKey TEXT NOT NULL DEFAULT '';"),
+        ("ClientSyncStates", "UseCustomEndpoint", "ALTER TABLE ClientSyncStates ADD COLUMN UseCustomEndpoint INTEGER NOT NULL DEFAULT 1;"),
+        ("ClientSyncStates", "EndpointName", "ALTER TABLE ClientSyncStates ADD COLUMN EndpointName TEXT NOT NULL DEFAULT '';"),
+        ("ClientSyncStates", "Provider", "ALTER TABLE ClientSyncStates ADD COLUMN Provider TEXT NOT NULL DEFAULT 'openai';"),
+        ("ClientSyncStates", "BaseUrl", "ALTER TABLE ClientSyncStates ADD COLUMN BaseUrl TEXT NOT NULL DEFAULT '';"),
+        ("ClientSyncStates", "ApiKey", "ALTER TABLE ClientSyncStates ADD COLUMN ApiKey TEXT NOT NULL DEFAULT '';"),
+        ("ClientSyncStates", "ModelName", "ALTER TABLE ClientSyncStates ADD COLUMN ModelName TEXT NOT NULL DEFAULT '';"),
+        ("BillingInvoices", "SubscriptionAmount", "ALTER TABLE BillingInvoices ADD COLUMN SubscriptionAmount REAL NOT NULL DEFAULT 0;"),
+        ("BillingInvoices", "AiUsageAmount", "ALTER TABLE BillingInvoices ADD COLUMN AiUsageAmount REAL NOT NULL DEFAULT 0;"),
+        ("PaymentTransactions", "ProviderKey", "ALTER TABLE PaymentTransactions ADD COLUMN ProviderKey TEXT NOT NULL DEFAULT 'manual';"),
+        ("PaymentTransactions", "CheckoutUrl", "ALTER TABLE PaymentTransactions ADD COLUMN CheckoutUrl TEXT NOT NULL DEFAULT '';"),
+        ("PaymentTransactions", "ExpiresAt", "ALTER TABLE PaymentTransactions ADD COLUMN ExpiresAt TEXT;"),
+    };
+
     public static async Task SeedAsync(AdminDbContext dbContext)
     {
         await dbContext.Database.EnsureCreatedAsync();
@@ -135,115 +152,7 @@ public static class AdminSeed
                 UpdatedAt TEXT NOT NULL
             );
             """);
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE AiEndpoints ADD COLUMN ApiKey TEXT NOT NULL DEFAULT '';
-                """);
-        }
-        catch
-        {
-            // Column already exists in upgraded environments.
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE ClientSyncStates ADD COLUMN UseCustomEndpoint INTEGER NOT NULL DEFAULT 1;
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE ClientSyncStates ADD COLUMN EndpointName TEXT NOT NULL DEFAULT '';
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE ClientSyncStates ADD COLUMN Provider TEXT NOT NULL DEFAULT 'openai';
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE ClientSyncStates ADD COLUMN BaseUrl TEXT NOT NULL DEFAULT '';
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE ClientSyncStates ADD COLUMN ApiKey TEXT NOT NULL DEFAULT '';
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE ClientSyncStates ADD COLUMN ModelName TEXT NOT NULL DEFAULT '';
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE BillingInvoices ADD COLUMN SubscriptionAmount REAL NOT NULL DEFAULT 0;
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE BillingInvoices ADD COLUMN AiUsageAmount REAL NOT NULL DEFAULT 0;
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE PaymentTransactions ADD COLUMN ProviderKey TEXT NOT NULL DEFAULT 'manual';
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE PaymentTransactions ADD COLUMN CheckoutUrl TEXT NOT NULL DEFAULT '';
-                """);
-        }
-        catch
-        {
-        }
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE PaymentTransactions ADD COLUMN ExpiresAt TEXT;
-                """);
-        }
-        catch
-        {
-        }
+        await ApplyColumnUpgradesAsync(dbContext);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
             CREATE UNIQUE INDEX IF NOT EXISTS IX_PersonalAccounts_Email
@@ -580,5 +489,58 @@ public static class AdminSeed
         }
 
         await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task ApplyColumnUpgradesAsync(AdminDbContext dbContext)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        var shouldCloseConnection = connection.State != ConnectionState.Open;
+
+        if (shouldCloseConnection)
+        {
+            await connection.OpenAsync();
+        }
+
+        try
+        {
+            foreach (var (tableName, columnName, sql) in ColumnUpgrades)
+            {
+                await using var checkCommand = connection.CreateCommand();
+                checkCommand.CommandText = """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pragma_table_info($tableName)
+                        WHERE name = $columnName COLLATE NOCASE
+                    );
+                    """;
+
+                var tableNameParameter = checkCommand.CreateParameter();
+                tableNameParameter.ParameterName = "$tableName";
+                tableNameParameter.Value = tableName;
+                checkCommand.Parameters.Add(tableNameParameter);
+
+                var columnNameParameter = checkCommand.CreateParameter();
+                columnNameParameter.ParameterName = "$columnName";
+                columnNameParameter.Value = columnName;
+                checkCommand.Parameters.Add(columnNameParameter);
+
+                var columnExists = Convert.ToInt64(await checkCommand.ExecuteScalarAsync()) != 0;
+                if (columnExists)
+                {
+                    continue;
+                }
+
+                await using var alterCommand = connection.CreateCommand();
+                alterCommand.CommandText = sql;
+                await alterCommand.ExecuteNonQueryAsync();
+            }
+        }
+        finally
+        {
+            if (shouldCloseConnection)
+            {
+                await connection.CloseAsync();
+            }
+        }
     }
 }
