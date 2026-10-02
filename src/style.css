@@ -3,73 +3,97 @@
 @tailwind utilities;
 
 /* ============================================
-   Minimalist Design System
-   浅色简约 - 清晰专注的视觉体验
+   Graphite Workbench Design System
+   石墨工作台 - 克制、清晰、专注
    ============================================ */
 
+/* Graphite Workbench: palette → theme semantics → component tokens. */
 :root {
-  /* ========================================
-     Theme Colors - Minimalist
-     ======================================== */
+  --graphite-50: #f9fbfe;
+  --graphite-100: #edf1f6;
+  --graphite-150: #e8edf3;
+  --graphite-200: #d3dce7;
+  --graphite-500: #536174;
+  --graphite-700: #303846;
+  --graphite-800: #1c212a;
+  --graphite-850: #181d25;
+  --graphite-900: #151920;
+  --graphite-950: #10151d;
+  --cyan-400: #66c6da;
+  --cyan-600: #087791;
+  --cyan-700: #066279;
 
-  /* Primary - Deep Charcoal */
-  --color-primary: #2B2B2B;
-  --color-primary-light: #3D3D3D;
-  --color-primary-dark: #1F1F1F;
-  --color-primary-dim: rgba(43, 43, 43, 0.1);
+  color-scheme: light;
+  --color-primary: var(--cyan-600);
+  --color-primary-light: var(--cyan-700);
+  --color-primary-dark: #054e61;
+  --color-primary-dim: #d5eaf0;
+  --color-accent: var(--color-primary);
+  --color-accent-light: var(--color-primary-light);
+  --color-accent-dark: var(--color-primary-dark);
+  --color-accent-dim: var(--color-primary-dim);
+  --color-success: #287747;
+  --color-success-dim: #e0efe6;
+  --color-error: #b63748;
+  --color-error-dim: #f7e6e9;
+  --color-warning: #8b620e;
+  --color-warning-dim: #f6edd7;
+  --color-info: #366ca6;
+  --color-info-dim: #e5edf7;
 
-  /* Accent - Rust Red */
-  --color-accent: #C75B5B;
-  --color-accent-light: #D97878;
-  --color-accent-dark: #A83E3E;
-  --color-accent-dim: rgba(199, 91, 91, 0.18);
+  --bg-base: var(--graphite-100);
+  --bg-primary: var(--graphite-100);
+  --bg-secondary: var(--graphite-150);
+  --bg-tertiary: #dee5ee;
+  --bg-elevated: var(--graphite-50);
+  --bg-overlay: rgb(249 251 254 / 96%);
+  --text-primary: #202b3b;
+  --text-secondary: var(--graphite-500);
+  --text-muted: #616f82;
+  --text-disabled: #8b98aa;
+  --text-on-primary: #ffffff;
+  --text-on-accent: var(--text-on-primary);
+  --text-on-success: #ffffff;
+  --text-on-error: #ffffff;
+  --border-primary: var(--graphite-200);
+  --border-secondary: #dfe5ed;
+  --border-accent: var(--color-accent);
+  --border-subtle: #e3e9f1;
 
-  /* Status Colors */
-  --color-success: #5B9C5B;
-  --color-success-dim: rgba(91, 156, 91, 0.1);
-  --color-error: #C75B5B;
-  --color-error-dim: rgba(199, 91, 91, 0.1);
-  --color-warning: #B88A00;
-  --color-warning-dim: rgba(184, 138, 0, 0.1);
-  --color-info: #5B8CB8;
-  --color-info-dim: rgba(91, 140, 184, 0.1);
-
-  /* ========================================
-     Background Colors - Light Pure
-     ======================================== */
-  --bg-base: #FFFFFF;
-  --bg-primary: #FAFAFA;
-  --bg-secondary: #F5F5F5;
-  --bg-tertiary: #EEEEEE;
-  --bg-elevated: #FFFFFF;
-  --bg-overlay: rgba(255, 255, 255, 0.95);
-
-  /* ========================================
-     Text Colors - High Contrast
-     ======================================== */
-  --text-primary: #1A1A1A;
-  --text-secondary: #666666;
-  --text-muted: #999999;
-  --text-disabled: #CCCCCC;
-  --text-on-primary: #FFFFFF;
-
-  /* ========================================
-     Border Colors - Minimalist
-     ======================================== */
-  --border-primary: #E0E0E0;
-  --border-secondary: #EEEEEE;
-  --border-accent: #C75B5B;
-  --border-subtle: #F5F5F5;
-
-  /* ========================================
-     Shadows - Light Clean
-     ======================================== */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.12);
-  --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.04);
+  /* Console surfaces stay dark in both application themes. */
+  --terminal-bg: var(--graphite-950);
+  --terminal-fg: #dce6f3;
+  --terminal-muted: #9fadc1;
+  --terminal-selection: #284654;
+  --terminal-cursor: #91d8e6;
+  --terminal-black: #253041;
+  --terminal-red: #e88993;
+  --terminal-green: #9edba4;
+  --terminal-yellow: #e0c58d;
+  --terminal-blue: #91b8f5;
+  --terminal-magenta: #c4a4ea;
+  --terminal-cyan: #78cedd;
+  --terminal-white: #dce6f3;
+  --terminal-bright-black: #8595ad;
+  --terminal-bright-red: #f5a5ac;
+  --terminal-bright-green: #b1e9b7;
+  --terminal-bright-yellow: #f2d9a6;
+  --terminal-bright-blue: #afceff;
+  --terminal-bright-magenta: #dfc1ff;
+  --terminal-bright-cyan: #a0e4ef;
+  --terminal-bright-white: #f2f6fc;
+  --control-height: 2rem;
+  --activity-rail-width: 3rem;
+  --workbench-header-height: 2.75rem;
+  --panel-header-bg: var(--bg-elevated);
+  --input-bg: var(--bg-primary);
+  --selection-bg: var(--color-accent-dim);
+  --shadow-xs: 0 1px 2px rgb(20 35 55 / 5%);
+  --shadow-sm: 0 2px 4px rgb(20 35 55 / 6%);
+  --shadow-md: 0 6px 16px rgb(20 35 55 / 8%);
+  --shadow-lg: 0 12px 32px rgb(20 35 55 / 10%);
+  --shadow-xl: 0 20px 60px rgb(20 35 55 / 16%);
+  --shadow-inner: inset 0 1px 2px rgb(0 0 0 / 5%);
 
   /* ========================================
      Typography - Modern Clean
@@ -104,9 +128,9 @@
   --radius-xs: 0.25rem;
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.5rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
   --radius-full: 9999px;
 
   /* ========================================
@@ -126,6 +150,43 @@
   --z-modal: 1050;
   --z-popover: 1060;
   --z-tooltip: 1070;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-primary: var(--cyan-400);
+  --color-primary-light: #91d8e6;
+  --color-primary-dark: #40afc5;
+  --color-primary-dim: #233944;
+  --color-success: #87c99a;
+  --color-success-dim: #203a2b;
+  --color-error: #eb8793;
+  --color-error-dim: #422832;
+  --color-warning: #dec38b;
+  --color-warning-dim: #3a3424;
+  --color-info: #91b8f5;
+  --color-info-dim: #26354b;
+  --bg-base: var(--graphite-950);
+  --bg-primary: var(--graphite-900);
+  --bg-secondary: var(--graphite-850);
+  --bg-tertiary: #252d39;
+  --bg-elevated: var(--graphite-800);
+  --bg-overlay: rgb(28 33 42 / 96%);
+  --text-primary: #dde5f1;
+  --text-secondary: #a6b3c5;
+  --text-muted: #96a4b8;
+  --text-disabled: #626f82;
+  --text-on-primary: #0d2630;
+  --text-on-success: #102a1a;
+  --text-on-error: #34151c;
+  --border-primary: var(--graphite-700);
+  --border-secondary: #28313e;
+  --border-subtle: #252d39;
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 16%);
+  --shadow-sm: 0 2px 4px rgb(0 0 0 / 20%);
+  --shadow-md: 0 6px 16px rgb(0 0 0 / 24%);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 30%);
+  --shadow-xl: 0 20px 60px rgb(0 0 0 / 40%);
 }
 
 /* ========================================
@@ -200,13 +261,13 @@ code, kbd, samp {
    Selection Styles
    ======================================== */
 ::selection {
-  background-color: var(--color-primary-dim);
-  color: var(--color-primary-light);
+  background-color: var(--selection-bg);
+  color: var(--text-primary);
 }
 
 ::-moz-selection {
-  background-color: var(--color-primary-dim);
-  color: var(--color-primary-light);
+  background-color: var(--selection-bg);
+  color: var(--text-primary);
 }
 
 /* ========================================
@@ -325,8 +386,6 @@ code, kbd, samp {
 
 .btn-primary:hover {
   background: var(--color-primary-light);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
 }
 
 .btn-secondary {
@@ -636,12 +695,11 @@ code, kbd, samp {
 }
 
 .shadow-interactive:hover {
-  box-shadow: 0 2px 8px rgba(199, 91, 91, 0.15);
+  background-color: var(--bg-elevated);
 }
 
 .shadow-interactive:focus {
-  box-shadow: 0 4px 12px rgba(199, 91, 91, 0.2);
-  outline: none;
+  outline-color: var(--color-accent);
 }
 
 /* 卡片悬停效果 - 适用于文件列表、连接列表等 */
@@ -670,13 +728,12 @@ code, kbd, samp {
 }
 
 .list-item-interactive:hover {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-  background-color: var(--bg-secondary);
+  background-color: var(--bg-tertiary);
 }
 
 .file-item-selected {
   background-color: var(--color-accent-dim);
-  box-shadow: inset 0 0 0 1px var(--border-accent);
+  box-shadow: inset 2px 0 var(--border-accent);
 }
 
 .list-item-interactive.file-item-selected:hover {
@@ -726,5 +783,81 @@ code, kbd, samp {
 
   .no-print {
     display: none !important;
+  }
+}
+
+/* Workspace chrome: shared geometry for the rail and panel headers. */
+.activity-rail {
+  width: var(--activity-rail-width);
+}
+
+.workbench-pane-heading {
+  min-height: var(--workbench-header-height);
+  background: var(--panel-header-bg);
+}
+
+.workbench-toolbar {
+  flex-shrink: 0;
+}
+
+.workbench button:disabled {
+  cursor: not-allowed;
+}
+
+.workbench input::placeholder,
+.workbench textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.context-tab:focus-visible {
+  outline-offset: -3px;
+}
+
+.file-actions button {
+  min-height: var(--control-height);
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.file-manager {
+  container-type: inline-size;
+}
+
+/* Give names room in narrow file panels; metadata returns when expanded. */
+@container (max-width: 360px) {
+  .file-list-header > :nth-child(n + 3),
+  .file-manager [data-file-item] > :nth-child(n + 3) {
+    display: none;
+  }
+
+  .file-list-header > :first-child,
+  .file-manager [data-file-item] > :first-child {
+    width: auto !important;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .file-list-header > :nth-child(2),
+  .file-manager [data-file-item] > :nth-child(2) {
+    width: 56px !important;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .workbench-toolbar > .min-w-0 {
+    order: -1;
+    flex-basis: 100%;
+    text-align: left;
+    padding: 0 0.5rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .activity-rail button {
+    min-width: 44px;
+    min-height: 44px;
   }
 }

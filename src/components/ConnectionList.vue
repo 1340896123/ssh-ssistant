@@ -534,8 +534,8 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
       </div>
     </div>
 
-    <div class="shrink-0 border-b border-border-primary bg-bg-secondary/95 px-3 py-3 backdrop-blur">
-      <div class="flex items-start justify-between gap-3">
+    <div class="shrink-0 border-b border-border-primary bg-bg-secondary px-3 py-3">
+      <div class="flex flex-wrap items-start justify-between gap-2">
         <div class="min-w-0">
           <div class="text-sm font-semibold text-text-primary">{{ t('connections.overviewTitle') }}</div>
           <div class="mt-1 truncate text-xs text-text-secondary">
@@ -573,14 +573,14 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
         </div>
       </div>
 
-      <div v-if="hasConnections" class="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+      <div v-if="hasConnections" class="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
+        <span class="text-text-secondary">
           {{ t('connections.summary.total') }} {{ totalConnections }}
         </span>
-        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+        <span class="text-text-secondary">
           {{ t('connections.summary.groups') }} {{ totalGroups }}
         </span>
-        <span class="rounded-full border border-border-primary bg-bg-primary px-2.5 py-1 text-text-secondary">
+        <span class="text-text-secondary">
           {{ t('connections.summary.active') }} {{ activeConnections }}
         </span>
       </div>
@@ -595,7 +595,7 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
           <div class="text-sm font-medium text-text-primary">{{ t('connections.empty.title') }}</div>
           <div class="mt-1 text-xs leading-5 text-text-secondary">{{ t('connections.empty.description') }}</div>
           <div class="mt-4 flex items-center justify-center gap-2">
-            <button class="h-9 rounded border border-border-primary bg-accent px-3 text-sm text-white transition-all hover:opacity-90" @click.stop="openNewConnection">
+            <button class="h-9 rounded border border-border-primary bg-accent px-3 text-sm text-text-on-accent transition-all hover:opacity-90" @click.stop="openNewConnection">
               {{ t('connections.empty.createConnection') }}
             </button>
             <button class="flex h-9 items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-3 text-sm text-text-primary transition-all hover:bg-bg-elevated" @click.stop="handleCreateGroup()">
@@ -641,9 +641,9 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
                 :key="getSearchResultKey(result)"
                 data-testid="connection-search-result-card"
                 :data-connection-name="result.item.name"
-                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+                class="rounded-md border border-border-secondary bg-bg-elevated px-3 py-2"
               >
-                <div class="flex items-start justify-between gap-3">
+                <div class="flex flex-wrap items-start justify-between gap-2">
                   <button class="min-w-0 flex-1 text-left" @click="connect(result.item, 'search')">
                     <div class="flex items-center gap-2">
                       <span class="truncate text-sm text-text-primary">{{ result.item.name }}</span>
@@ -668,7 +668,7 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
               <div
                 v-for="result in searchGroupResults"
                 :key="getSearchResultKey(result)"
-                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+                class="rounded-md border border-border-secondary bg-bg-elevated px-3 py-2"
               >
                 <div class="flex items-center justify-between gap-3">
                   <div class="min-w-0">
@@ -687,7 +687,7 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
 
       <div v-else class="flex h-full min-h-0 flex-col">
         <div class="shrink-0 space-y-3 border-b border-border-primary bg-bg-secondary/35 px-3 py-3">
-          <div v-if="favoriteConnections.length > 0" class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
+          <div v-if="favoriteConnections.length > 0" class="space-y-2 py-1">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
                 <Star class="h-3.5 w-3.5" />
@@ -706,9 +706,9 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
               <div
                 v-for="conn in visibleFavoriteConnections"
                 :key="`favorite-${conn.id}`"
-                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+                class="rounded-md border border-border-secondary bg-bg-elevated px-3 py-2"
               >
-                <div class="flex items-start justify-between gap-3">
+                <div class="flex flex-wrap items-start justify-between gap-2">
                   <button class="min-w-0 flex-1 text-left" @click="connect(conn, 'quick')">
                     <div class="truncate text-sm text-text-primary">{{ conn.name }}</div>
                     <div class="mt-1 truncate text-xs text-text-secondary">{{ conn.username }}@{{ conn.host }}</div>
@@ -724,7 +724,7 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
             </div>
           </div>
 
-          <div class="space-y-2 rounded-xl border border-border-primary bg-bg-tertiary/70 p-3">
+          <div class="space-y-2 py-1">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary">
                 <History class="h-3.5 w-3.5" />
@@ -754,9 +754,9 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
               <div
                 v-for="item in visibleHistoryItems"
                 :key="`${item.connection.id}-${item.entry.connectedAt}`"
-                class="rounded-lg border border-border-primary bg-bg-primary px-3 py-2"
+                class="rounded-md border border-border-secondary bg-bg-elevated px-3 py-2"
               >
-                <div class="flex items-start justify-between gap-3">
+                <div class="flex flex-wrap items-start justify-between gap-2">
                   <button class="min-w-0 flex-1 text-left" @click="connect(item.connection, 'history')">
                     <div class="flex items-center gap-2">
                       <span class="min-w-0 flex-1 truncate text-sm text-text-primary">{{ item.connection.name }}</span>
@@ -785,7 +785,7 @@ function historyStatusLabel(status: ConnectionHistoryEntry['status']) {
         </div>
 
         <div class="min-h-0 flex-1 px-3 py-3">
-          <div class="flex h-full min-h-0 flex-col rounded-xl border border-border-primary bg-bg-secondary/40">
+          <div class="flex h-full min-h-0 flex-col">
             <div class="flex items-center justify-between gap-3 border-b border-border-primary px-3 py-2.5 text-xs">
               <div class="flex items-center gap-1.5 font-medium uppercase tracking-wide text-text-secondary">
                 <FolderTree class="h-3.5 w-3.5" />

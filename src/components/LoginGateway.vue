@@ -61,7 +61,7 @@ function requestBrowserLogin() {
           <button
             data-testid="login-gateway-browser-login"
             type="button"
-            class="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-text-on-accent transition hover:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="isAwaitingBrowserAuth"
             @click="requestBrowserLogin"
           >

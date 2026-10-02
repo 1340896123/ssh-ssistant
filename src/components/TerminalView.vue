@@ -9,6 +9,7 @@ import { useSettingsStore } from '../stores/settings';
 import { useAiEndpointsStore } from '../stores/aiEndpoints';
 import { useSessionStore } from '../stores/sessions';
 import { useI18n } from '../composables/useI18n';
+import { terminalTheme } from '../utils/terminalTheme';
 
 const props = defineProps<{ sessionId: string }>();
 const { t } = useI18n();
@@ -259,9 +260,7 @@ onMounted(async () => {
     fontFamily: appearance.fontFamily,
     cursorStyle: appearance.cursorStyle,
     lineHeight: appearance.lineHeight,
-    theme: {
-      background: '#000000',
-    },
+    theme: terminalTheme(),
     allowProposedApi: true
   });
 
@@ -1141,9 +1140,9 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 </script>
 
 <template>
-  <div class="h-full w-full flex flex-col bg-black overflow-hidden">
+  <div class="terminal-view h-full w-full flex flex-col overflow-hidden">
     <!-- Toolbar -->
-    <div class="h-8 bg-bg-secondary border-b border-border-primary flex items-center px-2 space-x-2 flex-shrink-0">
+    <div class="min-h-9 bg-bg-elevated border-b border-border-secondary flex flex-wrap items-center gap-1 px-3 py-1 flex-shrink-0">
       <button v-if="currentSession && currentSession.status === 'disconnected'" @click="handleReconnect"
         class="flex items-center px-2 py-1 text-xs text-success hover:bg-bg-tertiary rounded transition-colors"
         :title="t('terminal.toolbar.reconnect')">
@@ -1184,7 +1183,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
     </div>
 
     <!-- Terminal Area -->
-    <div class="flex-1 relative overflow-hidden p-1">
+    <div class="min-h-0 flex-1 relative overflow-hidden px-3 py-3">
       <div ref="terminalContainer" class="h-full w-full terminal-host"></div>
 
       <!-- Search Bar -->
@@ -1221,7 +1220,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
         class="absolute bottom-full left-0 mb-1 bg-bg-secondary border border-border-primary rounded shadow-lg max-h-40 overflow-y-auto min-w-[200px] z-20">
         <div v-for="(item, index) in traditionalCompletions" :key="item"
           class="px-3 py-1 text-sm cursor-pointer flex items-center"
-          :class="index === selectedTraditionalIndex ? 'bg-accent text-white' : 'text-text-secondary hover:bg-bg-tertiary'"
+          :class="index === selectedTraditionalIndex ? 'bg-accent text-text-on-accent' : 'text-text-secondary hover:bg-bg-tertiary'"
           @click="selectedTraditionalIndex = index; applyTraditionalCompletion()">
           <TerminalIcon class="w-3 h-3 mr-2 opacity-50" />
           {{ item }}
@@ -1280,7 +1279,7 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
       </div>
 
       <!-- Helper Text -->
-      <div class="mt-1 flex justify-between text-[10px] text-text-muted px-1">
+      <div class="mt-2 flex flex-wrap justify-between gap-1 text-[11px] text-text-muted px-1">
         <span>{{ t('terminal.input.helperLeft') }}</span>
         <span>{{ t('terminal.input.helperRight') }}</span>
       </div>
@@ -1289,6 +1288,10 @@ function getShellCompletionCommand(shell: string, word: string, cwd: string): st
 </template>
 
 <style scoped>
+.terminal-view {
+  background: var(--terminal-bg);
+}
+
 .terminal-host :deep(.xterm) {
   height: 100%;
   width: 100%;

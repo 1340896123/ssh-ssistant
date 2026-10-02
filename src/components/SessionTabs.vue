@@ -42,17 +42,17 @@ function formatDuration(timestamp: number) {
       <span>{{ t("workbench.sessionTabsLabel") }}</span>
     </div>
 
-    <div class="scrollbar-hide flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2">
+    <div class="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
       <div
         v-for="session in sessions"
         :key="session.id"
         role="button"
         tabindex="0"
-        class="group flex h-[34px] min-w-[180px] max-w-[240px] items-center gap-2 rounded-lg border px-3 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary"
+        class="group flex h-full min-w-[160px] max-w-[260px] items-center gap-2 border-b-2 px-3 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary"
         :class="
           session.id === sessionStore.activeSessionId
             ? 'border-accent bg-bg-elevated'
-            : 'border-transparent bg-bg-secondary hover:border-border-primary hover:bg-bg-elevated'
+            : 'border-transparent bg-bg-secondary hover:bg-bg-elevated'
         "
         @click="activateSession(session.id)"
         @keydown="handleSessionKeydown($event, session.id)"
@@ -63,15 +63,15 @@ function formatDuration(timestamp: number) {
         />
         <Circle
           v-else-if="session.status === 'connected'"
-          class="h-3.5 w-3.5 shrink-0 fill-current text-success"
+          class="h-2 w-2 shrink-0 fill-current text-success"
         />
         <Circle
           v-else
-          class="h-3.5 w-3.5 shrink-0 fill-current text-error"
+          class="h-2 w-2 shrink-0 fill-current text-error"
         />
 
         <div class="min-w-0 flex-1">
-          <div class="truncate text-sm text-text-primary">
+          <div class="truncate text-xs font-medium text-text-primary">
             {{ session.assetName }}
           </div>
         </div>
@@ -86,12 +86,12 @@ function formatDuration(timestamp: number) {
 
         <span
           v-if="session.id === activeSession?.id"
-          class="hidden rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent xl:inline-flex"
+          class="hidden text-[11px] text-accent xl:inline-flex"
         >
           {{ t("sessionsPane.current") }}
         </span>
 
-        <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <div class="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <button
             class="rounded-md p-1 text-text-secondary hover:bg-bg-primary hover:text-text-primary"
             :title="t('sessionsPane.closeOther')"

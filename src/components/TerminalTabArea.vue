@@ -155,14 +155,14 @@ defineExpose({
 <template>
   <div class="flex h-full w-full min-h-0 flex-col bg-bg-primary">
     <!-- Tab Headers -->
-    <div class="flex shrink-0 items-start border-b border-subtle bg-bg-secondary">
+    <div class="flex shrink-0 items-start border-b border-border-secondary bg-bg-elevated">
       <!-- Wrappable Tab Container -->
       <div class="flex min-w-0 flex-1 flex-wrap items-center min-h-8">
         <!-- Terminal Tab -->
         <button @click="activeTab = 'terminal'" :class="[
-          'flex items-center px-3 py-1 text-xs border-r border-subtle transition-all duration-normal whitespace-nowrap flex-shrink-0',
+          'flex items-center px-3 py-1 text-xs border-r border-border-secondary transition-colors duration-normal whitespace-nowrap flex-shrink-0',
           activeTab === 'terminal'
-            ? 'bg-bg-tertiary text-text-primary border-l border-l-primary'
+            ? 'bg-bg-secondary text-accent border-b border-b-accent'
             : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
         ]">
           <Terminal class="w-3 h-3 mr-1" />
@@ -180,9 +180,9 @@ defineExpose({
         @click="activateEditor(file.id)"
         @keydown="handleEditorTabKeydown($event, file.id)"
         :class="[
-            'group flex max-w-[200px] flex-shrink-0 items-center border-r border-subtle px-2 py-1 text-xs transition-all duration-normal whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary',
+            'group flex max-w-[200px] flex-shrink-0 items-center border-r border-border-secondary px-2 py-1 text-xs transition-all duration-normal whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-accent focus:ring-offset-0 focus:ring-offset-bg-secondary',
             activeTab === 'editor' && activeEditorId === file.id
-              ? 'bg-bg-tertiary text-text-primary border-l border-l-primary'
+              ? 'bg-bg-secondary text-accent border-b border-b-accent'
               : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
           ]" :title="file.path">
           <FileText class="w-3 h-3 mr-1 flex-shrink-0" />
@@ -196,7 +196,7 @@ defineExpose({
       </div>
 
       <!-- Close All Editors Button (on the right, aligned to last row) -->
-      <div v-if="editorFiles.length > 0" class="ml-auto shrink-0 border-l border-subtle">
+      <div v-if="editorFiles.length > 0" class="ml-auto shrink-0 border-l border-border-secondary">
         <button @click="closeAllEditors"
           class="px-2 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-all duration-normal"
           :title="t('terminalTabArea.closeAllEditors')">

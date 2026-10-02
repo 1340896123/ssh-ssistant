@@ -2346,9 +2346,9 @@ function formatSize(size: number): string {
 </script>
 
 <template>
-    <div ref="containerRef" tabindex="0" class="flex h-full min-h-0 min-w-0 flex-col bg-bg-primary p-2 text-text-primary outline-none" @click="handleContainerClick">
+    <div ref="containerRef" tabindex="0" class="file-manager flex h-full min-h-0 min-w-0 flex-col bg-bg-elevated p-3 text-text-primary outline-none" @click="handleContainerClick">
         <!-- Toolbar -->
-        <div class="mb-2 flex flex-col space-y-2 px-1 pb-2 border-b border-subtle">
+        <div class="mb-2 flex flex-col space-y-2 pb-3 border-b border-border-primary">
             <!-- Path Bar -->
             <div class="flex items-center space-x-2">
                 <button @click="goUp" class="p-1 hover:bg-bg-tertiary rounded text-text-secondary hover:text-primary transition-all duration-fast "
@@ -2358,7 +2358,7 @@ function formatSize(size: number): string {
                 <div class="flex-1 relative">
                     <input v-model="pathInput" @input="handlePathInput" @keydown="handlePathInputKeydown"
                         @blur="handlePathInputBlur"
-                        class="w-full bg-bg-primary border border-subtle rounded px-2 py-1 text-sm font-mono text-text-secondary focus:outline-none focus:border-primary focus: transition-all duration-fast"
+                        class="w-full bg-bg-primary border border-border-primary rounded-md px-2 py-1.5 text-xs font-mono text-text-primary focus:outline-none focus:border-accent transition-colors"
                         :placeholder="t('fileManager.toolbar.pathPlaceholder')" />
 
                     <!-- Suggestions List -->
@@ -2378,7 +2378,7 @@ function formatSize(size: number): string {
             </div>
 
             <!-- Action Buttons -->
-            <div class="flex items-center space-x-2 pt-1">
+            <div class="file-actions grid grid-cols-2 gap-2 pt-1">
                 <button @click="createFile"
                     class="flex items-center space-x-1 px-2 py-1 text-xs bg-bg-tertiary hover:bg-bg-hover rounded text-text-primary transition-all duration-fast "
                     :title="t('fileManager.toolbar.newFile')">
@@ -2391,16 +2391,15 @@ function formatSize(size: number): string {
                     <FolderPlus class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.newFolder') }}</span>
                 </button>
-                <div class="w-px h-4 bg-subtle mx-1"></div>
                 <button @click="handleUpload" data-testid="file-manager-upload-file"
-                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast "
+                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-text-on-accent transition-all duration-fast "
                     :title="t('fileManager.toolbar.uploadFile')">
                     <Upload class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.uploadFile') }}</span>
                 </button>
                 <!-- Upload Directory placeholder -->
                 <button @click="handleUploadDirectory" data-testid="file-manager-upload-directory"
-                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-white transition-all duration-fast "
+                    class="flex items-center space-x-1 px-2 py-1 text-xs bg-primary hover:bg-primary-hover rounded text-text-on-accent transition-all duration-fast "
                     :title="t('fileManager.toolbar.uploadDirectory')">
                     <FolderUp class="w-3 h-3" />
                     <span>{{ t('fileManager.toolbar.uploadDirectory') }}</span>
@@ -2409,12 +2408,12 @@ function formatSize(size: number): string {
         </div>
 
         <!-- File List -->
-        <div ref="fileListScrollRef" data-testid="file-manager-list" class="min-h-0 flex-1 overflow-y-auto border border-subtle rounded bg-bg-primary/80 backdrop-blur-sm"
+        <div ref="fileListScrollRef" data-testid="file-manager-list" class="min-h-0 flex-1 overflow-y-auto border border-border-secondary rounded-md bg-bg-primary"
             @scroll="handleFileListScroll"
             @dragover="handleNativeDragOver" @drop="handleNativeDrop" @contextmenu="handleContainerContextMenu">
             <!-- Header -->
             <div
-                class="flex items-center p-2 text-xs text-text-tertiary border-b border-subtle bg-bg-secondary/50 font-bold select-none">
+                class="file-list-header flex items-center p-2 text-xs text-text-tertiary border-b border-subtle bg-bg-secondary/50 font-medium select-none">
                 <div class="flex items-center px-2 cursor-pointer" :style="{ width: columnWidths.name + 'px' }"
                     @click="toggleSort('name')">
                     <span>{{ t('fileManager.headers.name') }}</span>

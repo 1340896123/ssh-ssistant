@@ -1275,7 +1275,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col bg-bg-primary text-text-primary">
+  <div class="flex h-full min-h-0 flex-col bg-bg-elevated text-text-primary">
     <!-- Header -->
     <div v-if="props.showHeader" class="flex flex-col bg-bg-secondary border-b border-subtle">
       <div class="flex items-center justify-between px-4 py-2">
@@ -1318,7 +1318,7 @@ onUnmounted(() => {
 
     <!-- Messages Area -->
     <div
-      class="shadow-interactive min-h-0 flex-1 overflow-y-auto p-4 space-y-4"
+      class="min-h-0 flex-1 overflow-y-auto p-4 space-y-4"
       ref="messagesContainer"
       @scroll="handleMessagesScroll"
     >
@@ -1346,7 +1346,7 @@ onUnmounted(() => {
           :class="msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''"
         >
           <div
-            class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold flex-shrink-0"
+            class="flex h-7 w-7 items-center justify-center rounded-md text-xs font-semibold flex-shrink-0"
             :class="
               msg.role === 'user'
                 ? 'bg-primary text-primary-foreground'
@@ -1358,11 +1358,11 @@ onUnmounted(() => {
           </div>
 
           <div
-            class="shadow-interactive rounded-lg p-3 text-sm bg-bg-elevated"
+            class="min-w-0 rounded-md p-3 text-sm leading-relaxed"
             :class="[
               msg.role === 'user'
-                ? 'max-w-[85%] border border-primary/30'
-                : 'max-w-[92%] border border-accent/30'
+                ? 'max-w-[85%] bg-accent-dim text-text-primary'
+                : 'max-w-[92%] bg-bg-elevated'
             ]"
           >
             <div
@@ -1556,7 +1556,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Input Area -->
-    <div class="shadow-interactive p-4 bg-bg-secondary border-t border-subtle">
+    <div class="p-4 bg-bg-secondary border-t border-subtle">
       <div class="w-full">
         <div class="flex flex-col space-y-2">
           <!-- Context Chips -->
@@ -1581,7 +1581,7 @@ onUnmounted(() => {
           <div class="flex items-end gap-2">
             <button
               @click="emit('refresh-context')"
-              class="btn-retro h-11 shrink-0 px-3 text-text-muted hover:text-primary"
+              class="btn-retro h-10 shrink-0 px-2.5 text-text-muted hover:text-primary"
               :title="t('aiAssistant.importTerminalContext')"
             >
               <ClipboardPlus class="w-4 h-4" />
@@ -1589,7 +1589,7 @@ onUnmounted(() => {
             <textarea
               v-model="input"
               @keydown.enter.exact.prevent="sendMessage"
-              class="input-retro min-h-[44px] max-h-[40vh] flex-1 resize-y px-4 py-3"
+              class="input-retro min-h-[40px] max-h-[40vh] flex-1 resize-y px-3 py-2"
               :placeholder="t('aiAssistant.inputPlaceholder')"
               rows="1"
               :disabled="isLoading"
@@ -1597,7 +1597,7 @@ onUnmounted(() => {
             <button
               @click="isLoading ? stopMessage() : sendMessage()"
               :disabled="!isLoading && !input.trim()"
-              class="btn-retro h-11 shrink-0 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="btn-retro h-10 shrink-0 px-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
               :class="{
                 'text-error hover:text-error hover:border-error': isLoading,
               }"
@@ -1609,7 +1609,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-if="!isLoading" class="mt-2 text-center text-[11px] text-text-muted opacity-60">
+      <div v-if="!isLoading" class="mt-2 text-center text-[11px] text-text-muted">
         {{ t("aiAssistant.warning") }}
       </div>
     </div>

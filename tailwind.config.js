@@ -1,3 +1,8 @@
+// Preserve opacity modifiers for semantic CSS colors (for example bg-accent/15).
+const themeColor = (name) => ({ opacityValue }) => opacityValue === undefined
+  ? `var(${name})`
+  : `color-mix(in srgb, var(${name}) calc(${opacityValue} * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -8,57 +13,63 @@ export default {
   theme: {
     extend: {
       colors: {
+        subtle: themeColor('--border-subtle'),
         // Minimalist theme colors
         primary: {
-          DEFAULT: 'var(--color-primary)',
-          light: 'var(--color-primary-light)',
-          dark: 'var(--color-primary-dark)',
-          dim: 'var(--color-primary-dim)',
+          DEFAULT: themeColor('--color-primary'),
+          light: themeColor('--color-primary-light'),
+          dark: themeColor('--color-primary-dark'),
+          dim: themeColor('--color-primary-dim'),
         },
+        'primary-foreground': themeColor('--text-on-primary'),
         accent: {
-          DEFAULT: 'var(--color-accent)',
-          light: 'var(--color-accent-light)',
-          dark: 'var(--color-accent-dark)',
+          DEFAULT: themeColor('--color-accent'),
+          light: themeColor('--color-accent-light'),
+          dark: themeColor('--color-accent-dark'),
+          dim: themeColor('--color-accent-dim'),
         },
         success: {
-          DEFAULT: 'var(--color-success)',
-          dim: 'var(--color-success-dim)',
+          DEFAULT: themeColor('--color-success'),
+          dim: themeColor('--color-success-dim'),
         },
         error: {
-          DEFAULT: 'var(--color-error)',
-          dim: 'var(--color-error-dim)',
+          DEFAULT: themeColor('--color-error'),
+          dim: themeColor('--color-error-dim'),
         },
         warning: {
-          DEFAULT: 'var(--color-warning)',
-          dim: 'var(--color-warning-dim)',
+          DEFAULT: themeColor('--color-warning'),
+          dim: themeColor('--color-warning-dim'),
         },
         info: {
-          DEFAULT: 'var(--color-info)',
-          dim: 'var(--color-info-dim)',
+          DEFAULT: themeColor('--color-info'),
+          dim: themeColor('--color-info-dim'),
         },
         // Background colors
         bg: {
-          base: 'var(--bg-base)',
-          primary: 'var(--bg-primary)',
-          secondary: 'var(--bg-secondary)',
-          tertiary: 'var(--bg-tertiary)',
-          elevated: 'var(--bg-elevated)',
-          overlay: 'var(--bg-overlay)',
+          base: themeColor('--bg-base'),
+          primary: themeColor('--bg-primary'),
+          secondary: themeColor('--bg-secondary'),
+          tertiary: themeColor('--bg-tertiary'),
+          elevated: themeColor('--bg-elevated'),
+          overlay: themeColor('--bg-overlay'),
         },
         // Text colors
         text: {
-          primary: 'var(--text-primary)',
-          secondary: 'var(--text-secondary)',
-          muted: 'var(--text-muted)',
-          disabled: 'var(--text-disabled)',
-          'on-primary': 'var(--text-on-primary)',
+          primary: themeColor('--text-primary'),
+          secondary: themeColor('--text-secondary'),
+          muted: themeColor('--text-muted'),
+          disabled: themeColor('--text-disabled'),
+          'on-primary': themeColor('--text-on-primary'),
+          'on-accent': themeColor('--text-on-accent'),
+          'on-success': themeColor('--text-on-success'),
+          'on-error': themeColor('--text-on-error'),
         },
         // Border colors
         border: {
-          primary: 'var(--border-primary)',
-          secondary: 'var(--border-secondary)',
-          accent: 'var(--border-accent)',
-          subtle: 'var(--border-subtle)',
+          primary: themeColor('--border-primary'),
+          secondary: themeColor('--border-secondary'),
+          accent: themeColor('--border-accent'),
+          subtle: themeColor('--border-subtle'),
         },
       },
       fontFamily: {

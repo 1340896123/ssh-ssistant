@@ -162,7 +162,7 @@ async function deleteTunnel(tunnel: Tunnel) {
         </select>
       </div>
       <div class="flex items-end">
-        <button @click="openManage()" data-testid="tunnel-panel-manage-selected" class="w-full px-3 py-2 bg-accent text-white rounded text-sm hover:bg-accent/80">
+        <button @click="openManage()" data-testid="tunnel-panel-manage-selected" class="w-full px-3 py-2 bg-accent text-text-on-accent rounded text-sm hover:bg-accent/80">
           {{ t('tunnels.manageSelectedAsset') }}
         </button>
       </div>

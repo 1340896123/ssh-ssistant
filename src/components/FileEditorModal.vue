@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { X, Save, Loader2 } from "lucide-vue-next";
 import { useNotificationStore } from "../stores/notifications";
 import { useI18n } from "../composables/useI18n";
+import { terminalTheme } from "../utils/terminalTheme";
 
 type MonacoModule = typeof import("../monaco/monaco-lite");
 type MonacoEditor = import("monaco-editor").editor.IStandaloneCodeEditor;
@@ -689,15 +690,31 @@ async function initEditor() {
   }
 
   try {
+    const palette = terminalTheme();
+    monaco.editor.defineTheme("graphite-console", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [],
+      colors: {
+        "editor.background": palette.background,
+        "editor.foreground": palette.foreground,
+        "editorCursor.foreground": palette.cursor,
+        "editor.selectionBackground": palette.selectionBackground,
+        "editorLineNumber.foreground": palette.brightBlack,
+        "editorLineNumber.activeForeground": palette.foreground,
+        "editorWidget.background": palette.background,
+        "editorWidget.border": palette.black,
+      },
+    });
     const createdEditor = monaco.editor.create(editorContainer.value, {
       value: "",
       language: "plaintext",
-      theme: "vs-dark",
+      theme: "graphite-console",
       automaticLayout: true,
       minimap: { enabled: true },
       scrollBeyondLastLine: false,
       fontSize: 14,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim(),
     });
     editor.value = createdEditor;
     syncCodexTestApi();
@@ -887,14 +904,14 @@ defineExpose({
 <template>
   <div v-if="show" class="flex h-full w-full min-h-0 flex-col bg-bg-primary text-text-primary" data-testid="file-editor-root">
     <!-- Header -->
-    <div class="h-12 border-b border-border-primary flex items-center justify-between px-4 bg-bg-secondary flex-shrink-0" data-testid="file-editor-header">
-      <div class="flex items-center space-x-4">
+    <div class="min-h-12 border-b border-border-primary flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-bg-elevated flex-shrink-0" data-testid="file-editor-header">
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
         <span class="font-bold text-sm text-text-primary" data-testid="file-editor-name">{{ fileName }}</span>
         <span v-if="isDirty" class="text-xs text-warning italic" data-testid="file-editor-dirty">({{ t('fileEditor.modified') }})</span>
         <span v-if="isLanguageSupportLoading" class="text-xs text-text-muted" data-testid="file-editor-syntax-loading">
           Loading syntax...
         </span>
-        <span class="text-xs text-text-muted" data-testid="file-editor-path">{{ filePath }}</span>
+        <span class="max-w-[18rem] truncate font-mono text-xs text-text-muted" :title="filePath" data-testid="file-editor-path">{{ filePath }}</span>
       </div>
       <div class="flex items-center space-x-2">
         <!-- Language Selector -->
@@ -905,7 +922,7 @@ defineExpose({
           </option>
         </select>
         <button @click="saveFile" :disabled="isSaving || !isDirty" data-testid="file-editor-save"
-          class="flex items-center px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-white">
+          class="flex items-center px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-text-on-accent">
           <Loader2 v-if="isSaving" class="w-4 h-4 mr-2 animate-spin" />
           <Save v-else class="w-4 h-4 mr-2" />
           {{ t('fileEditor.save') }}
@@ -942,7 +959,7 @@ defineExpose({
             {{ t('fileEditor.unsaved.cancel') }}
           </button>
           <button @click="saveAndClose" :disabled="isSaving" data-testid="file-editor-confirm-save-close"
-            class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors flex items-center text-white">
+            class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors flex items-center text-text-on-accent">
             <Loader2 v-if="isSaving" class="w-4 h-4 mr-2 animate-spin" />
             {{ t('fileEditor.unsaved.saveAndClose') }}
           </button>

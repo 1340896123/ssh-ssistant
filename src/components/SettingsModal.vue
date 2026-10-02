@@ -501,7 +501,7 @@ const tabs = [
             <button v-for="tab in tabs" :key="tab.id" :data-testid="`settings-tab-${tab.id}`" @click="activeTab = tab.id" :class="[
               'px-3 py-2 text-sm font-medium whitespace-nowrap rounded transition-all-fast',
               activeTab === tab.id
-                ? 'bg-accent text-text-primary'
+                ? 'bg-accent-dim text-accent'
                 : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
             ]">
               {{ t(tab.label) }}
@@ -540,7 +540,7 @@ const tabs = [
                 <div>
                   <p class="text-sm text-text-secondary mb-2">{{ t('settings.clearCacheDesc') }}</p>
                   <button @click="clearCache"
-                    class="px-4 py-2 text-sm bg-error hover:bg-error/80 text-text-primary rounded transition-colors-fast">
+                    class="px-4 py-2 text-sm bg-error hover:bg-error/80 text-text-on-error rounded transition-colors-fast">
                     {{ t('settings.clearCache') }}
                   </button>
                 </div>
@@ -787,7 +787,7 @@ const tabs = [
                         {{ t('settings.cancel') }}
                       </button>
                       <button type="button" @click="saveAiEndpoint"
-                        class="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-accent hover:bg-accent/80 text-text-primary rounded transition-colors-fast">
+                        class="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-accent hover:bg-accent/80 text-text-on-accent rounded transition-colors-fast">
                         <Check class="h-4 w-4" />
                         {{ t('settings.saveChanges') }}
                       </button>
@@ -913,7 +913,7 @@ const tabs = [
                 <div v-if="form.account.mode !== 'local'" class="space-y-3 rounded border border-border-primary bg-bg-tertiary/50 p-4">
                   <div class="flex flex-wrap gap-3">
                     <button
-                      class="px-4 py-2 text-sm bg-success hover:bg-success/80 text-text-primary rounded disabled:opacity-50"
+                      class="px-4 py-2 text-sm bg-success hover:bg-success/80 text-text-on-success rounded disabled:opacity-50"
                       :disabled="isCloudSyncing"
                       @click="syncSettingsNow"
                     >
@@ -1214,7 +1214,7 @@ const tabs = [
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-lg font-semibold text-primary">{{ t('settings.sshKeys') }}</h3>
               <button @click="showAddKeyForm = true"
-                class="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-accent/80 text-text-primary rounded text-sm">
+                class="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-accent/80 text-text-on-accent rounded text-sm">
                 <Plus class="w-4 h-4" /> {{ t('settings.addKey') }}
               </button>
             </div>
@@ -1255,7 +1255,7 @@ const tabs = [
                   <button @click="showAddKeyForm = false"
                     class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">{{ t('settings.cancel') }}</button>
                   <button @click="addKey"
-                    class="px-3 py-1.5 text-sm bg-success hover:bg-success/80 text-text-primary rounded">{{ t('settings.importKey') }}</button>
+                    class="px-3 py-1.5 text-sm bg-success hover:bg-success/80 text-text-on-success rounded">{{ t('settings.importKey') }}</button>
                 </div>
               </div>
 
@@ -1285,7 +1285,7 @@ const tabs = [
                   <button @click="showAddKeyForm = false"
                     class="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">{{ t('settings.cancel') }}</button>
                   <button @click="generateKey" :disabled="isGenerating"
-                    class="px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded disabled:opacity-50 flex items-center gap-2">
+                    class="px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 text-text-on-accent rounded disabled:opacity-50 flex items-center gap-2">
                     <div v-if="isGenerating"
                       class="w-3 h-3 border-2 border-bg-primary border-t-transparent rounded-full animate-spin"></div>
                     {{ t('settings.generateAndSave') }}
@@ -1333,7 +1333,7 @@ const tabs = [
           <button @click="$emit('close')"
             class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded">{{ t('settings.cancel')
             }}</button>
-          <button @click="save" data-testid="settings-save-button" class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-primary rounded">{{
+          <button @click="save" data-testid="settings-save-button" class="px-4 py-2 text-sm bg-accent hover:bg-accent/80 text-text-on-accent rounded">{{
             t('settings.saveChanges') }}</button>
         </div>
       </div>

@@ -38,6 +38,7 @@ import {
   RefreshCw,
   Rows3,
   Settings,
+  TerminalSquare,
 } from "lucide-vue-next";
 
 type ActivityId = "connections" | "tunnels" | "sessions";
@@ -146,8 +147,8 @@ const RESOURCE_PANE_MIN = 260;
 const RESOURCE_PANE_MAX = 420;
 const CONTEXT_PANE_MIN = 320;
 const CONTEXT_PANE_MAX = 520;
-const DEFAULT_RESOURCE_PANE_WIDTH = 300;
-const DEFAULT_CONTEXT_PANE_WIDTH = 380;
+const DEFAULT_RESOURCE_PANE_WIDTH = 280;
+const DEFAULT_CONTEXT_PANE_WIDTH = 340;
 const RESOURCE_DRAWER_BREAKPOINT = 1280;
 const CONTEXT_DRAWER_BREAKPOINT = 980;
 const DEFAULT_WINDOW_WIDTH = 1440;
@@ -1281,22 +1282,22 @@ onUnmounted(() => {
     @authenticated="handleAuthenticated"
   />
 
-  <div v-else class="h-screen w-screen overflow-hidden bg-bg-primary text-text-primary">
+  <div v-else class="workbench h-screen w-screen overflow-hidden bg-bg-primary text-text-primary">
     <div ref="shellViewportRef" class="flex h-full w-full min-w-0 overflow-hidden">
       <aside
-        class="flex h-full w-14 shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
+        class="activity-rail flex h-full shrink-0 flex-col border-r border-border-primary bg-bg-secondary"
       >
-        <div class="flex h-14 items-center justify-center border-b border-border-primary">
+        <div class="flex h-11 items-center justify-center border-b border-border-primary">
           <div
-            class="flex h-9 w-9 items-center justify-center rounded-xl border border-border-primary bg-bg-elevated text-sm font-semibold text-text-primary"
+            class="flex h-8 w-8 items-center justify-center text-accent"
           >
-            SS
+            <TerminalSquare class="h-5 w-5" />
           </div>
         </div>
 
         <div class="flex flex-1 flex-col items-center gap-2 px-2 py-3">
           <button
-            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
+            class="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
             :class="
               activeActivity === 'connections'
                 ? 'bg-accent/15 text-accent'
@@ -1308,7 +1309,7 @@ onUnmounted(() => {
             <Monitor class="h-[18px] w-[18px]" />
           </button>
           <button
-            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
+            class="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
             :class="
               activeActivity === 'tunnels'
                 ? 'bg-accent/15 text-accent'
@@ -1320,7 +1321,7 @@ onUnmounted(() => {
             <Cable class="h-[18px] w-[18px]" />
           </button>
           <button
-            class="flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
+            class="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
             :class="
               activeActivity === 'sessions'
                 ? 'bg-accent/15 text-accent'
@@ -1336,7 +1337,7 @@ onUnmounted(() => {
         <div class="flex flex-col items-center gap-2 border-t border-border-primary px-2 py-3">
           <button
             data-testid="app-settings-button"
-            class="flex h-10 w-10 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary"
+            class="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary"
             :title="t('app.settings')"
             @click="showSettingsModal = true"
           >
@@ -1361,7 +1362,7 @@ onUnmounted(() => {
         >
           <div
             v-if="activeActivity !== 'sessions'"
-            class="flex h-14 items-center justify-between border-b border-border-primary px-4"
+            class="workbench-pane-heading flex items-center justify-between border-b border-border-primary px-4"
           >
             <div>
               <div class="text-sm font-semibold text-text-primary">
@@ -1406,7 +1407,7 @@ onUnmounted(() => {
         ></div>
 
         <main class="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-primary">
-          <div class="flex h-10 items-center justify-between border-b border-border-primary px-3">
+          <div class="workbench-toolbar flex min-h-10 flex-wrap items-center justify-between gap-y-1 border-b border-border-primary bg-bg-elevated px-3 py-1">
             <div class="flex items-center gap-2">
               <button
                 class="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-bg-secondary hover:text-text-primary"
@@ -1478,7 +1479,7 @@ onUnmounted(() => {
                 <span>{{ t("workbench.openConnections") }}</span>
               </button>
               <button
-                class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-90"
+                class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs text-text-on-accent transition-opacity hover:opacity-90"
                 @click="openNewConnectionModal"
               >
                 <Plus class="h-3.5 w-3.5" />
@@ -1511,18 +1512,19 @@ onUnmounted(() => {
             </template>
 
             <div v-else class="flex h-full items-center justify-center px-6">
-              <div class="w-full max-w-xl rounded-2xl border border-border-primary bg-bg-secondary px-8 py-10 text-center">
-                <div class="text-2xl font-semibold text-text-primary">
+              <div class="workbench-welcome w-full max-w-lg px-6 py-10 text-center">
+                <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg border border-border-primary bg-bg-elevated text-accent"><TerminalSquare class="h-6 w-6" /></div>
+                <div class="text-xl font-semibold text-text-primary">
                   {{ t("workbench.welcomeTitle") }}
                 </div>
                 <div class="mt-3 text-sm text-text-secondary">
                   {{ t("workbench.welcomeDescription") }}
                 </div>
                 <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-text-secondary">
-                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+1 {{ t("workbench.focusMode") }}</span>
-                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+2 {{ t("workbench.showContextPane") }}</span>
-                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+3 AI</span>
-                  <span class="rounded-full border border-border-primary px-2.5 py-1">Alt+4 Files</span>
+                  <span class="rounded border border-border-secondary px-2.5 py-1">Alt+1 {{ t("workbench.focusMode") }}</span>
+                  <span class="rounded border border-border-secondary px-2.5 py-1">Alt+2 {{ t("workbench.showContextPane") }}</span>
+                  <span class="rounded border border-border-secondary px-2.5 py-1">Alt+3 AI</span>
+                  <span class="rounded border border-border-secondary px-2.5 py-1">Alt+4 Files</span>
                 </div>
                 <div class="mt-8 flex items-center justify-center">
                   <button class="btn btn-primary" @click="openNewConnectionModal">
@@ -1537,13 +1539,13 @@ onUnmounted(() => {
             <div class="flex h-full min-w-max items-center gap-3 px-3 text-xs text-text-secondary">
               <!-- Group: Account (stable identity) -->
               <div class="flex shrink-0 items-center gap-2">
-                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                <span class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5">
                   {{ activeAccountSummary.displayName }} · {{ activeAccountSummary.mode }}
                 </span>
-                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                <span class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5">
                   {{ activeAccountSummary.identity }} · {{ activeAccountSummary.scope }}
                 </span>
-                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                <span class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5">
                   {{ activeAccountSummary.subscription }} · {{ activeAccountSummary.endpoint }}
                 </span>
               </div>
@@ -1553,7 +1555,7 @@ onUnmounted(() => {
               <!-- Group: Session (dynamic session state) -->
               <div class="flex shrink-0 items-center gap-2">
                 <span
-                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5 text-text-primary"
+                  class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5 text-text-primary"
                 >
                   {{
                     activeSession
@@ -1566,14 +1568,14 @@ onUnmounted(() => {
                 </span>
                 <span
                   v-if="activeSession?.currentPath"
-                  class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  class="max-w-[18rem] shrink-0 truncate rounded border border-border-secondary px-2 py-0.5"
                   :title="activeSession.currentPath"
                 >
                   {{ activeSession.currentPath }}
                 </span>
                 <span
                   v-if="activeSelection.count > 0"
-                  class="max-w-[18rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  class="max-w-[18rem] shrink-0 truncate rounded border border-border-secondary px-2 py-0.5"
                   :title="
                     activeSelection.targetLabel
                       ? `${t('workbench.statusSelection', {
@@ -1591,12 +1593,12 @@ onUnmounted(() => {
                   }}
                   <span v-if="activeSelection.targetLabel"> · {{ activeSelection.targetLabel }}</span>
                 </span>
-                <span class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5">
+                <span class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5">
                   {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
                 </span>
                 <span
                   v-if="activeTransferSummary.total > 0"
-                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                  class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5"
                 >
                   {{
                     t("workbench.statusTransfers", {
@@ -1613,7 +1615,7 @@ onUnmounted(() => {
               <div class="flex shrink-0 items-center gap-2">
                 <span
                   v-if="activeAssetRisk"
-                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                  class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5"
                   :class="
                     activeAssetRisk === 'critical'
                       ? 'text-error'
@@ -1626,26 +1628,26 @@ onUnmounted(() => {
                 </span>
                 <span
                   v-if="activeAssetHealth"
-                  class="max-w-[12rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  class="max-w-[12rem] shrink-0 truncate rounded border border-border-secondary px-2 py-0.5"
                   :title="activeAssetHealth"
                 >
                   {{ activeAssetHealth }}
                 </span>
                 <span
                   v-if="activeSession && sessionStatus[activeSession.id]?.uptime"
-                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                  class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5"
                 >
                   {{ sessionStatus[activeSession.id].uptime }}
                 </span>
                 <span
                   v-if="activeSession && sessionStatus[activeSession.id]?.disk?.percent"
-                  class="shrink-0 whitespace-nowrap rounded-full border border-border-primary px-2 py-0.5"
+                  class="shrink-0 whitespace-nowrap rounded border border-border-secondary px-2 py-0.5"
                 >
                   Disk {{ sessionStatus[activeSession.id].disk?.percent }}
                 </span>
                 <span
                   v-if="activeSession && sessionStatus[activeSession.id]?.ip"
-                  class="max-w-[10rem] shrink-0 truncate rounded-full border border-border-primary px-2 py-0.5"
+                  class="max-w-[10rem] shrink-0 truncate rounded border border-border-secondary px-2 py-0.5"
                   :title="sessionStatus[activeSession.id].ip"
                 >
                   {{ sessionStatus[activeSession.id].ip }}
@@ -1687,17 +1689,17 @@ onUnmounted(() => {
                   </span>
                   <span
                     v-if="activeAssetRisk"
-                    class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5"
+                    class="rounded border border-border-secondary bg-bg-primary px-2 py-0.5"
                   >
                     Risk {{ activeAssetRisk }}
                   </span>
                   <span
                     v-if="activeWorkspace"
-                    class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5"
+                    class="rounded border border-border-secondary bg-bg-primary px-2 py-0.5"
                   >
                     {{ activeWorkspace.name }}
                   </span>
-                  <span class="rounded-full border border-border-primary bg-bg-primary px-2 py-0.5">
+                  <span class="rounded border border-border-secondary bg-bg-primary px-2 py-0.5">
                     {{ t("workbench.statusContext", { count: activeAiContextCount }) }}
                   </span>
                 </div>
@@ -1713,14 +1715,14 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="flex h-11 items-center gap-2 border-b border-border-primary px-3">
+          <div class="flex h-10 items-stretch border-b border-border-primary bg-bg-elevated px-3">
             <button
               data-testid="context-tab-ai"
-              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              class="context-tab flex-1 border-b-2 px-3 py-2 text-xs transition-colors disabled:opacity-50"
               :class="
                 activeContextTab === 'ai'
-                  ? 'bg-bg-elevated text-text-primary'
-                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-text-secondary hover:bg-bg-primary hover:text-text-primary'
               "
               :disabled="!activeSession"
               @click="setContextTab('ai')"
@@ -1732,11 +1734,11 @@ onUnmounted(() => {
             </button>
             <button
               data-testid="context-tab-files"
-              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              class="context-tab flex-1 border-b-2 px-3 py-2 text-xs transition-colors disabled:opacity-50"
               :class="
                 activeContextTab === 'files'
-                  ? 'bg-bg-elevated text-text-primary'
-                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-text-secondary hover:bg-bg-primary hover:text-text-primary'
               "
               :disabled="!activeSession"
               @click="setContextTab('files')"
@@ -1817,7 +1819,7 @@ onUnmounted(() => {
         >
           <div
             v-if="activeActivity !== 'sessions'"
-            class="flex h-14 items-center justify-between border-b border-border-primary px-4"
+            class="workbench-pane-heading flex items-center justify-between border-b border-border-primary px-4"
           >
             <div>
               <div class="text-sm font-semibold text-text-primary">
@@ -1900,14 +1902,14 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="flex h-11 items-center gap-2 border-b border-border-primary px-3">
+          <div class="flex h-10 items-stretch border-b border-border-primary bg-bg-elevated px-3">
             <button
               data-testid="drawer-context-tab-ai"
-              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              class="context-tab flex-1 border-b-2 px-3 py-2 text-xs transition-colors disabled:opacity-50"
               :class="
                 activeContextTab === 'ai'
-                  ? 'bg-bg-elevated text-text-primary'
-                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-text-secondary hover:bg-bg-primary hover:text-text-primary'
               "
               :disabled="!activeSession"
               @click="setContextTab('ai')"
@@ -1916,11 +1918,11 @@ onUnmounted(() => {
             </button>
             <button
               data-testid="drawer-context-tab-files"
-              class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+              class="context-tab flex-1 border-b-2 px-3 py-2 text-xs transition-colors disabled:opacity-50"
               :class="
                 activeContextTab === 'files'
-                  ? 'bg-bg-elevated text-text-primary'
-                  : 'text-text-secondary hover:bg-bg-primary hover:text-text-primary'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-text-secondary hover:bg-bg-primary hover:text-text-primary'
               "
               :disabled="!activeSession"
               @click="setContextTab('files')"

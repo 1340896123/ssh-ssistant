@@ -7,6 +7,11 @@ import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/brows
 import { ILanguageService } from "monaco-editor/esm/vs/editor/common/languages/language.js";
 import { PLAINTEXT_LANGUAGE_ID } from "monaco-editor/esm/vs/editor/common/languages/modesRegistry.js";
 import { IModelService } from "monaco-editor/esm/vs/editor/common/services/model.js";
+import { IStandaloneThemeService } from "monaco-editor/esm/vs/editor/standalone/common/standaloneTheme.js";
+
+export function defineTheme(themeName, themeData) {
+  StandaloneServices.get(IStandaloneThemeService).defineTheme(themeName, themeData);
+}
 
 export function create(domElement, options, override) {
   const instantiationService = StandaloneServices.initialize(override || {});

@@ -1,11 +1,13 @@
 import {
   create,
+  defineTheme,
   createModel,
   setModelLanguage,
 } from "../shims/monaco-standalone-editor-lite.js";
 
 export const editor = {
   create,
+  defineTheme,
   createModel,
   setModelLanguage,
 };

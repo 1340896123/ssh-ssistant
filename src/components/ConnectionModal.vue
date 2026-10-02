@@ -596,7 +596,7 @@ function save() {
             {{ t('common.cancel') }}
           </button>
           <button
-            class="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/80"
+            class="rounded bg-accent px-4 py-2 text-sm text-text-on-accent hover:bg-accent/80"
             data-testid="connection-modal-save"
             @click="save"
           >

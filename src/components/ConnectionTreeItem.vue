@@ -4,6 +4,7 @@ import { Monitor, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2,
 import type { Connection, ConnectionGroup } from '../types';
 import { useI18n } from '../composables/useI18n';
 import { useAssetStore } from '../stores/assets';
+import { useSessionStore } from '../stores/sessions';
 // import draggable from 'vuedraggable'; // Removed
 
 const props = defineProps<{
@@ -15,9 +16,11 @@ const emit = defineEmits(['connect', 'edit', 'delete', 'create-group', 'edit-gro
 
 const { t } = useI18n();
 const assetStore = useAssetStore();
+const sessionStore = useSessionStore();
 const isExpanded = ref(false);
 
 const isGroup = computed(() => 'children' in props.item || 'parentId' in props.item);
+const isActive = computed(() => !isGroup.value && sessionStore.activeSession?.assetId === (props.item as Connection).id);
 const paddingLeft = computed(() => `${props.level * 16 + 8}px`);
 
 const children = computed(() => (props.item as ConnectionGroup).children || []);
@@ -150,8 +153,8 @@ function toggleFavorite() {
 
 <template>
     <div :draggable="true" @dragstart.stop="onDragStart" @dragend="onDragEnd" :class="{ 'opacity-50': isDragging }">
-        <div class="group shadow-interactive flex items-center justify-between p-2 hover:bg-bg-tertiary rounded cursor-pointer select-none transition-colors duration-200"
-            :class="{ 'bg-accent/20 border border-accent': isDragOver, 'border-2 border-dashed border-accent': isDragOver && isGroup }"
+        <div class="connection-tree-row group flex min-h-8 items-center justify-between px-2 py-1.5 hover:bg-bg-tertiary rounded-md cursor-pointer select-none transition-colors duration-200"
+            :class="{ 'connection-tree-row-active': isActive, 'bg-accent/20 border border-accent': isDragOver, 'border-2 border-dashed border-accent': isDragOver && isGroup }"
             :style="{ paddingLeft }" @click="toggleExpand" @dblclick="handleConnect" @dragover="onDragOver"
             @dragleave="onDragLeave" @drop="onDrop" @contextmenu.stop.prevent="handleContextMenu">
             <div class="flex items-center space-x-2 overflow-hidden flex-1">
@@ -160,21 +163,21 @@ function toggleFavorite() {
                         <ChevronDown v-if="isExpanded" class="w-3 h-3" />
                         <ChevronRight v-else class="w-3 h-3" />
                     </button>
-                    <FolderOpen v-if="isExpanded" class="w-4 h-4 text-warning" />
-                    <Folder v-else class="w-4 h-4 text-warning" />
+                    <FolderOpen v-if="isExpanded" class="w-4 h-4 text-text-secondary" />
+                    <Folder v-else class="w-4 h-4 text-text-secondary" />
                 </template>
                 <template v-else>
                     <span class="w-4"></span> <!-- Spacer for alignment -->
                     <Terminal v-if="isWsl" class="w-4 h-4 text-accent" />
-                    <Monitor v-else class="w-4 h-4 text-info" />
+                    <Monitor v-else class="w-4 h-4 text-accent" />
                 </template>
                 <div class="min-w-0 flex items-center gap-2">
-                    <span class="text-sm text-text-primary truncate" :title="item.name">{{ item.name }}</span>
+                    <span class="text-[13px] truncate" :class="isActive ? 'text-accent' : 'text-text-primary'" :title="item.name">{{ item.name }}</span>
                     <Star v-if="isFavorite" class="w-3.5 h-3.5 text-warning fill-current shrink-0" />
                 </div>
             </div>
 
-            <div class="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="flex items-center opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 <button v-if="!isGroup" @click.stop="toggleFavorite"
                     class="p-1 text-text-muted hover:text-warning cursor-pointer mr-1" :title="t(isFavorite ? 'connections.contextMenu.unfavorite' : 'connections.contextMenu.favorite')">
                     <Star class="w-3 h-3" :class="isFavorite ? 'fill-current text-warning' : ''" />
@@ -212,14 +215,20 @@ function toggleFavorite() {
 </template>
 
 <style scoped>
+.connection-tree-row-active,
+.connection-tree-row-active:hover {
+    background: var(--selection-bg);
+    box-shadow: inset 2px 0 var(--color-accent);
+}
+
 .ghost {
     opacity: 0.5;
-    background: #374151;
-    border: 1px dashed #6b7280;
+    background: var(--selection-bg);
+    border: 1px dashed var(--border-accent);
 }
 
 .drag {
     opacity: 1;
-    background: #1f2937;
+    background: var(--bg-elevated);
 }
 </style>
